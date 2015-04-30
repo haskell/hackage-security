@@ -1,0 +1,80 @@
+name:                hackage-security
+version:             0.1.0.0
+synopsis:            Hackage security library
+-- description:
+license:             BSD3
+license-file:        LICENSE
+author:              Edsko de Vries
+maintainer:          edsko@well-typed.com
+copyright:           Copyright 2015 Well-Typed LLP
+category:            Distribution
+build-type:          Simple
+cabal-version:       >=1.10
+
+flag base46
+  description: Are we using base 4.6 or higher?
+  manual: False
+
+library
+  exposed-modules:     Hackage.Security.Base64
+                       Hackage.Security.FileType.Common
+                       Hackage.Security.FileType.Root
+                       Hackage.Security.FileType.Snapshot
+                       Hackage.Security.FileType.Timestamp
+                       Hackage.Security.JSON
+                       Hackage.Security.Key
+                       Hackage.Security.Signed
+  other-modules:       Prelude
+                       Text.JSON.Canonical
+  -- We support ghc 7.2 and up
+  -- Upper bounds deliberately omitted during development
+  build-depends:       base              >= 4.4,
+                       base64-bytestring >= 1.0,
+                       bytestring        >= 0.9,
+                       containers        >= 0.4,
+                       ed25519           >= 0.0,
+                       mtl               >= 2.2,
+                       parsec            >= 3.1,
+                       SHA               >= 1.6,
+                       time              >= 1.2
+  hs-source-dirs:      src
+  default-language:    Haskell2010
+  default-extensions:  FlexibleContexts
+                       FlexibleInstances
+                       GADTs
+                       GeneralizedNewtypeDeriving
+                       KindSignatures
+                       RecordWildCards
+                       ScopedTypeVariables
+                       StandaloneDeriving
+                       TupleSections
+  other-extensions:    CPP
+                       OverlappingInstances
+                       PackageImports
+  -- TODO: We should get rid of the -fno-warn-deprecated-flags here
+  ghc-options:         -Wall -fno-warn-deprecated-flags
+
+  if flag(base46)
+    build-depends: base >= 4.6
+  else
+    build-depends: old-locale >= 1.0
+
+  if impl(ghc >= 7.8)
+     default-extensions: RoleAnnotations
+
+executable prototype
+  main-is:             Main.hs
+  build-depends:       base                 >= 4.4,
+                       bytestring           >= 0.9,
+                       containers           >= 0.4,
+                       directory            >= 1.1,
+                       filepath             >= 1.2,
+                       optparse-applicative >= 0.11,
+                       time                 >= 1.2,
+                       hackage-security
+  hs-source-dirs:      prototype
+  default-language:    Haskell2010
+  default-extensions:  RecordWildCards
+                       ScopedTypeVariables
+  other-extensions:    CPP                       
+  ghc-options:         -Wall
