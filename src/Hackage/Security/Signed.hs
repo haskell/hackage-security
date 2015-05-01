@@ -93,17 +93,16 @@ instance FromJSON a => FromJSON (Signed a) where
       -- Signature verification
       --
       -- NOTES:
-      -- 1. Technically we are verifying the signatures against the JSON as
-      --    parsed and then pretty-printed, as opposed to the original JSON.
-      --    However, since this round-trip should be an identity this is OK
-      --    (provided the JSON is well-formed. If it's not we'll get a syntax
-      --    error instead of a key validation error, but that's also OK.)
-      --    However, since we check the signature against the raw JSValue
-      --    (as opposed to the translation from that JSValue to type @a@),
-      --    we do not rely on any roundtripping properties of the translation
-      --    in ToJSON/FromJSON.
-      --
-      -- 2. We verify that all signatures are valid, but we cannot verify (here)
+      -- 1. By definition, the signature must be verified against the canonical
+      --    JSON format. This means we _must_ parse and then pretty print (as
+      --    we do here) because the document as stored may or may not be in
+      --    canonical format.
+      -- 2. However, it is important that we NOT translate from the JSValue
+      --    to whatever internal datatype we are using and then back to JSValue,
+      --    because that may not roundtrip: we must allow for additional fields
+      --    in the JSValue that we ignore (and would therefore lose when we
+      --    attempt to roundtrip).
+      -- 3. We verify that all signatures are valid, but we cannot verify (here)
       --    that these signatures are signed with the right key, or that we
       --    have a sufficient number of signatures. This will be the
       --    responsibility of the calling code.

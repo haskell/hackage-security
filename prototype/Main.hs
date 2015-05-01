@@ -137,8 +137,21 @@ cmdCheck opts = do
     unless clientHasRootJson $ bootstrapClient opts
 
     -- Read the root JSON, and get timestamp from the server
-    -- TODO: One thing that isn't entirely clear to me right now is how we
-    -- deal with timestamp key rotation.
+    --
+    -- TODO: When verification fails, we need to get new root metadata from the
+    -- server, and try again. In this case we will not be able to verify the
+    -- cached timestamp and snapshot data, so we will need to erase them and
+    -- start afresh.
+    --
+    -- NOTE: When an attacker who gains control over the server sets the
+    -- "version" field at maximum, clients will subsequently reject all updates
+    -- because the version number cannot increase anymore. When we do start
+    -- afresh (as above), this problem is resolved because we start from a
+    -- clean slate.
+    --
+    -- TODO: Although the version number is allowed to stay the same, we should
+    -- probably verify that _if_ it does stay the same _then_ the snapshot
+    -- timestamp should also stay the same?
     (root, keyEnv) <- readJSON keyEnvEmpty pathClientRoot
     (oldTS, _) <- readJSON keyEnv pathClientTime
     (newTS, _) <- readJSON keyEnv pathServerTime
@@ -147,6 +160,10 @@ cmdCheck opts = do
     let tsRole = roleTimestamp (unsign root)
     unless (verifyTimestamp now tsRole oldTS newTS) $
       throwIO $ userError "Timestamp file tampered with!"
+
+    -- TODO: We should make a type level distinction between "the signatures
+    -- have been verified" (Signed) and "they have been verified against a
+    -- particular role" (Verified).
 
     -- Check for updates
     if snapshotHash (unsign newTS) == snapshotHash (unsign oldTS)

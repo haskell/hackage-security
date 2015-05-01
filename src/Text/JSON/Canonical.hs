@@ -84,8 +84,8 @@ s_object ((k0,v0):kvs0)   = showChar '{' . s_string k0
 
 ------------------------------------------------------------------------------
 
-parseCanonicalJSON :: BS.ByteString -> Maybe JSValue
-parseCanonicalJSON = either (const Nothing) Just
+parseCanonicalJSON :: BS.ByteString -> Either String JSValue
+parseCanonicalJSON = either (Left . show) Right
                    . parse p_value ""
                    . BS.unpack
 

@@ -50,12 +50,12 @@ import Text.JSON.Canonical
 data DeserializationError =
     -- | Malformed JSON has syntax errors in the JSON itself
     -- (i.e., we cannot even parse it to a JSValue)
-    DeserializationErrorMalformed
+    DeserializationErrorMalformed String
 
     -- | Invalid JSON has valid syntax but invalid structure
     --
     -- The string gives a hint about what we expected instead
-  | DeserializationErrorInvalid String
+  | DeserializationErrorSchema String
 
     -- | The JSON file contains a key ID of an unknown key
   | DeserializationErrorUnknownKey KeyId
@@ -103,7 +103,7 @@ lookupKey kId = do
       Nothing  -> throwError $ DeserializationErrorUnknownKey kId
 
 expected :: String -> ReadJSON a
-expected str = throwError $ DeserializationErrorInvalid $ "Expected " ++ str
+expected str = throwError $ DeserializationErrorSchema $ "Expected " ++ str
 
 validate :: String -> Bool -> ReadJSON ()
 validate _   True  = return ()
@@ -197,8 +197,8 @@ parseJSON :: FromJSON a
           -> (Either DeserializationError a, KeyEnv)
 parseJSON env bs =
     case parseCanonicalJSON bs of
-      Nothing  -> (Left DeserializationErrorMalformed, env)
-      Just val -> runReadJSON env (fromJSON val)
+      Left  err -> (Left (DeserializationErrorMalformed err), env)
+      Right val -> runReadJSON env (fromJSON val)
 
 {-------------------------------------------------------------------------------
   Utility
