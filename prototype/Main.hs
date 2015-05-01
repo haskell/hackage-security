@@ -14,13 +14,15 @@ import qualified Data.ByteString.Lazy.Char8 as BS.L.C8
 import Control.Applicative
 #endif
 
-import Hackage.Security.Key
 import Hackage.Security.JSON
-import Hackage.Security.Signed
-import Hackage.Security.FileType.Root
-import Hackage.Security.FileType.Snapshot
-import Hackage.Security.FileType.Common
-import Hackage.Security.FileType.Timestamp
+import Hackage.Security.Key
+import Hackage.Security.TUF.Ints
+import Hackage.Security.TUF.Root
+import Hackage.Security.TUF.Signed
+import Hackage.Security.TUF.Snapshot
+import Hackage.Security.TUF.Targets
+import Hackage.Security.TUF.Timestamp
+import qualified Hackage.Security.TUF.FileMap as FileMap
 
 import Prototype.Options
 
@@ -66,13 +68,13 @@ cmdBootstrap opts = do
         snapshot = Snapshot {
             snapshotVersion = Version 1
           , snapshotExpires = addUTCTime (3 * oneDay) now
-          , snapshotMeta    = emptyMetaFiles
+          , snapshotMeta    = FileMap.empty
           }
         timestamp = Timestamp {
             timestampVersion = Version 1
           , timestampExpires = addUTCTime (3 * oneDay) now
-          , timestampMeta    = MetaFiles . Map.fromList $ [
-                ("snapshot.json", jsonMetaInfo signedSnapshot)
+          , timestampMeta    = FileMap.fromList [
+                ("snapshot.json", FileMap.fileInfoJSON signedSnapshot)
               ]
           }
         signedRoot      = withSignatures (map Some rootKeys) root
@@ -157,7 +159,7 @@ cmdCheck opts = do
     (newTS, _) <- readJSON keyEnv pathServerTime
 
     -- Verify the timestamp file
-    let tsRole = roleTimestamp (unsign root)
+    let tsRole = roleTimestamp (signed root)
     unless (verifyTimestamp now tsRole oldTS newTS) $
       throwIO $ userError "Timestamp file tampered with!"
 
@@ -166,7 +168,7 @@ cmdCheck opts = do
     -- particular role" (Verified).
 
     -- Check for updates
-    if snapshotHash (unsign newTS) == snapshotHash (unsign oldTS)
+    if snapshotHash (signed newTS) == snapshotHash (signed oldTS)
       then
         putStrLn "No updates"
       else
@@ -193,8 +195,8 @@ verifyTimestamp now tsRole oldTS newTS
   | otherwise = True
   where
     oldTS', newTS' :: Timestamp
-    oldTS' = unsign oldTS
-    newTS' = unsign newTS
+    oldTS' = signed oldTS
+    newTS' = signed newTS
 
 bootstrapClient :: Options -> IO ()
 bootstrapClient opts = do
@@ -220,7 +222,7 @@ cmdUpload pkg opts = do
 
     -- Read root metadata
     (root, keyEnv) <- readJSON keyEnvEmpty pathRoot
-    let root'          = unsign root
+    let root'          = signed root
         snapshotKeys'  = roleSpecKeys (roleSnapshot  root')
         timestampKeys' = roleSpecKeys (roleTimestamp root')
 
@@ -230,28 +232,28 @@ cmdUpload pkg opts = do
 
     -- Construct the "target"
     let targetContents = BS.L.C8.pack pkg -- Fake package contents
-        targetMetaInfo = metaInfo targetContents
+        targetMetaInfo = FileMap.fileInfo targetContents
         targetPath     = mkPath opts Server ("targets" </> pkg)
 
     -- Create new snapshot
     (oldSnapshot, _) <- readJSON keyEnv pathSnapshot
-    let oldSnapshot' = unsign oldSnapshot
+    let oldSnapshot' = signed oldSnapshot
         newSnapshot' = Snapshot {
             snapshotVersion = incrementVersion (snapshotVersion oldSnapshot')
           , snapshotExpires = addUTCTime (3 * oneDay) now
-          , snapshotMeta    = insertMetaFile targetPath targetMetaInfo
+          , snapshotMeta    = FileMap.insert targetPath targetMetaInfo
                                 (snapshotMeta oldSnapshot')
           }
         newSnapshot  = withSignatures snapshotKeys newSnapshot'
 
     -- Create new timestamp
     (oldTimestamp, _) <- readJSON keyEnv pathTimestamp
-    let oldTimestamp' = unsign oldTimestamp
+    let oldTimestamp' = signed oldTimestamp
         newTimestamp' = Timestamp {
             timestampVersion = incrementVersion (timestampVersion oldTimestamp')
           , timestampExpires = addUTCTime (3 * oneDay) now
-          , timestampMeta    = MetaFiles . Map.fromList $ [
-                ("snapshot.json", jsonMetaInfo newSnapshot)
+          , timestampMeta    = FileMap.fromList [
+                ("snapshot.json", FileMap.fileInfoJSON newSnapshot)
               ]
           }
         newTimestamp  = withSignatures timestampKeys newTimestamp'

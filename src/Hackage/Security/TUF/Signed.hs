@@ -3,10 +3,10 @@
 -- Note that in the spec there is explicit sharing of keys through key IDs;
 -- we translate this to implicit sharing in our Haskell datatypes, with the
 -- translation done in the JSON serialization/deserialization.
-module Hackage.Security.Signed (
+module Hackage.Security.TUF.Signed (
     Signed(..)
   , Signature(..)
-  , unsigned
+  , signeded
   , withSignatures
   , addSignature
   , verifySignature
@@ -21,7 +21,7 @@ import qualified Hackage.Security.Base64 as B64
 import Text.JSON.Canonical
 
 data Signed a = Signed {
-    unsign     :: a
+    signed     :: a
   , signatures :: [Signature]
   }
 
@@ -31,11 +31,11 @@ data Signature = Signature {
   }
 
 -- | Create a new document without any signatures
-unsigned :: a -> Signed a
-unsigned a = Signed { unsign = a, signatures = [] }
+signeded :: a -> Signed a
+signeded a = Signed { signed = a, signatures = [] }
 
 withSignatures :: ToJSON a => [Some Key] -> a -> Signed a
-withSignatures []                = unsigned
+withSignatures []                = signeded
 withSignatures (Some key : keys) = addSignature key . withSignatures keys
 
 -- | Add a new signature to a signed document
@@ -43,7 +43,7 @@ addSignature :: ToJSON a => Key typ -> Signed a -> Signed a
 addSignature key doc = doc { signatures = newSignature : signatures doc }
   where
     newSignature = Signature {
-        signature    = sign (privateKey key) . fst . renderJSON $ unsign doc
+        signature    = sign (privateKey key) . fst . renderJSON $ signed doc
       , signatureKey = Some $ publicKey key
       }
 
@@ -53,10 +53,10 @@ verifySignature inp Signature{signature = sig, signatureKey = Some pub} =
 
 instance ToJSON a => ToJSON (Signed a) where
   toJSON Signed{..} = do
-     unsign'     <- toJSON unsign
+     signed'     <- toJSON signed
      signatures' <- toJSON signatures
      return $ JSObject [
-         ("signed"     , unsign')
+         ("signed"     , signed')
        , ("signatures" , signatures')
        ]
 
@@ -84,10 +84,10 @@ instance FromJSON Signature where
 
 instance FromJSON a => FromJSON (Signed a) where
   fromJSON enc = do
-      unsign'    <- fromJSField enc "signed"
+      signed'    <- fromJSField enc "signed"
       -- Important that we fully decode signed' first in the case that it
       -- contains a key dictionary (which we might need to resolve signatures)
-      unsign     <- fromJSON unsign'
+      signed     <- fromJSON signed'
       signatures <- fromJSField enc "signatures"
 
       -- Signature verification
@@ -107,6 +107,6 @@ instance FromJSON a => FromJSON (Signed a) where
       --    have a sufficient number of signatures. This will be the
       --    responsibility of the calling code.
       validate "signatures" $
-        all (verifySignature (renderCanonicalJSON unsign')) signatures
+        all (verifySignature (renderCanonicalJSON signed')) signatures
 
       return Signed{..}

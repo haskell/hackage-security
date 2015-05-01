@@ -1,4 +1,4 @@
-module Hackage.Security.FileType.Timestamp (
+module Hackage.Security.TUF.Timestamp (
     Timestamp(..)
     -- * Utility
   , snapshotHash
@@ -7,8 +7,10 @@ module Hackage.Security.FileType.Timestamp (
 import Data.Time
 import qualified Data.Map as Map
 
-import Hackage.Security.FileType.Common
 import Hackage.Security.JSON
+import Hackage.Security.TUF.FileMap (FileMap, FileInfo(..), HashFn(..))
+import Hackage.Security.TUF.Ints
+import qualified Hackage.Security.TUF.FileMap as FileMap
 
 {-------------------------------------------------------------------------------
   Datatypes
@@ -17,7 +19,7 @@ import Hackage.Security.JSON
 data Timestamp = Timestamp {
     timestampVersion :: Version
   , timestampExpires :: UTCTime
-  , timestampMeta    :: MetaFiles
+  , timestampMeta    :: FileMap
   }
 
 {-------------------------------------------------------------------------------
@@ -30,9 +32,9 @@ data Timestamp = Timestamp {
 -- impossible.
 snapshotHash :: Timestamp -> String
 snapshotHash Timestamp{..} =
-    metaInfoHashes Map.! HashFnSHA256
+    fileInfoHashes Map.! HashFnSHA256
   where
-    Just MetaInfo{..} = lookupMetaFile "snapshot.json" timestampMeta
+    Just FileInfo{..} = FileMap.lookup "snapshot.json" timestampMeta
 
 {-------------------------------------------------------------------------------
   JSON

@@ -1,12 +1,12 @@
-module Hackage.Security.FileType.Snapshot (
+module Hackage.Security.TUF.Snapshot (
     Snapshot(..)
-  , MetaInfo(..)
   ) where
 
 import Data.Time
 
-import Hackage.Security.FileType.Common
 import Hackage.Security.JSON
+import Hackage.Security.TUF.FileMap (FileMap)
+import Hackage.Security.TUF.Ints
 
 {-------------------------------------------------------------------------------
   Datatypes
@@ -15,7 +15,7 @@ import Hackage.Security.JSON
 data Snapshot = Snapshot {
     snapshotVersion :: Version
   , snapshotExpires :: UTCTime
-  , snapshotMeta    :: MetaFiles
+  , snapshotMeta    :: FileMap
   }
 
 instance ToJSON Snapshot where

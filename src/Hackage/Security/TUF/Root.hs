@@ -1,5 +1,5 @@
 -- | The root filetype
-module Hackage.Security.FileType.Root (
+module Hackage.Security.TUF.Root (
     -- * Datatypes
     Role(..)
   , Root(..)
@@ -15,10 +15,10 @@ import Data.Time
 import Data.Map (Map)
 import qualified Data.Map as Map
 
-import Hackage.Security.Key
 import Hackage.Security.JSON
-import Hackage.Security.FileType.Common
-import Hackage.Security.Signed
+import Hackage.Security.Key
+import Hackage.Security.TUF.Ints
+import Hackage.Security.TUF.Signed
 
 {-------------------------------------------------------------------------------
   Datatypes
