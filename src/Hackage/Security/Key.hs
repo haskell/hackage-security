@@ -31,6 +31,8 @@ module Hackage.Security.Key (
   , verify
   ) where
 
+import Control.Monad.Except
+import Control.Monad.State
 import Data.Digest.Pure.SHA
 import Data.Map (Map)
 import qualified Crypto.Sign.Ed25519  as Ed25519
@@ -203,6 +205,20 @@ sign (PrivateKeyEd25519 pri) =
 verify :: PublicKey typ -> BS.L.ByteString -> BS.ByteString -> Bool
 verify (PublicKeyEd25519 pub) inp sig =
     Ed25519.verify' pub (BS.concat $ BS.L.toChunks inp) (Ed25519.Signature sig)
+
+{-------------------------------------------------------------------------------
+  JSON auxiliary
+-------------------------------------------------------------------------------}
+
+recordKey :: MonadState KeyEnv m => Some PublicKey -> m ()
+recordKey key = modify $ keyEnvInsert key
+
+lookupKey :: KeyId -> ReadJSON (Some PublicKey)
+lookupKey kId = do
+    env <- get
+    case keyEnvLookup kId env of
+      Just key -> return key
+      Nothing  -> throwError $ DeserializationErrorUnknownKey kId
 
 {-------------------------------------------------------------------------------
   JSON encoding and decoding

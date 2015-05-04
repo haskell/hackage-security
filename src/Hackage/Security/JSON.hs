@@ -5,11 +5,10 @@ module Hackage.Security.JSON (
     -- ** Writing
     WriteJSON
   , getAccumulatedKeys
-  , recordKey
     -- ** Reading
   , ReadJSON
+  , DeserializationError(..)
   , expected
-  , lookupKey
   , validate
     -- * Type classes
   , ToJSON(..)
@@ -91,16 +90,6 @@ runReadJSON env act = runState (runExceptT (unReadJSON act)) env
 
 getAccumulatedKeys :: MonadState KeyEnv m => m KeyEnv
 getAccumulatedKeys = get
-
-recordKey :: MonadState KeyEnv m => Some PublicKey -> m ()
-recordKey key = modify $ keyEnvInsert key
-
-lookupKey :: KeyId -> ReadJSON (Some PublicKey)
-lookupKey kId = do
-    env <- ReadJSON get
-    case keyEnvLookup kId env of
-      Just key -> return key
-      Nothing  -> throwError $ DeserializationErrorUnknownKey kId
 
 expected :: String -> ReadJSON a
 expected str = throwError $ DeserializationErrorSchema $ "Expected " ++ str
