@@ -1,28 +1,34 @@
 module Hackage.Security.TUF.Targets (
+    -- * TUF types
     Targets(..)
   , DelegationSpec(..)
   , Delegation(..)
-  , PathPattern(..)
     -- * Utility
-  , match
+  , matchDelegation
   ) where
 
 import Control.Monad.Except
 import Data.Time
-import Data.List (elemIndices)
 import System.FilePath
 
+import Hackage.Security.JSON
 import Hackage.Security.Key
 import Hackage.Security.Some
-import Hackage.Security.TUF.FileMap (FileMap)
 import Hackage.Security.TUF.Ints
+import Hackage.Security.TUF.FileMap (FileMap)
+
+{-------------------------------------------------------------------------------
+  TUF types
+-------------------------------------------------------------------------------}
 
 data Targets = Targets {
-    targetsVersion    :: Version
-  , targetsExpires    :: UTCTime
-  , targets           :: FileMap
-  , targetDelegations :: [DelegationSpec]
+    targetsVersion     :: Version
+  , targetsExpires     :: UTCTime
+  , targets            :: FileMap
+  , targetsDelegations :: Delegations
   }
+
+newtype Delegations = Delegations [DelegationSpec]
 
 -- | Delegation specification
 --
@@ -30,18 +36,25 @@ data Targets = Targets {
 data DelegationSpec = DelegationSpec {
     delegationSpecKeys      :: [Some PublicKey]
   , delegationSpecThreshold :: KeyThreshold
-  , delegations             :: Delegation
+  , delegation              :: Delegation
   }
 
 -- | A delegation
 --
 -- See 'match' for an example.
-data Delegation = forall a. Delegation (PathPattern a) a
+data Delegation = forall a. Delegation (Pattern a) (Replacement a)
+
+deriving instance Show Delegation
 
 {-------------------------------------------------------------------------------
-  Path patterns
+  Patterns and replacements
 -------------------------------------------------------------------------------}
 
+data h :- t = h :- t
+  deriving (Eq, Show)
+infixr 5 :-
+
+type FileName  = String
 type Directory = String
 type Extension = String
 type BaseName  = String
@@ -49,151 +62,295 @@ type BaseName  = String
 -- | Structured patterns over paths
 --
 -- The type argument indicates what kind of function we expect when the
--- pattern matches. For example, we have
+-- pattern matches. For example, we have the pattern @"*/*.txt"@:
 --
 -- > PathPatternDirAny (PathPatternFileExt ".txt")
--- >   :: PathPattern (Directory -> BaseName -> String)
---
--- when this pattern (which we might render as @"*/*.txt"@) we expect a function
--- that takes a directory (matching against the first wildcard) and a basename
--- (matching against the second wildcard) as arguments.
-data PathPattern a where
+-- >   :: PathPattern (Directory :- BaseName :- ())
+data Pattern a where
     -- | Match against a specific filename
-    PathPatternFileConst :: String -> PathPattern String
+    PatFileConst :: FileName -> Pattern ()
 
     -- | Match against a filename with the given extension
-    PathPatternFileExt :: Extension -> PathPattern (BaseName -> String)
+    PatFileExt :: Extension -> Pattern (BaseName :- ())
 
     -- | Match against a specific directory
-    PathPatternDirConst :: String -> PathPattern a -> PathPattern a
+    PatDirConst :: Directory -> Pattern a -> Pattern a
 
     -- | Match against any directory
-    PathPatternDirAny :: PathPattern a -> PathPattern (Directory -> a)
+    PatDirAny :: Pattern a -> Pattern (Directory :- a)
 
-renderPathPattern :: PathPattern a -> String
-renderPathPattern (PathPatternFileConst f)   = f
-renderPathPattern (PathPatternFileExt   e)   = "*" <.> e
-renderPathPattern (PathPatternDirConst  d p) = d   </> renderPathPattern p
-renderPathPattern (PathPatternDirAny      p) = "*" </> renderPathPattern p
+-- | Replacement patterns
+--
+-- These constructors match the ones in 'Pattern': wildcards must be used
+-- in the same order as they appear in the pattern, but they don't all have to
+-- be used (that's why the base constructors are polymorphic in the stack tail).
+data Replacement a where
+    RepFileConst :: FileName -> Replacement a
+    RepFileExt   :: Extension -> Replacement (BaseName :- a)
+    RepDirConst  :: Directory -> Replacement a -> Replacement a
+    RepDirAny    :: Replacement a -> Replacement (Directory :- a)
 
--- | Match a path pattern against a path
---
--- For example, given a pattern and replacement given by
---
--- > case parseDelegation "targets/*/*/*.cabal" "(*, *, *)" of
--- >   Delegation patt repl -> ...
---
--- we get that
---
--- > match "targets/Foo/1.0/Foo-1.0.cabal" patt repl
---
--- evaluates to
---
--- > Just "(Foo, 1.0, Foo-1.0)"
-match :: String -> PathPattern a -> a -> Maybe String
-match = go . splitDirectories
-  where
-    go :: [String] -> PathPattern a -> a -> Maybe String
-    go [f] (PathPatternFileConst f') r = do
-      guard (f == f')
-      return r
-    go [f] (PathPatternFileExt e') r = do
-      let (bn, _:e) = splitExtension f
-      guard (e == e')
-      return $ r bn
-    go (d:p) (PathPatternDirConst d' p') r = do
-      guard (d == d')
-      go p p' r
-    go (d:p) (PathPatternDirAny p') r =
-      go p p' $ r d
-    go _ _ _ =
-      Nothing
+deriving instance Eq   (Pattern typ)
+deriving instance Show (Pattern typ)
+
+deriving instance Eq   (Replacement typ)
+deriving instance Ord  (Replacement typ)
+deriving instance Show (Replacement typ)
+
+-- Somewhat tricky to define (must either skip inaccessible patterns, but then
+-- add an error case, or else use wildcards to cover these cases)
+instance Ord (Pattern typ) where
+    a `compare` b =
+      case (a, b) of
+        (PatFileConst f   , PatFileConst f'   ) -> f `compare` f'
+        (PatFileConst _   , _                 ) -> LT
+
+        (PatFileExt   e   , PatFileExt   e'   ) -> e `compare` e'
+        (PatFileExt   _   , PatDirConst  _ _  ) -> LT
+        (PatFileExt   _   , PatDirAny      _  ) -> LT
+        (PatFileExt   _   , _                 ) -> GT -- case for PatFileConst
+
+        (PatDirConst  _ _ , PatFileConst _    ) -> GT
+        (PatDirConst  _ _ , PatFileExt   _    ) -> GT
+        (PatDirConst  c p , PatDirConst  c' p') -> (c, p) `compare` (c', p')
+        (PatDirConst  _ _ , _                 ) -> LT
+
+        (PatDirAny      p , PatDirAny       p') -> compare p p'
+        (PatDirAny      _ , _                 ) -> GT
 
 {-------------------------------------------------------------------------------
-  Parsing patterns
+  Matching
 -------------------------------------------------------------------------------}
 
-data SomePattern = forall a. SomePattern (PathPattern a)
+matchPattern :: String -> Pattern a -> Maybe a
+matchPattern = go . splitDirectories
+  where
+    go :: [String] -> Pattern a -> Maybe a
+    go []    _                    = Nothing
+    go [f]   (PatFileConst f')    = do guard (f == f')
+                                       return ()
+    go [f]   (PatFileExt   e')    = do let (bn, _:e) = splitExtension f
+                                       guard $ e == e'
+                                       return (bn :- ())
+    go [_]   _                    = Nothing
+    go (d:p) (PatDirConst  d' p') = do guard (d == d')
+                                       go p p'
+    go (d:p) (PatDirAny       p') = (d :-) <$> go p p'
+    go (_:_) _                    = Nothing
 
-parsePattern :: String -> Except String SomePattern
+constructReplacement :: Replacement a -> a -> String
+constructReplacement = \repl a -> joinPath $ go repl a
+  where
+    go :: Replacement a -> a -> [String]
+    go (RepFileConst c)   _         = [c]
+    go (RepFileExt   e)   (bn :- _) = [bn <.> e]
+    go (RepDirConst  d p) a         = d : go p a
+    go (RepDirAny      p) (d  :- a) = d : go p a
+
+matchDelegation :: Delegation -> String -> Maybe String
+matchDelegation (Delegation pat repl) str =
+    constructReplacement repl <$> matchPattern str pat
+
+{-------------------------------------------------------------------------------
+  Typechecking patterns and replacements
+-------------------------------------------------------------------------------}
+
+data PatternType a where
+  PatTypeNil       :: PatternType ()
+  PatTypeBaseName  :: PatternType a -> PatternType (BaseName  :- a)
+  PatTypeDirectory :: PatternType a -> PatternType (Directory :- a)
+
+instance Unify PatternType where
+  unify PatTypeNil           PatTypeNil            = Just Refl
+  unify (PatTypeBaseName  p) (PatTypeBaseName  p') = case unify p p' of
+                                                       Just Refl -> Just Refl
+                                                       Nothing   -> Nothing
+  unify (PatTypeDirectory p) (PatTypeDirectory p') = case unify p p' of
+                                                       Just Refl -> Just Refl
+                                                       Nothing   -> Nothing
+  unify _                    _                     = Nothing
+
+type instance TypeOf Pattern     = PatternType
+type instance TypeOf Replacement = PatternType
+
+instance Typed Pattern where
+  typeOf (PatFileConst _)   = PatTypeNil
+  typeOf (PatFileExt   _)   = PatTypeBaseName PatTypeNil
+  typeOf (PatDirConst  _ p) = typeOf p
+  typeOf (PatDirAny      p) = PatTypeDirectory (typeOf p)
+
+instance AsType Replacement where
+  asType = go
+    where
+      go :: Replacement typ -> PatternType typ' -> Maybe (Replacement typ')
+      go (RepFileConst c)   _                     = return $ RepFileConst c
+      go (RepFileExt   e)   (PatTypeBaseName _)   = return $ RepFileExt e
+      go (RepFileExt   _)   _                     = Nothing
+      go (RepDirConst  c p) tp                    = RepDirConst c <$> go p tp
+      go (RepDirAny      p) (PatTypeDirectory tp) = RepDirAny     <$> go p tp
+      go (RepDirAny      _) _                     = Nothing
+
+{-------------------------------------------------------------------------------
+  Pretty-printing and parsing patterns and replacements
+-------------------------------------------------------------------------------}
+
+prettyPattern :: Pattern typ -> String
+prettyPattern (PatFileConst f)   = f
+prettyPattern (PatFileExt   e)   = "*" <.> e
+prettyPattern (PatDirConst  d p) = d   </> prettyPattern p
+prettyPattern (PatDirAny      p) = "*" </> prettyPattern p
+
+prettyReplacement :: Replacement typ -> String
+prettyReplacement (RepFileConst f)   = f
+prettyReplacement (RepFileExt   e)   = "*" <.> e
+prettyReplacement (RepDirConst  d p) = d   </> prettyReplacement p
+prettyReplacement (RepDirAny      p) = "*" </> prettyReplacement p
+
+parsePattern :: String -> Except String (Some Pattern)
 parsePattern = go . splitDirectories
   where
-    go :: [String] -> Except String SomePattern
+    go :: [String] -> Except String (Some Pattern)
     go [] =
       throwError "Empty pattern"
     go [p] =
       if '*' `notElem` p
-        then return . SomePattern $ PathPatternFileConst p
+        then return . Some $ PatFileConst p
         else case splitExtension p of
-               ("*", _:ext) ->
-                 return . SomePattern $ PathPatternFileExt ext
-               _otherwise ->
-                 throwError "Invalid file pattern"
+               ("*", _:ext) -> return . Some $ PatFileExt ext
+               _otherwise   -> throwError "Invalid file pattern"
     go (p:ps) = do
-      SomePattern p' <- go ps
+      Some p' <- go ps
       if '*' `notElem` p
-        then return . SomePattern $ PathPatternDirConst p p'
+        then return . Some $ PatDirConst p p'
         else case p of
-               "*" ->
-                 return . SomePattern $ PathPatternDirAny p'
-               _otherwise ->
-                 throwError "Invalid directory pattern"
+               "*"        -> return . Some $ PatDirAny p'
+               _otherwise -> throwError "Invalid directory pattern"
 
-parseReplacement :: String -> SomePattern -> Except String Delegation
-parseReplacement repl' (SomePattern p) = do
-    f <- go 0 p
-    return $ Delegation p (f repl')
+parseReplacement :: String -> Except String (Some Replacement)
+parseReplacement = go . splitDirectories
   where
-    go :: Int -> PathPattern a -> Except String (String -> a)
-    go numWildcards (PathPatternFileConst _) = do
-      checkWildcards numWildcards repl'
-      return $ \repl -> repl
-    go numWildcards (PathPatternFileExt _) = do
-      checkWildcards (numWildcards + 1) repl'
-      return $ \repl bn -> replaceWildcard bn repl
-    go numWildcards (PathPatternDirConst _ p') = do
-      go numWildcards p'
-    go numWildcards (PathPatternDirAny p') = do
-      f <- go (numWildcards + 1) p'
-      return $ \repl dir -> f (replaceWildcard dir repl)
-
-    replaceWildcard :: String -> String -> String
-    replaceWildcard repl str =
-      case break (== '*') str of
-        (before, _:after) -> before ++ repl ++ after
-        _otherwise        -> str
-
-    checkWildcards :: Int -> String -> Except String ()
-    checkWildcards numWildcards repl =
-      unless (count '*' repl <= numWildcards) $
-        throwError $ "Too many wildcards in replacement "
-                  ++ show repl'
-                  ++ " for pattern "
-                  ++ show (renderPathPattern p)
-
-    count :: Eq a => a -> [a] -> Int
-    count x = length . elemIndices x
+    go :: [String] -> Except String (Some Replacement)
+    go [] =
+      throwError "Empty replacement"
+    go [p] =
+      if '*' `notElem` p
+        then return . Some $ RepFileConst p
+        else case splitExtension p of
+               ("*", _:ext) -> return . Some $ RepFileExt ext
+               _otherwise   -> throwError "Invalid file pattern"
+    go (p:ps) = do
+      Some p' <- go ps
+      if '*' `notElem` p
+        then return . Some $ RepDirConst p p'
+        else case p of
+               "*"        -> return . Some $ RepDirAny p'
+               _otherwise -> throwError "Invalid directory pattern"
 
 parseDelegation :: String -> String -> Either String Delegation
-parseDelegation patt repl = runExcept $
-    parseReplacement repl =<< parsePattern patt
+parseDelegation = \pat repl -> runExcept $ go pat repl
+  where
+    go :: String -> String -> Except String Delegation
+    go pat repl = do
+      Some pat'  <- parsePattern pat
+      Some repl' <- parseReplacement repl
+      case repl' `asType` typeOf pat' of
+        Just repl'' -> return $ Delegation pat' repl''
+        Nothing     -> throwError "Replacement does not match pattern type"
 
 {-------------------------------------------------------------------------------
-  Examples
+  JSON
+-------------------------------------------------------------------------------}
+
+instance ToJSON (Pattern typ) where
+  toJSON = return . JSString . prettyPattern
+instance ToJSON (Replacement typ) where
+  toJSON = return . JSString . prettyReplacement
+
+instance ToJSON DelegationSpec where
+  toJSON DelegationSpec{delegation = Delegation path name, ..} = do
+    delegationName'          <- toJSON name
+    delegationSpecKeys'      <- mapM writeKeyAsId delegationSpecKeys
+    delegationSpecThreshold' <- toJSON delegationSpecThreshold
+    delegationPath'          <- toJSON path
+    return $ JSObject [
+        ("name"      , delegationName')
+      , ("keyids"    , JSArray delegationSpecKeys')
+      , ("threshold" , delegationSpecThreshold')
+      , ("path"      , delegationPath')
+      ]
+
+instance FromJSON DelegationSpec where
+  fromJSON enc = do
+    delegationName          <- fromJSField enc "name"
+    delegationSpecKeys      <- mapM readKeyAsId =<< fromJSField enc "keyids"
+    delegationSpecThreshold <- fromJSField enc "threshold"
+    delegationPath          <- fromJSField enc "path"
+    case parseDelegation delegationName delegationPath of
+      Left  err        -> throwError $ DeserializationErrorSchema err
+      Right delegation -> return DelegationSpec{..}
+
+instance ToJSON Delegations where
+  toJSON (Delegations roles) = do
+    roles' <- toJSON roles
+    return $ JSObject [
+        ("keys"  , undefined) -- TODO
+      , ("roles" , roles')
+      ]
+
+instance FromJSON Delegations where
+  fromJSON enc = do
+    -- TODO: keys
+    roles <- fromJSField enc "roles"
+    return $ Delegations roles
+
+instance ToJSON Targets where
+  toJSON Targets{..} = do
+    targetsVersion'     <- toJSON targetsVersion
+    targetsExpires'     <- toJSON targetsExpires
+    targets'            <- toJSON targets
+    targetsDelegations' <- toJSON targetsDelegations
+    return $ JSObject [
+        ("_type"       , JSString "Targets")
+      , ("version"     , targetsVersion')
+      , ("expires"     , targetsExpires')
+      , ("targets"     , targets')
+      , ("delegations" , targetsDelegations')
+      ]
+
+instance FromJSON Targets where
+  fromJSON enc = do
+    -- TODO: verify _type
+    -- TODO: keys
+    targetsVersion     <- fromJSField enc "version"
+    targetsExpires     <- fromJSField enc "expires"
+    targets            <- fromJSField enc "targets"
+    targetsDelegations <- fromJSField enc "delegations"
+    return Targets{..}
+
+{-------------------------------------------------------------------------------
+  Debugging: examples
 -------------------------------------------------------------------------------}
 
 _ex1 :: Maybe String
-_ex1 = match "targets/Foo/1.0/Foo-1.0.cabal"
-             (PathPatternDirConst "targets" $
-              PathPatternDirAny $
-              PathPatternDirAny $
-              PathPatternFileExt "cabal")
-             (\pkg version name -> show (pkg, version, name))
+_ex1 = matchDelegation del "A/x/y/z.foo"
+  where
+    del = Delegation
+            ( PatDirConst "A"
+            $ PatDirAny
+            $ PatDirAny
+            $ PatFileExt "foo"
+            )
+            ( RepDirConst "B"
+            $ RepDirAny
+            $ RepDirConst "C"
+            $ RepDirAny
+            $ RepFileExt "bar"
+            )
 
 _ex2 :: Maybe String
-_ex2 =
-   case parseDelegation "targets/*/*/*.cabal" "(*, *, *)" of
-     Right (Delegation patt repl) ->
-       match "targets/Foo/1.0/Foo-1.0.cabal" patt repl
-     Left err ->
-       error err
+_ex2 = matchDelegation del "A/x/y/z.foo"
+  where
+    Right del = parseDelegation "A/*/*/*.foo" "B/*/C/*/*.bar"
+
+_ex3 :: Either String Delegation
+_ex3 = parseDelegation "foo" "*/bar"

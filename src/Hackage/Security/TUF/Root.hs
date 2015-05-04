@@ -33,21 +33,6 @@ data Role =
   | RoleMirrors
   deriving (Eq, Ord)
 
-instance ToObjectKey Role where
-  toObjectKey RoleRoot      = "root"
-  toObjectKey RoleSnapshot  = "snapshot"
-  toObjectKey RoleTargets   = "targets"
-  toObjectKey RoleTimestamp = "timestamp"
-  toObjectKey RoleMirrors   = "mirrors"
-
-instance FromObjectKey Role where
-  fromObjectKey "root"      = return RoleRoot
-  fromObjectKey "snapshot"  = return RoleSnapshot
-  fromObjectKey "targets"   = return RoleTargets
-  fromObjectKey "timestamp" = return RoleTimestamp
-  fromObjectKey "mirrors"   = return RoleMirrors
-  fromObjectKey _otherwise  = expected "valid role"
-
 data Root = Root {
     rootVersion :: Version
   , rootExpires :: UTCTime
@@ -88,6 +73,21 @@ verifyThreshold RoleSpec{roleSpecThreshold = KeyThreshold threshold, ..} sigs =
 {-------------------------------------------------------------------------------
   JSON encoding
 -------------------------------------------------------------------------------}
+
+instance ToObjectKey Role where
+  toObjectKey RoleRoot      = "root"
+  toObjectKey RoleSnapshot  = "snapshot"
+  toObjectKey RoleTargets   = "targets"
+  toObjectKey RoleTimestamp = "timestamp"
+  toObjectKey RoleMirrors   = "mirrors"
+
+instance FromObjectKey Role where
+  fromObjectKey "root"      = return RoleRoot
+  fromObjectKey "snapshot"  = return RoleSnapshot
+  fromObjectKey "targets"   = return RoleTargets
+  fromObjectKey "timestamp" = return RoleTimestamp
+  fromObjectKey "mirrors"   = return RoleMirrors
+  fromObjectKey _otherwise  = expected "valid role"
 
 instance ToJSON Root where
   toJSON Root{..} = do
