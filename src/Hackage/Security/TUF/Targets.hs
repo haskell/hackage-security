@@ -45,6 +45,17 @@ type Directory = String
 type Extension = String
 type BaseName  = String
 
+-- | Structured patterns over paths
+--
+-- The type argument indicates what kind of function we expect when the
+-- pattern matches. For example, we have
+--
+-- > PathPatternDirAny (PathPatternFileExt ".txt")
+-- >   :: PathPattern (Directory -> BaseName -> String)
+--
+-- when this pattern (which we might render as @"*/*.txt"@) we expect a function
+-- that takes a directory (matching against the first wildcard) and a basename
+-- (matching against the second wildcard) as arguments.
 data PathPattern a where
     -- | Match against a specific filename
     PathPatternFileConst :: String -> PathPattern String
