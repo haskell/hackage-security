@@ -6,8 +6,9 @@ This is a library for Hackage security based on
 ## Comparison with TUF
 
 In this section we highlight some of the differences in the specifics of the
-implementation; generally we try to follow the TUF model as precisely as
+implementation; generally we try to follow the TUF model as closely as
 possible.
+
 This section is not (currently) intended to be complete.
 
 ### Targets
@@ -41,8 +42,9 @@ revisions of the Cabal file:
     , "version" : VERSION
     , "expires" : EXPIRES
     , "targets" : {
-          "Foo-1.0-rev1.cabal"  : FILEINFO
-        , "Foo-1.0-rev2.cabal"  : FILEINFO
+          "Foo-1.0-rev1.cabal" : FILEINFO
+        , "Foo-1.0-rev2.cabal" : FILEINFO
+        , ...
        }
 , "signatures" : <signatures from package maintainers or trustees>
 }
@@ -50,38 +52,45 @@ revisions of the Cabal file:
 
 This file is either signed by the package authors or by the Hackage trustees.
 
+The expiry date for packages can probably be set to "never"; expiry dates are
+there to ensure that clients don't get older versions of the files than are
+available, but this is not applicable to immutable files (such as packages).
+
 #### Packages
 
 For each package we record a single `targets.json` in `Foo/targets.json` with
 delegation information:
 
 ```
-{ signed : {
+{ "signed" : {
       "_type"       : "Targets"
     , "version"     : VERSION
     , "expires"     : EXPIRES
     , "targets"     : {}
     , "delegations" : {
           "keys"  : <package maintainer keys>
-        , "roles" : [{
-               "name"      : "*/targets.json"
-             , "keyids"    : <package maintainer key IDs>
-             , "threshold" : THRESHOLD
-             , "paths"     : "*/*"
-            }, {
-               "name"      : "*/revisions.json"
-             , "keyids"    : <package maintainer key IDs and trustee key IDs>
-             , "threshold" : THRESHOLD
-             , "paths"     : "*/*.cabal"
-            }]
+        , "roles" : [
+              { "name"      : "*/targets.json"
+              , "keyids"    : <package maintainer key IDs>
+              , "threshold" : THRESHOLD
+              , "paths"     : "*/*"
+              }
+            , { "name"      : "*/revisions.json"
+              , "keyids"    : <package maintainer key IDs>
+              , "threshold" : THRESHOLD
+              , "paths"     : "*/*.cabal"
+              }
+            ]
     }
-, "signatures" : <signatures from top level target keys>
+, "signatures" : <signatures from top-level target keys>
 }
 ```
 
 This uses a minor extension to TUF: we can use globs to specify path patterns,
 and then refer to the matching wildcards in the role name. This means that we
 don't need to change this file whenever a new package version is uploaded.
+(NOTE: This means that we list a _single_ path with a _single_ replacement
+name. Alternatively, we could have a list of pairs of paths and names.)
 
 This file is signed by the Hackage admins, using offline top-level targets keys.
 The "keys" part of "delegations" lists this package maintainer keys (if any).
@@ -94,13 +103,13 @@ Then it lists two roles:
    signing).
 
 2. It lists that the `.cabal` files can be signed in the `revisions.json`.
-   The key IDs here should equal the list of package maintainer keys plus
-   the list of Hackage trustees keys. If we have not yet implemented author
-   signing, then we can just leave this list blank and set the threshold to 0.
+   As above, the key IDs should be the package maintainer keys. Hackage
+   trustees can also sign revisions, but this is recorded at the top-level
+   (see below).
 
 #### Top-level
 
-The top-level `targets.json` lists only delegation information.
+The top-level `targets.json` also lists only delegation information.
 
 ```
 { signed: {
@@ -109,32 +118,52 @@ The top-level `targets.json` lists only delegation information.
     , "expires"     : EXPIRES
     , "targets"     : {}
     , "delegations" : {
-          "keys"  : []
-        , "roles" : [{
-               "name"      : "*/targets.json"
-             , "keyids"    : <top-level target keys>
-             , "threshold" : THRESHOLD
-             , "paths"     : "*/*/*"
-            }]
+          "keys"  : <Hackage trustee keys>
+        , "roles" : [
+              { "name"      : "targets/*/targets.json"
+              , "keyids"    : <top-level target keys>
+              , "threshold" : THRESHOLD
+              , "paths"     : "targets/*/*/*"
+              }
+            , { "name"      : "targets/*/*/revisions.json"
+              , "keyids"    : <Hackage trustee key IDs>
+              , "threshold" : THRESHOLD
+              , "paths"     : "targets/*/*/*.cabal"
+              }
+            ]
     }
 , "signatures" : <signatures from top level target keys>
 }
 ```
 
-This lists that any path at all (such as `/Foo/1.0/Foo-1.0.gz`) will have
-it's delegation information in `Foo/targets.json`.
+As for the per-package `targets.json`, this lists two pieces of information:
 
-Note that this does not introduce any new keys; this file is signed by the
-Hackage admins (using off-line top-level target keys), and delegates to files
-signed with those same keys. The point of this delegation is not security, but
-rather to reduce the granularity of the files that require updating whenever we
-update something.
+1. Any path at all (such as `targets/Foo/1.0/Foo-1.0.gz`) will have it's
+   delegation information in `targets/Foo/targets.json`. This means that we
+   then further delegate per package to the package maintainers.
+2. In addition, any `.cabal` file can be signed by the Hackage trustees.
+   By listing this at the top-level, we only need to list the valid Hackage
+   trustee key IDs once at top-level, rather than having to update each
+   package whenever we add a new Hackage trustee (of course, we might still have
+   to resign when we rotate trustee IDs, but that's inevitable.)
+
+This file is signed by the Hackage admins (using off-line top-level target
+keys), and delegates to per-package `targets.json` files signed with those same
+keys. The point of this delegation is not security, but rather to reduce the
+granularity of the files that require updating whenever we update something.
 
 The way we've set things up, when a brand new package is introduced to Hackage,
 the Hackage admins need to sign only a single `targets.json` file
 (`NewFoo/targets.json`); similarly, for every new version that is added, authors
 only need to sign `NewFoo/2.0/targets.json` (and trustees only need to sign the
 `revisions.json` file when they make add a new `.cabal` file revision).
+
+TODO: The threshold for Hackage trustees should probably be set to 1, but we
+might want to be able to override this for specific more sensitive packages;
+indeed, for some packages we may want to disable trustee signing completely.
+If we want that, we might want to some sort 'priority' scheme for delegation
+rules; the TUF spec mentions that this might be desirable but does not make
+any specific recommendations.
 
 ### Snapshot
 
@@ -189,3 +218,15 @@ file:
 , "snapshot.json" : { "signed": ..., "signatures": ... }
 }
 ```
+
+## Open questions
+
+* The set of maintainers of a package can change over time, and can even change
+  so much that the old maintainers of a package are no longer maintainters.
+  But we would still like to be able to install and verify old packages. How
+  do we deal with this?
+
+* In the spec as defined we list each revision of a cabal file separately
+  (`Foo-1.0-rev1.cabal`), but in the tarball these entries actually _overwrite_
+  each other (they all have the same filename). We need to define precisely
+  how we deal with this.
