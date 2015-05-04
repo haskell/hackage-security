@@ -19,6 +19,7 @@ library
   exposed-modules:     Hackage.Security.Base64
                        Hackage.Security.JSON
                        Hackage.Security.Key
+                       Hackage.Security.Some
                        Hackage.Security.TUF.FileMap
                        Hackage.Security.TUF.Ints
                        Hackage.Security.TUF.Root
@@ -51,6 +52,8 @@ library
                        ScopedTypeVariables
                        StandaloneDeriving
                        TupleSections
+                       TypeFamilies
+                       TypeOperators
   other-extensions:    CPP
                        OverlappingInstances
                        PackageImports

@@ -16,6 +16,7 @@ import Control.Applicative
 
 import Hackage.Security.JSON
 import Hackage.Security.Key
+import Hackage.Security.Some
 import Hackage.Security.TUF.Ints
 import Hackage.Security.TUF.Root
 import Hackage.Security.TUF.Signed

@@ -7,10 +7,8 @@ module Hackage.Security.Key (
   , PrivateKey
     -- * Key types in isolation
   , KeyType(..)
-  , HasKeyType(..)
     -- * Hiding key types
-  , Some(..)
-  , someKeyType
+  , somePublicKeyType
   , someKeyId
     -- * Operations on keys
   , publicKey
@@ -41,6 +39,7 @@ import qualified Data.ByteString.Lazy as BS.L
 import qualified Data.Map             as Map
 
 import Hackage.Security.JSON
+import Hackage.Security.Some
 import qualified Hackage.Security.Base64 as B64
 
 {-------------------------------------------------------------------------------
@@ -87,44 +86,28 @@ deriving instance Show (KeyType typ)
 deriving instance Eq   (KeyType typ)
 deriving instance Ord  (KeyType typ)
 
-class HasKeyType key where
-  keyType :: key typ -> KeyType typ
+instance Unify KeyType where
+  unify KeyTypeEd25519 KeyTypeEd25519 = Just Refl
 
-instance HasKeyType KeyType where
-  keyType = id
+type instance TypeOf Key        = KeyType
+type instance TypeOf PublicKey  = KeyType
+type instance TypeOf PrivateKey = KeyType
 
-instance HasKeyType Key where
-  keyType (KeyEd25519 _ _) = KeyTypeEd25519
+instance Typed Key where
+  typeOf (KeyEd25519 _ _) = KeyTypeEd25519
 
-instance HasKeyType PublicKey where
-  keyType (PublicKeyEd25519 _) = KeyTypeEd25519
+instance Typed PublicKey where
+  typeOf (PublicKeyEd25519 _) = KeyTypeEd25519
 
-instance HasKeyType PrivateKey where
-  keyType (PrivateKeyEd25519 _) = KeyTypeEd25519
+instance Typed PrivateKey where
+  typeOf (PrivateKeyEd25519 _) = KeyTypeEd25519
 
 {-------------------------------------------------------------------------------
   We don't always know the key type
 -------------------------------------------------------------------------------}
 
-data Some key where
-    Some :: ( Eq     (key typ)
-            , Ord    (key typ)
-            , ToJSON (key typ)
-            ) => key typ -> Some key
-
-instance HasKeyType key => Eq (Some key) where
-    Some a == Some b = case (keyType a, keyType b) of
-      (KeyTypeEd25519, KeyTypeEd25519) -> a == b
-
-instance HasKeyType key => Ord (Some key) where
-    Some a <= Some b = case (keyType a, keyType b) of
-      (KeyTypeEd25519, KeyTypeEd25519) -> a <= b
-
-instance ToJSON (Some key) where
-    toJSON (Some a) = toJSON a
-
-someKeyType :: HasKeyType key => Some key -> Some KeyType
-someKeyType (Some a) = Some (keyType a)
+somePublicKeyType :: Some PublicKey -> Some KeyType
+somePublicKeyType (Some pub) = Some (typeOf pub)
 
 someKeyId :: HasKeyId key => Some key -> KeyId
 someKeyId (Some a) = keyId a

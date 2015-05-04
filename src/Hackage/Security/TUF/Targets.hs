@@ -12,9 +12,10 @@ import Data.Time
 import Data.List (elemIndices)
 import System.FilePath
 
-import Hackage.Security.TUF.Ints
-import Hackage.Security.TUF.FileMap (FileMap)
 import Hackage.Security.Key
+import Hackage.Security.Some
+import Hackage.Security.TUF.FileMap (FileMap)
+import Hackage.Security.TUF.Ints
 
 data Targets = Targets {
     targetsVersion    :: Version

@@ -15,10 +15,11 @@ module Hackage.Security.TUF.Signed (
 import qualified Data.ByteString      as BS
 import qualified Data.ByteString.Lazy as BS.L
 
-import Hackage.Security.Key
 import Hackage.Security.JSON
-import qualified Hackage.Security.Base64 as B64
+import Hackage.Security.Key
+import Hackage.Security.Some
 import Text.JSON.Canonical
+import qualified Hackage.Security.Base64 as B64
 
 data Signed a = Signed {
     signed     :: a
@@ -63,7 +64,7 @@ instance ToJSON a => ToJSON (Signed a) where
 instance ToJSON Signature where
   toJSON Signature{..} = do
      keyid  <- writeKeyAsId signatureKey
-     method <- toJSON (someKeyType signatureKey)
+     method <- toJSON (somePublicKeyType signatureKey)
      sig    <- toJSON (B64.fromByteString signature)
      return $ JSObject [
          ("keyid"  , keyid)
@@ -76,7 +77,7 @@ instance FromJSON Signature where
       key    <- readKeyAsId =<< fromJSField enc "keyid"
       method <- fromJSField enc "method"
       sig    <- fromJSField enc "sig"
-      validate "key type" $ someKeyType key == method
+      validate "key type" $ typecheckSome key method
       return Signature {
           signature    = B64.toByteString sig
         , signatureKey = key
