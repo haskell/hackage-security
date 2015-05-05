@@ -74,14 +74,14 @@ verifyThreshold RoleSpec{roleSpecThreshold = KeyThreshold threshold, ..} sigs =
   JSON encoding
 -------------------------------------------------------------------------------}
 
-instance ToObjectKey Role where
-  toObjectKey RoleRoot      = "root"
-  toObjectKey RoleSnapshot  = "snapshot"
-  toObjectKey RoleTargets   = "targets"
-  toObjectKey RoleTimestamp = "timestamp"
-  toObjectKey RoleMirrors   = "mirrors"
+instance Monad m => ToObjectKey m Role where
+  toObjectKey RoleRoot      = return "root"
+  toObjectKey RoleSnapshot  = return "snapshot"
+  toObjectKey RoleTargets   = return "targets"
+  toObjectKey RoleTimestamp = return "timestamp"
+  toObjectKey RoleMirrors   = return "mirrors"
 
-instance FromObjectKey Role where
+instance ReportSchemaErrors m => FromObjectKey m Role where
   fromObjectKey "root"      = return RoleRoot
   fromObjectKey "snapshot"  = return RoleSnapshot
   fromObjectKey "targets"   = return RoleTargets
@@ -89,7 +89,7 @@ instance FromObjectKey Role where
   fromObjectKey "mirrors"   = return RoleMirrors
   fromObjectKey _otherwise  = expected "valid role"
 
-instance ToJSON Root where
+instance ToJSON WriteJSON Root where
   toJSON Root{..} = do
      rootVersion'   <- toJSON rootVersion
      rootExpires'   <- toJSON rootExpires
@@ -103,7 +103,7 @@ instance ToJSON Root where
        , ("roles"   , rootRoles')
        ]
 
-instance ToJSON RoleSpec where
+instance ToJSON WriteJSON RoleSpec where
   toJSON RoleSpec{..} = do
     roleSpecKeys'      <- mapM writeKeyAsId roleSpecKeys
     roleSpecThreshold' <- toJSON roleSpecThreshold
@@ -113,7 +113,7 @@ instance ToJSON RoleSpec where
       ]
 
 -- | We have to careful reading a root file to read the key dictionary first
-instance FromJSON Root where
+instance FromJSON ReadJSON Root where
   fromJSON enc = do
     -- TODO: Check that current key dict is empty
     -- TODO: Should we verify _type?
@@ -123,7 +123,7 @@ instance FromJSON Root where
     rootRoles   <- fromJSField enc "roles"
     return Root{..}
 
-instance FromJSON RoleSpec where
+instance FromJSON ReadJSON RoleSpec where
   fromJSON enc = do
     roleSpecKeys      <- mapM readKeyAsId =<< fromJSField enc "keyids"
     roleSpecThreshold <- fromJSField enc "threshold"

@@ -18,7 +18,11 @@ data Snapshot = Snapshot {
   , snapshotMeta    :: FileMap
   }
 
-instance ToJSON Snapshot where
+{-------------------------------------------------------------------------------
+  JSON
+-------------------------------------------------------------------------------}
+
+instance Monad m => ToJSON m Snapshot where
   toJSON Snapshot{..} = do
     snapshotVersion' <- toJSON snapshotVersion
     snapshotExpires' <- toJSON snapshotExpires
@@ -30,7 +34,7 @@ instance ToJSON Snapshot where
       , ("meta"    , snapshotMeta')
       ]
 
-instance FromJSON Snapshot where
+instance ReportSchemaErrors m => FromJSON m Snapshot where
   fromJSON enc = do
     -- TODO: Should we verify _type?
     snapshotVersion <- fromJSField enc "version"

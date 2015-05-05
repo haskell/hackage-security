@@ -10,8 +10,6 @@ module Hackage.Security.Some (
   , typecheckSome
   ) where
 
-import Hackage.Security.JSON
-
 {-------------------------------------------------------------------------------
   Embedded languages with meta level types
 -------------------------------------------------------------------------------}
@@ -51,13 +49,7 @@ class AsType f where
 -------------------------------------------------------------------------------}
 
 data Some key where
-    Some :: ( Eq     (key typ)
-            , Ord    (key typ)
-            , ToJSON (key typ)
-            ) => key typ -> Some key
-
-instance ToJSON (Some key) where
-    toJSON (Some a) = toJSON a
+    Some :: (Eq (key typ), Ord (key typ)) => key typ -> Some key
 
 instance Typed f => Eq (Some f) where
     Some a == Some b =

@@ -24,6 +24,14 @@ module Hackage.Security.Key (
   , keyEnvLookup
   , writeKeyAsId
   , readKeyAsId
+    -- * JSON auxiliary
+  , WriteJSON(..)
+  , ReadJSON(..)
+  , renderJSON
+  , validate
+  , getAccumulatedKeys
+  , writeCanonical
+  , readCanonical
     -- * Signing
   , sign
   , verify
@@ -33,6 +41,7 @@ import Control.Monad.Except
 import Control.Monad.State
 import Data.Digest.Pure.SHA
 import Data.Map (Map)
+import Text.JSON.Canonical
 import qualified Crypto.Sign.Ed25519  as Ed25519
 import qualified Data.ByteString      as BS
 import qualified Data.ByteString.Lazy as BS.L
@@ -131,10 +140,10 @@ createKey KeyTypeEd25519 = uncurry KeyEd25519 <$> Ed25519.createKeypair
 newtype KeyId = KeyId { keyIdString :: String }
   deriving (Show, Eq, Ord)
 
-instance ToObjectKey KeyId where
-  toObjectKey = keyIdString
+instance Monad m => ToObjectKey m KeyId where
+  toObjectKey = return . keyIdString
 
-instance FromObjectKey KeyId where
+instance Monad m => FromObjectKey m KeyId where
   fromObjectKey = return . KeyId
 
 -- | Compute the key ID of a key
@@ -146,6 +155,78 @@ instance HasKeyId PublicKey where
 
 instance HasKeyId Key where
   keyId = keyId . publicKey
+
+{-------------------------------------------------------------------------------
+  Signing
+-------------------------------------------------------------------------------}
+
+-- | Sign a bytestring and return the signature
+--
+-- TODO: It is unfortunate that we have to convert to a strict bytestring for
+-- ed25519
+sign :: PrivateKey typ -> BS.L.ByteString -> BS.ByteString
+sign (PrivateKeyEd25519 pri) =
+    Ed25519.unSignature . Ed25519.sign' pri . BS.concat . BS.L.toChunks
+
+verify :: PublicKey typ -> BS.L.ByteString -> BS.ByteString -> Bool
+verify (PublicKeyEd25519 pub) inp sig =
+    Ed25519.verify' pub (BS.concat $ BS.L.toChunks inp) (Ed25519.Signature sig)
+
+{-------------------------------------------------------------------------------
+  Monads we use for writing and reading JSON with explicit key sharing
+-------------------------------------------------------------------------------}
+
+data DeserializationError =
+    -- | Malformed JSON has syntax errors in the JSON itself
+    -- (i.e., we cannot even parse it to a JSValue)
+    DeserializationErrorMalformed String
+
+    -- | Invalid JSON has valid syntax but invalid structure
+    --
+    -- The string gives a hint about what we expected instead
+  | DeserializationErrorSchema String
+
+    -- | The JSON file contains a key ID of an unknown key
+  | DeserializationErrorUnknownKey KeyId
+
+    -- | Some verification step failed
+  | DeserializationErrorValidation String
+  deriving Show
+
+newtype WriteJSON a = WriteJSON {
+    unWriteJSON :: State KeyEnv a
+  }
+  deriving ( Functor
+           , Applicative
+           , Monad
+           , MonadState KeyEnv
+           )
+
+runWriteJSON :: WriteJSON a -> (a, KeyEnv)
+runWriteJSON act = runState (unWriteJSON act) keyEnvEmpty
+
+newtype ReadJSON a = ReadJSON {
+    unReadJSON :: ExceptT DeserializationError (State KeyEnv) a
+  }
+  deriving ( Functor
+           , Applicative
+           , Monad
+           , MonadError DeserializationError
+           , MonadState KeyEnv
+           )
+
+instance ReportSchemaErrors ReadJSON where
+  expected str = throwError $ DeserializationErrorSchema $ "Expected " ++ str
+
+runReadJSON :: KeyEnv -> ReadJSON a -> (Either DeserializationError a, KeyEnv)
+runReadJSON env act = runState (runExceptT (unReadJSON act)) env
+
+getAccumulatedKeys :: MonadState KeyEnv m => m KeyEnv
+getAccumulatedKeys = get
+
+validate :: String -> Bool -> ReadJSON ()
+validate _   True  = return ()
+validate msg False = throwError $ DeserializationErrorValidation msg
 
 {-------------------------------------------------------------------------------
   Explicit sharing
@@ -174,22 +255,6 @@ readKeyAsId (JSString kId) = lookupKey (KeyId kId)
 readKeyAsId _ = expected "key ID"
 
 {-------------------------------------------------------------------------------
-  Signing
--------------------------------------------------------------------------------}
-
--- | Sign a bytestring and return the signature
---
--- TODO: It is unfortunate that we have to convert to a strict bytestring for
--- ed25519
-sign :: PrivateKey typ -> BS.L.ByteString -> BS.ByteString
-sign (PrivateKeyEd25519 pri) =
-    Ed25519.unSignature . Ed25519.sign' pri . BS.concat . BS.L.toChunks
-
-verify :: PublicKey typ -> BS.L.ByteString -> BS.ByteString -> Bool
-verify (PublicKeyEd25519 pub) inp sig =
-    Ed25519.verify' pub (BS.concat $ BS.L.toChunks inp) (Ed25519.Signature sig)
-
-{-------------------------------------------------------------------------------
   JSON auxiliary
 -------------------------------------------------------------------------------}
 
@@ -203,16 +268,41 @@ lookupKey kId = do
       Just key -> return key
       Nothing  -> throwError $ DeserializationErrorUnknownKey kId
 
+renderJSON :: ToJSON WriteJSON a => a -> (BS.L.ByteString, KeyEnv)
+renderJSON a = let (val, keyEnv) = runWriteJSON (toJSON a)
+               in (renderCanonicalJSON val, keyEnv)
+
+parseJSON :: FromJSON ReadJSON a
+          => KeyEnv
+          -> BS.L.ByteString
+          -> (Either DeserializationError a, KeyEnv)
+parseJSON env bs =
+    case parseCanonicalJSON bs of
+      Left  err -> (Left (DeserializationErrorMalformed err), env)
+      Right val -> runReadJSON env (fromJSON val)
+
+writeCanonical :: ToJSON WriteJSON a => FilePath -> a -> IO KeyEnv
+writeCanonical fp a = do
+     let (bs, env) = renderJSON a
+     BS.L.writeFile fp bs
+     return env
+
+readCanonical :: FromJSON ReadJSON a
+              => KeyEnv
+              -> FilePath
+              -> IO (Either DeserializationError a, KeyEnv)
+readCanonical env fp = parseJSON env <$> BS.L.readFile fp
+
 {-------------------------------------------------------------------------------
   JSON encoding and decoding
 -------------------------------------------------------------------------------}
 
-instance ToJSON (Key typ) where
+instance Monad m => ToJSON m (Key typ) where
   toJSON key = case key of
       KeyEd25519 pub pri ->
         enc "ed25519" (Ed25519.unPublicKey pub) (Ed25519.unSecretKey pri)
     where
-      enc :: String -> BS.ByteString -> BS.ByteString -> WriteJSON JSValue
+      enc :: String -> BS.ByteString -> BS.ByteString -> m JSValue
       enc tag pub pri = do
         pub' <- toJSON (B64.fromByteString pub)
         pri' <- toJSON (B64.fromByteString pri)
@@ -224,7 +314,7 @@ instance ToJSON (Key typ) where
               ])
           ]
 
-instance FromJSON (Some Key) where
+instance ReportSchemaErrors m => FromJSON m (Some Key) where
   fromJSON enc = do
       (tag, pub, pri) <- dec enc
       case tag of
@@ -233,7 +323,7 @@ instance FromJSON (Some Key) where
         _otherwise ->
           expected "valid key type"
     where
-      dec :: JSValue -> ReadJSON (String, BS.ByteString, BS.ByteString)
+      dec :: JSValue -> m (String, BS.ByteString, BS.ByteString)
       dec obj = do
         tag <- fromJSField obj "keytype"
         val <- fromJSField obj "keyval"
@@ -241,12 +331,12 @@ instance FromJSON (Some Key) where
         pri <- fromJSField val "private"
         return (tag, B64.toByteString pub, B64.toByteString pri)
 
-instance ToJSON (PublicKey typ) where
+instance Monad m => ToJSON m (PublicKey typ) where
   toJSON key = case key of
       PublicKeyEd25519 pub ->
         enc "ed25519" (Ed25519.unPublicKey pub)
     where
-      enc :: String -> BS.ByteString -> WriteJSON JSValue
+      enc :: String -> BS.ByteString -> m JSValue
       enc tag pub = do
         pub' <- toJSON (B64.fromByteString pub)
         return $ JSObject [
@@ -256,7 +346,13 @@ instance ToJSON (PublicKey typ) where
               ])
           ]
 
-instance FromJSON (Some PublicKey) where
+instance Monad m => ToJSON m (Some PublicKey) where
+  toJSON (Some pub) = toJSON pub
+
+instance Monad m => ToJSON m (Some KeyType) where
+  toJSON (Some pub) = toJSON pub
+
+instance ReportSchemaErrors m => FromJSON m (Some PublicKey) where
   fromJSON enc = do
       (tag, pub) <- dec enc
       case tag of
@@ -265,26 +361,26 @@ instance FromJSON (Some PublicKey) where
         _otherwise ->
           expected "valid key type"
     where
-      dec :: JSValue -> ReadJSON (String, BS.ByteString)
+      dec :: JSValue -> m (String, BS.ByteString)
       dec obj = do
         tag <- fromJSField obj "keytype"
         val <- fromJSField obj "keyval"
         pub <- fromJSField val "public"
         return (tag, B64.toByteString pub)
 
-instance ToJSON (KeyType typ) where
+instance Monad m => ToJSON m (KeyType typ) where
   toJSON KeyTypeEd25519 = return $ JSString "ed25519"
 
-instance FromJSON (Some KeyType) where
+instance ReportSchemaErrors m => FromJSON m (Some KeyType) where
   fromJSON enc = do
     tag <- fromJSON enc
     case tag of
       "ed25519"  -> return . Some $ KeyTypeEd25519
       _otherwise -> expected "valid key type"
 
-instance ToJSON KeyEnv where
+instance Monad m => ToJSON m KeyEnv where
   toJSON (KeyEnv keyEnv) = toJSON keyEnv
 
 -- TODO: verify key ID matches
-instance FromJSON KeyEnv where
+instance ReportSchemaErrors m => FromJSON m KeyEnv where
   fromJSON enc = KeyEnv <$> fromJSON enc

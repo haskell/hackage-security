@@ -17,7 +17,6 @@ module Hackage.Security.TUF.FileMap (
   , fromList
     -- * Utility
   , fileInfo
-  , fileInfoJSON
   ) where
 
 import Prelude hiding (lookup)
@@ -72,28 +71,24 @@ fileInfo bs = FileInfo {
         ]
     }
 
--- | Compute 'FileInfo' over the canonical JSON form
-fileInfoJSON :: ToJSON a => a -> FileInfo
-fileInfoJSON = fileInfo . fst . renderJSON
-
 {-------------------------------------------------------------------------------
   JSON
 -------------------------------------------------------------------------------}
 
-instance ToObjectKey HashFn where
-  toObjectKey HashFnSHA256 = "sha256"
+instance Monad m => ToObjectKey m HashFn where
+  toObjectKey HashFnSHA256 = return "sha256"
 
-instance FromObjectKey HashFn where
+instance ReportSchemaErrors m => FromObjectKey m HashFn where
   fromObjectKey "sha256"   = return HashFnSHA256
   fromObjectKey _otherwise = expected "valid hash function"
 
-instance ToJSON FileMap where
+instance Monad m => ToJSON m FileMap where
   toJSON (FileMap metaFiles) = toJSON metaFiles
 
-instance FromJSON FileMap where
+instance ReportSchemaErrors m => FromJSON m FileMap where
   fromJSON enc = FileMap <$> fromJSON enc
 
-instance ToJSON FileInfo where
+instance Monad m => ToJSON m FileInfo where
   toJSON FileInfo{..} = do
     fileInfoLength' <- toJSON fileInfoLength
     fileInfoHashes' <- toJSON fileInfoHashes
@@ -102,7 +97,7 @@ instance ToJSON FileInfo where
       , ("hashes", fileInfoHashes')
       ]
 
-instance FromJSON FileInfo where
+instance ReportSchemaErrors m => FromJSON m FileInfo where
   fromJSON enc = do
     fileInfoLength <- fromJSField enc "length"
     fileInfoHashes <- fromJSField enc "hashes"

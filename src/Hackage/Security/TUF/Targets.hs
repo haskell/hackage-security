@@ -261,12 +261,12 @@ parseDelegation = \pat repl -> runExcept $ go pat repl
   JSON
 -------------------------------------------------------------------------------}
 
-instance ToJSON (Pattern typ) where
+instance Monad m => ToJSON m (Pattern typ) where
   toJSON = return . JSString . prettyPattern
-instance ToJSON (Replacement typ) where
+instance Monad m => ToJSON m (Replacement typ) where
   toJSON = return . JSString . prettyReplacement
 
-instance ToJSON DelegationSpec where
+instance ToJSON WriteJSON DelegationSpec where
   toJSON DelegationSpec{delegation = Delegation path name, ..} = do
     delegationName'          <- toJSON name
     delegationSpecKeys'      <- mapM writeKeyAsId delegationSpecKeys
@@ -279,17 +279,17 @@ instance ToJSON DelegationSpec where
       , ("path"      , delegationPath')
       ]
 
-instance FromJSON DelegationSpec where
+instance FromJSON ReadJSON DelegationSpec where
   fromJSON enc = do
     delegationName          <- fromJSField enc "name"
     delegationSpecKeys      <- mapM readKeyAsId =<< fromJSField enc "keyids"
     delegationSpecThreshold <- fromJSField enc "threshold"
     delegationPath          <- fromJSField enc "path"
     case parseDelegation delegationName delegationPath of
-      Left  err        -> throwError $ DeserializationErrorSchema err
+      Left  err        -> expected $ "valid name/path combination: " ++ err
       Right delegation -> return DelegationSpec{..}
 
-instance ToJSON Delegations where
+instance ToJSON WriteJSON Delegations where
   toJSON (Delegations roles) = do
     roles' <- toJSON roles
     return $ JSObject [
@@ -297,13 +297,13 @@ instance ToJSON Delegations where
       , ("roles" , roles')
       ]
 
-instance FromJSON Delegations where
+instance FromJSON ReadJSON Delegations where
   fromJSON enc = do
     -- TODO: keys
     roles <- fromJSField enc "roles"
     return $ Delegations roles
 
-instance ToJSON Targets where
+instance ToJSON WriteJSON Targets where
   toJSON Targets{..} = do
     targetsVersion'     <- toJSON targetsVersion
     targetsExpires'     <- toJSON targetsExpires
@@ -317,7 +317,7 @@ instance ToJSON Targets where
       , ("delegations" , targetsDelegations')
       ]
 
-instance FromJSON Targets where
+instance FromJSON ReadJSON Targets where
   fromJSON enc = do
     -- TODO: verify _type
     -- TODO: keys

@@ -49,6 +49,7 @@ library
                        GADTs
                        GeneralizedNewtypeDeriving
                        KindSignatures
+                       MultiParamTypeClasses
                        RecordWildCards
                        ScopedTypeVariables
                        StandaloneDeriving
@@ -81,7 +82,8 @@ executable prototype
                        hackage-security
   hs-source-dirs:      prototype
   default-language:    Haskell2010
-  default-extensions:  RecordWildCards
+  default-extensions:  FlexibleContexts
+                       RecordWildCards
                        ScopedTypeVariables
   other-extensions:    CPP
   ghc-options:         -Wall

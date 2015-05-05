@@ -35,12 +35,12 @@ data Signature = Signature {
 signeded :: a -> Signed a
 signeded a = Signed { signed = a, signatures = [] }
 
-withSignatures :: ToJSON a => [Some Key] -> a -> Signed a
+withSignatures :: ToJSON WriteJSON a => [Some Key] -> a -> Signed a
 withSignatures []                = signeded
 withSignatures (Some key : keys) = addSignature key . withSignatures keys
 
 -- | Add a new signature to a signed document
-addSignature :: ToJSON a => Key typ -> Signed a -> Signed a
+addSignature :: ToJSON WriteJSON a => Key typ -> Signed a -> Signed a
 addSignature key doc = doc { signatures = newSignature : signatures doc }
   where
     newSignature = Signature {
@@ -52,7 +52,7 @@ verifySignature :: BS.L.ByteString -> Signature -> Bool
 verifySignature inp Signature{signature = sig, signatureKey = Some pub} =
   verify pub inp sig
 
-instance ToJSON a => ToJSON (Signed a) where
+instance ToJSON WriteJSON a => ToJSON WriteJSON (Signed a) where
   toJSON Signed{..} = do
      signed'     <- toJSON signed
      signatures' <- toJSON signatures
@@ -61,7 +61,7 @@ instance ToJSON a => ToJSON (Signed a) where
        , ("signatures" , signatures')
        ]
 
-instance ToJSON Signature where
+instance ToJSON WriteJSON Signature where
   toJSON Signature{..} = do
      keyid  <- writeKeyAsId signatureKey
      method <- toJSON (somePublicKeyType signatureKey)
@@ -72,7 +72,7 @@ instance ToJSON Signature where
        , ("sig"    , sig)
        ]
 
-instance FromJSON Signature where
+instance FromJSON ReadJSON Signature where
   fromJSON enc = do
       key    <- readKeyAsId =<< fromJSField enc "keyid"
       method <- fromJSField enc "method"
@@ -83,7 +83,7 @@ instance FromJSON Signature where
         , signatureKey = key
         }
 
-instance FromJSON a => FromJSON (Signed a) where
+instance FromJSON ReadJSON a => FromJSON ReadJSON (Signed a) where
   fromJSON enc = do
       signed'    <- fromJSField enc "signed"
       -- Important that we fully decode signed' first in the case that it

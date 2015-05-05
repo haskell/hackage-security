@@ -28,20 +28,20 @@ incrementVersion (Version i) = Version (i + 1)
   JSON
 -------------------------------------------------------------------------------}
 
-instance ToJSON Version where
+instance Monad m => ToJSON m Version where
   toJSON (Version i) = toJSON i
 
-instance FromJSON Version where
+instance ReportSchemaErrors m => FromJSON m Version where
   fromJSON enc = Version <$> fromJSON enc
 
-instance ToJSON KeyThreshold where
+instance Monad m => ToJSON m KeyThreshold where
   toJSON (KeyThreshold i) = toJSON i
 
-instance FromJSON KeyThreshold where
+instance ReportSchemaErrors m => FromJSON m KeyThreshold where
   fromJSON enc = KeyThreshold <$> fromJSON enc
 
-instance ToJSON Length where
+instance Monad m => ToJSON m Length where
   toJSON (Length i) = toJSON i
 
-instance FromJSON Length where
+instance ReportSchemaErrors m => FromJSON m Length where
   fromJSON enc = Length <$> fromJSON enc

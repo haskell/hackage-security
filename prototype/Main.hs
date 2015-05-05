@@ -75,7 +75,7 @@ cmdBootstrap opts = do
             timestampVersion = Version 1
           , timestampExpires = addUTCTime (3 * oneDay) now
           , timestampMeta    = FileMap.fromList [
-                ("snapshot.json", FileMap.fileInfoJSON signedSnapshot)
+                ("snapshot.json", fileInfoJSON signedSnapshot)
               ]
           }
         signedRoot      = withSignatures (map Some rootKeys) root
@@ -103,6 +103,11 @@ cmdBootstrap opts = do
       where
         kId  = keyIdString (keyId key)
         path = mkPath opts where_ ("keys" </> prefix </> kId <.> "private")
+
+
+-- | Compute 'FileInfo' over the canonical JSON form
+fileInfoJSON :: ToJSON WriteJSON a => a -> FileMap.FileInfo
+fileInfoJSON = FileMap.fileInfo . fst . renderJSON
 
 {-------------------------------------------------------------------------------
   Internal checks
@@ -254,7 +259,7 @@ cmdUpload pkg opts = do
             timestampVersion = incrementVersion (timestampVersion oldTimestamp')
           , timestampExpires = addUTCTime (3 * oneDay) now
           , timestampMeta    = FileMap.fromList [
-                ("snapshot.json", FileMap.fileInfoJSON newSnapshot)
+                ("snapshot.json", fileInfoJSON newSnapshot)
               ]
           }
         newTimestamp  = withSignatures timestampKeys newTimestamp'
@@ -291,7 +296,7 @@ mkPath Options{..} where_ fp =
       Client  -> optClient  </> fp
       Offline -> optOffline </> fp
 
-readJSON :: FromJSON a => KeyEnv -> FilePath -> IO (a, KeyEnv)
+readJSON :: FromJSON ReadJSON a => KeyEnv -> FilePath -> IO (a, KeyEnv)
 readJSON env fp' = do
   (mParsed, keyEnv) <- readCanonical env fp'
   case mParsed of

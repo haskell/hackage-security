@@ -40,7 +40,7 @@ snapshotHash Timestamp{..} =
   JSON
 -------------------------------------------------------------------------------}
 
-instance ToJSON Timestamp where
+instance Monad m => ToJSON m Timestamp where
   toJSON Timestamp{..} = do
     timestampVersion' <- toJSON timestampVersion
     timestampExpires' <- toJSON timestampExpires
@@ -52,7 +52,7 @@ instance ToJSON Timestamp where
       , ("meta"    , timestampMeta')
       ]
 
-instance FromJSON Timestamp where
+instance ReportSchemaErrors m => FromJSON m Timestamp where
   fromJSON enc = do
     -- TODO: Should we verify _type?
     timestampVersion <- fromJSField enc "version"
