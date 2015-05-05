@@ -13,6 +13,7 @@ import System.FilePath
 
 import Hackage.Security.JSON
 import Hackage.Security.Key
+import Hackage.Security.Key.Env (KeyEnv)
 import Hackage.Security.Key.ExplicitSharing
 import Hackage.Security.Some
 import Hackage.Security.TUF.Ints
@@ -29,7 +30,15 @@ data Targets = Targets {
   , targetsDelegations :: Delegations
   }
 
-newtype Delegations = Delegations [DelegationSpec]
+-- | Delegations
+--
+-- Much like the Root datatype, this must have an invariant that ALL used keys
+-- (apart from the global keys, which are in the root key environment) must
+-- be listed in 'delegationsKeys'.
+data Delegations = Delegations {
+    delegationsKeys  :: KeyEnv
+  , delegationsRoles :: [DelegationSpec]
+  }
 
 -- | Delegation specification
 --
@@ -285,17 +294,20 @@ instance FromJSON ReadJSON DelegationSpec where
       Left  err        -> expected $ "valid name/path combination: " ++ err
       Right delegation -> return DelegationSpec{..}
 
+-- NOTE: Unlike the Root object, the keys that are used to sign the delegations
+-- are NOT listed inside the delegations, so the same "bootstrapping" problems
+-- do not arise here.
 instance ToJSON Delegations where
-  toJSON (Delegations roles) = JSObject [
-        ("keys"  , undefined) -- TODO
-      , ("roles" , toJSON roles)
+  toJSON Delegations{..} = JSObject [
+        ("keys"  , toJSON delegationsKeys)
+      , ("roles" , toJSON delegationsRoles)
       ]
 
 instance FromJSON ReadJSON Delegations where
   fromJSON enc = do
-    -- TODO: keys
-    roles <- fromJSField enc "roles"
-    return $ Delegations roles
+    delegationsKeys  <- fromJSField enc "keys"
+    delegationsRoles <- fromJSField enc "roles"
+    return Delegations{..}
 
 instance ToJSON Targets where
   toJSON Targets{..} = JSObject [
@@ -309,7 +321,6 @@ instance ToJSON Targets where
 instance FromJSON ReadJSON Targets where
   fromJSON enc = do
     -- TODO: verify _type
-    -- TODO: keys
     targetsVersion     <- fromJSField enc "version"
     targetsExpires     <- fromJSField enc "expires"
     targets            <- fromJSField enc "targets"

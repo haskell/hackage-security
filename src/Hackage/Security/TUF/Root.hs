@@ -37,7 +37,7 @@ data Role =
 -- | The root metadata
 --
 -- NOTE: We must have the invariant that ALL keys (apart from delegation keys)
--- must be listed in rootKeys. (Delegation keys satisfy a similar invariant,
+-- must be listed in 'rootKeys'. (Delegation keys satisfy a similar invariant,
 -- see Targets.)
 data Root = Root {
     rootVersion :: Version
