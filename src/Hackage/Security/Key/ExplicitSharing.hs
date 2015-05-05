@@ -1,22 +1,24 @@
 module Hackage.Security.Key.ExplicitSharing (
+    -- * Reading
     DeserializationError(..)
-  , WriteJSON -- opaque
-  , ReadJSON  -- opaque
-  , runWriteJSON
+  , ReadJSON -- opaque
   , runReadJSON
-    -- * Primitive functions
-  , addKeys
-  , getAccumulatedKeys
+    -- ** Primitive operations
   , validate
-  , writeKeyAsId
+  , addKeys
   , readKeyAsId
-  , recordKey
-  , lookupKey
-    -- * Utility
-  , renderJSON
+    -- ** Utility
   , parseJSON
-  , writeCanonical
   , readCanonical
+    -- * Writing
+  , WriteJSON -- opaque
+  , runWriteJSON
+    -- ** Primitive operations
+  , getAccumulatedKeys
+  , writeKeyAsId
+    -- ** Utility
+  , renderJSON
+  , writeCanonical
   ) where
 
 import Control.Exception
@@ -34,7 +36,7 @@ import Text.JSON.Canonical
 import qualified Hackage.Security.Key.Env as KeyEnv
 
 {-------------------------------------------------------------------------------
-  Monads
+  Reading
 -------------------------------------------------------------------------------}
 
 data DeserializationError =
@@ -56,27 +58,11 @@ data DeserializationError =
 
 instance Exception DeserializationError
 
-newtype WriteJSON a = WriteJSON {
-    unWriteJSON :: State KeyEnv a
-  }
-  deriving ( Functor
-           , Applicative
-           , Monad
-           , MonadState KeyEnv
-           )
-
-runWriteJSON :: WriteJSON a -> (a, KeyEnv)
-runWriteJSON act = runState (unWriteJSON act) KeyEnv.empty
-
+-- We intentially do not export the MonadReader instance
 newtype ReadJSON a = ReadJSON {
     unReadJSON :: ExceptT DeserializationError (Reader KeyEnv) a
   }
-  deriving ( Functor
-           , Applicative
-           , Monad
-           , MonadError DeserializationError
-           , MonadReader KeyEnv
-           )
+  deriving (Functor, Applicative, Monad, MonadError DeserializationError)
 
 instance ReportSchemaErrors ReadJSON where
   expected str = throwError $ DeserializationErrorSchema $ "Expected " ++ str
@@ -85,45 +71,30 @@ runReadJSON :: KeyEnv -> ReadJSON a -> Either DeserializationError a
 runReadJSON env act = runReader (runExceptT (unReadJSON act)) env
 
 {-------------------------------------------------------------------------------
-  Primitive functions
+  Reading: Primitive operations
 -------------------------------------------------------------------------------}
-
-addKeys :: KeyEnv -> ReadJSON a -> ReadJSON a
-addKeys = local . KeyEnv.union
-
-getAccumulatedKeys :: MonadState KeyEnv m => m KeyEnv
-getAccumulatedKeys = get
 
 validate :: String -> Bool -> ReadJSON ()
 validate _   True  = return ()
 validate msg False = throwError $ DeserializationErrorValidation msg
 
-writeKeyAsId :: Some PublicKey -> WriteJSON JSValue
-writeKeyAsId key = do
-    recordKey key
-    return $ JSString . keyIdString . someKeyId $ key
+addKeys :: KeyEnv -> ReadJSON a -> ReadJSON a
+addKeys keys (ReadJSON act) = ReadJSON $ local (KeyEnv.union keys) act
 
 readKeyAsId :: JSValue -> ReadJSON (Some PublicKey)
 readKeyAsId (JSString kId) = lookupKey (KeyId kId)
 readKeyAsId _ = expected "key ID"
 
-recordKey :: MonadState KeyEnv m => Some PublicKey -> m ()
-recordKey key = modify $ KeyEnv.insert key
-
 lookupKey :: KeyId -> ReadJSON (Some PublicKey)
 lookupKey kId = do
-    env <- ask
+    env <- ReadJSON $ ask
     case KeyEnv.lookup kId env of
       Just key -> return key
       Nothing  -> throwError $ DeserializationErrorUnknownKey kId
 
 {-------------------------------------------------------------------------------
-  Utility
+  Reading: Utility
 -------------------------------------------------------------------------------}
-
-renderJSON :: ToJSON WriteJSON a => a -> (BS.L.ByteString, KeyEnv)
-renderJSON a = let (val, keyEnv) = runWriteJSON (toJSON a)
-               in (renderCanonicalJSON val, keyEnv)
 
 parseJSON :: FromJSON ReadJSON a
           => KeyEnv
@@ -134,14 +105,47 @@ parseJSON env bs =
       Left  err -> Left (DeserializationErrorMalformed err)
       Right val -> runReadJSON env (fromJSON val)
 
-writeCanonical :: ToJSON WriteJSON a => FilePath -> a -> IO KeyEnv
-writeCanonical fp a = do
-     let (bs, env) = renderJSON a
-     BS.L.writeFile fp bs
-     return env
-
 readCanonical :: FromJSON ReadJSON a
               => KeyEnv
               -> FilePath
               -> IO (Either DeserializationError a)
 readCanonical env fp = parseJSON env <$> BS.L.readFile fp
+
+{-------------------------------------------------------------------------------
+  Writing
+-------------------------------------------------------------------------------}
+
+-- We intentionally do not export the MonadState instance
+newtype WriteJSON a = WriteJSON {
+    unWriteJSON :: State KeyEnv a
+  }
+  deriving (Functor, Applicative, Monad)
+
+runWriteJSON :: WriteJSON a -> (a, KeyEnv)
+runWriteJSON act = runState (unWriteJSON act) KeyEnv.empty
+
+{-------------------------------------------------------------------------------
+  Writing: Primitive functions
+-------------------------------------------------------------------------------}
+
+getAccumulatedKeys :: WriteJSON KeyEnv
+getAccumulatedKeys = WriteJSON $ get
+
+writeKeyAsId :: Some PublicKey -> WriteJSON JSValue
+writeKeyAsId key = do
+    WriteJSON $ modify $ KeyEnv.insert key
+    return $ JSString . keyIdString . someKeyId $ key
+
+{-------------------------------------------------------------------------------
+  Writing: Utility
+-------------------------------------------------------------------------------}
+
+renderJSON :: ToJSON WriteJSON a => a -> (BS.L.ByteString, KeyEnv)
+renderJSON a = let (val, keyEnv) = runWriteJSON (toJSON a)
+               in (renderCanonicalJSON val, keyEnv)
+
+writeCanonical :: ToJSON WriteJSON a => FilePath -> a -> IO KeyEnv
+writeCanonical fp a = do
+     let (bs, env) = renderJSON a
+     BS.L.writeFile fp bs
+     return env

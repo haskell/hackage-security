@@ -12,8 +12,6 @@ module Hackage.Security.TUF.Root (
   , readRootFile
   ) where
 
-import Control.Exception
-import Control.Monad.Reader
 import Data.Time
 import Data.Map (Map)
 import qualified Data.Map             as Map
@@ -120,13 +118,8 @@ instance ToJSON WriteJSON RoleSpec where
       , ("threshold" , roleSpecThreshold')
       ]
 
--- | We have to careful reading a root file to read the key dictionary first
 instance FromJSON ReadJSON Root where
   fromJSON enc = do
-    -- Make sure we've loaded the key environment (see bootstrapping, below)
-    keyEnvEmpty <- asks KeyEnv.null
-    assert (not keyEnvEmpty) $ return ()
-
     -- TODO: verify _type
     rootVersion <- fromJSField enc "version"
     rootExpires <- fromJSField enc "expires"
