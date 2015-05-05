@@ -20,7 +20,7 @@ fromByteString = Base64
 toByteString :: Base64 -> ByteString
 toByteString (Base64 bs) = bs
 
-instance Monad m => ToJSON m Base64 where
+instance ToJSON Base64 where
   toJSON (Base64 bs) = toJSON (C8.unpack (B64.encode bs))
 
 instance ReportSchemaErrors m => FromJSON m Base64 where

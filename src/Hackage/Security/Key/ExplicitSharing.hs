@@ -6,17 +6,13 @@ module Hackage.Security.Key.ExplicitSharing (
     -- ** Primitive operations
   , validate
   , addKeys
+  , withKeys
   , readKeyAsId
     -- ** Utility
   , parseJSON
   , readCanonical
     -- * Writing
-  , WriteJSON -- opaque
-  , runWriteJSON
-    -- ** Primitive operations
-  , getAccumulatedKeys
   , writeKeyAsId
-    -- ** Utility
   , renderJSON
   , writeCanonical
   ) where
@@ -24,7 +20,6 @@ module Hackage.Security.Key.ExplicitSharing (
 import Control.Exception
 import Control.Monad.Except
 import Control.Monad.Reader
-import Control.Monad.State
 import Data.Typeable (Typeable)
 import qualified Data.ByteString.Lazy as BS.L
 
@@ -81,6 +76,9 @@ validate msg False = throwError $ DeserializationErrorValidation msg
 addKeys :: KeyEnv -> ReadJSON a -> ReadJSON a
 addKeys keys (ReadJSON act) = ReadJSON $ local (KeyEnv.union keys) act
 
+withKeys :: KeyEnv -> ReadJSON a -> ReadJSON a
+withKeys keys (ReadJSON act) = ReadJSON $ local (const keys) act
+
 readKeyAsId :: JSValue -> ReadJSON (Some PublicKey)
 readKeyAsId (JSString kId) = lookupKey (KeyId kId)
 readKeyAsId _ = expected "key ID"
@@ -112,40 +110,18 @@ readCanonical :: FromJSON ReadJSON a
 readCanonical env fp = parseJSON env <$> BS.L.readFile fp
 
 {-------------------------------------------------------------------------------
-  Writing
--------------------------------------------------------------------------------}
-
--- We intentionally do not export the MonadState instance
-newtype WriteJSON a = WriteJSON {
-    unWriteJSON :: State KeyEnv a
-  }
-  deriving (Functor, Applicative, Monad)
-
-runWriteJSON :: WriteJSON a -> (a, KeyEnv)
-runWriteJSON act = runState (unWriteJSON act) KeyEnv.empty
-
-{-------------------------------------------------------------------------------
   Writing: Primitive functions
 -------------------------------------------------------------------------------}
 
-getAccumulatedKeys :: WriteJSON KeyEnv
-getAccumulatedKeys = WriteJSON $ get
-
-writeKeyAsId :: Some PublicKey -> WriteJSON JSValue
-writeKeyAsId key = do
-    WriteJSON $ modify $ KeyEnv.insert key
-    return $ JSString . keyIdString . someKeyId $ key
+writeKeyAsId :: Some PublicKey -> JSValue
+writeKeyAsId = JSString . keyIdString . someKeyId
 
 {-------------------------------------------------------------------------------
   Writing: Utility
 -------------------------------------------------------------------------------}
 
-renderJSON :: ToJSON WriteJSON a => a -> (BS.L.ByteString, KeyEnv)
-renderJSON a = let (val, keyEnv) = runWriteJSON (toJSON a)
-               in (renderCanonicalJSON val, keyEnv)
+renderJSON :: ToJSON a => a -> BS.L.ByteString
+renderJSON = renderCanonicalJSON . toJSON
 
-writeCanonical :: ToJSON WriteJSON a => FilePath -> a -> IO KeyEnv
-writeCanonical fp a = do
-     let (bs, env) = renderJSON a
-     BS.L.writeFile fp bs
-     return env
+writeCanonical :: ToJSON a => FilePath -> a -> IO ()
+writeCanonical fp = BS.L.writeFile fp . renderJSON

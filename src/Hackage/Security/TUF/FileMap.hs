@@ -17,6 +17,7 @@ module Hackage.Security.TUF.FileMap (
   , fromList
     -- * Utility
   , fileInfo
+  , fileInfoJSON
   ) where
 
 import Prelude hiding (lookup)
@@ -27,6 +28,7 @@ import qualified Data.ByteString.Lazy as BS.L
 
 import Hackage.Security.JSON
 import Hackage.Security.TUF.Ints
+import Hackage.Security.Key.ExplicitSharing (renderJSON)
 
 {-------------------------------------------------------------------------------
   Datatypes
@@ -71,30 +73,31 @@ fileInfo bs = FileInfo {
         ]
     }
 
+-- | Compute 'FileInfo' over the canonical JSON form
+fileInfoJSON :: ToJSON a => a -> FileInfo
+fileInfoJSON = fileInfo . renderJSON
+
 {-------------------------------------------------------------------------------
   JSON
 -------------------------------------------------------------------------------}
 
-instance Monad m => ToObjectKey m HashFn where
-  toObjectKey HashFnSHA256 = return "sha256"
+instance ToObjectKey HashFn where
+  toObjectKey HashFnSHA256 = "sha256"
 
 instance ReportSchemaErrors m => FromObjectKey m HashFn where
   fromObjectKey "sha256"   = return HashFnSHA256
   fromObjectKey _otherwise = expected "valid hash function"
 
-instance Monad m => ToJSON m FileMap where
+instance ToJSON FileMap where
   toJSON (FileMap metaFiles) = toJSON metaFiles
 
 instance ReportSchemaErrors m => FromJSON m FileMap where
   fromJSON enc = FileMap <$> fromJSON enc
 
-instance Monad m => ToJSON m FileInfo where
-  toJSON FileInfo{..} = do
-    fileInfoLength' <- toJSON fileInfoLength
-    fileInfoHashes' <- toJSON fileInfoHashes
-    return $ JSObject [
-        ("length", fileInfoLength')
-      , ("hashes", fileInfoHashes')
+instance ToJSON FileInfo where
+  toJSON FileInfo{..} = JSObject [
+        ("length", toJSON fileInfoLength)
+      , ("hashes", toJSON fileInfoHashes)
       ]
 
 instance ReportSchemaErrors m => FromJSON m FileInfo where

@@ -54,6 +54,11 @@ cmdBootstrap opts = do
     let root = Root {
             rootVersion = Version 1
           , rootExpires = addUTCTime (365 * oneDay) now
+          , rootKeys    = KeyEnv.fromKeys . map Some $ concat [
+                              rootKeys
+                            , [snapshotKey]
+                            , [timestampKey]
+                            ]
           , rootRoles   = Map.fromList [
                 (RoleRoot, RoleSpec {
                     roleSpecKeys      = map (Some . publicKey) rootKeys
@@ -78,7 +83,7 @@ cmdBootstrap opts = do
             timestampVersion = Version 1
           , timestampExpires = addUTCTime (3 * oneDay) now
           , timestampMeta    = FileMap.fromList [
-                ("snapshot.json", fileInfoJSON signedSnapshot)
+                ("snapshot.json", FileMap.fileInfoJSON signedSnapshot)
               ]
           }
         signedRoot      = withSignatures (map Some rootKeys) root
@@ -108,10 +113,6 @@ cmdBootstrap opts = do
         path = mkPath opts where_ ("keys" </> prefix </> kId <.> "private")
 
 
--- | Compute 'FileInfo' over the canonical JSON form
-fileInfoJSON :: ToJSON WriteJSON a => a -> FileMap.FileInfo
-fileInfoJSON = FileMap.fileInfo . fst . renderJSON
-
 {-------------------------------------------------------------------------------
   Internal checks
 -------------------------------------------------------------------------------}
@@ -121,17 +122,17 @@ cmdRoundtrip fp _opts = do
     case fp of
       "root.json" -> do
         (root, _keyEnv) <- readRoot fp
-        BS.L.putStr . fst $ renderJSON root
+        BS.L.putStr $ renderJSON root
       "snapshot.json" -> do
         -- We need the root file to resolve keys
         (_root, keyEnv) <- readRoot "root.json"
         (snapshot :: Signed Snapshot) <- readJSON keyEnv "snapshot.json"
-        BS.L.putStr . fst $ renderJSON snapshot
+        BS.L.putStr $ renderJSON snapshot
       "timestamp.json" -> do
         -- We need the root file to resolve keys
         (_root, keyEnv) <- readRoot "root.json"
         (timestamp :: Signed Timestamp) <- readJSON keyEnv "timestamp.json"
-        BS.L.putStr . fst $ renderJSON timestamp
+        BS.L.putStr $ renderJSON timestamp
       _otherwise ->
         putStrLn $ "Don't know how to parse " ++ fp
 
@@ -262,7 +263,7 @@ cmdUpload pkg opts = do
             timestampVersion = incrementVersion (timestampVersion oldTimestamp')
           , timestampExpires = addUTCTime (3 * oneDay) now
           , timestampMeta    = FileMap.fromList [
-                ("snapshot.json", fileInfoJSON newSnapshot)
+                ("snapshot.json", FileMap.fileInfoJSON newSnapshot)
               ]
           }
         newTimestamp  = withSignatures timestampKeys newTimestamp'
@@ -300,7 +301,10 @@ mkPath Options{..} where_ fp =
       Offline -> optOffline </> fp
 
 readRoot :: FilePath -> IO (Signed Root, KeyEnv)
-readRoot fp = either throwIO return =<< readRootFile fp
+readRoot fp = either throwIO (return . aux) =<< readCanonical KeyEnv.empty fp
+  where
+    aux :: Signed Root -> (Signed Root, KeyEnv)
+    aux root@Signed{signed = Root{..}} = (root, rootKeys)
 
 readJSON :: FromJSON ReadJSON a => KeyEnv -> FilePath -> IO a
 readJSON env fp = either throwIO return =<< readCanonical env fp

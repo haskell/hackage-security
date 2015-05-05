@@ -4,12 +4,17 @@
 -- we translate this to implicit sharing in our Haskell datatypes, with the
 -- translation done in the JSON serialization/deserialization.
 module Hackage.Security.TUF.Signed (
+    -- * TUF types
     Signed(..)
   , Signature(..)
-  , signeded
+    -- * Construction and verification
+  , unsigned
   , withSignatures
   , addSignature
   , verifySignature
+    -- * JSON aids
+  , signedFromJSON
+  , verifySignatures
   ) where
 
 import qualified Data.ByteString      as BS
@@ -33,19 +38,19 @@ data Signature = Signature {
   }
 
 -- | Create a new document without any signatures
-signeded :: a -> Signed a
-signeded a = Signed { signed = a, signatures = [] }
+unsigned :: a -> Signed a
+unsigned a = Signed { signed = a, signatures = [] }
 
-withSignatures :: ToJSON WriteJSON a => [Some Key] -> a -> Signed a
-withSignatures []                = signeded
+withSignatures :: ToJSON a => [Some Key] -> a -> Signed a
+withSignatures []                = unsigned
 withSignatures (Some key : keys) = addSignature key . withSignatures keys
 
 -- | Add a new signature to a signed document
-addSignature :: ToJSON WriteJSON a => Key typ -> Signed a -> Signed a
+addSignature :: ToJSON a => Key typ -> Signed a -> Signed a
 addSignature key doc = doc { signatures = newSignature : signatures doc }
   where
     newSignature = Signature {
-        signature    = sign (privateKey key) . fst . renderJSON $ signed doc
+        signature    = sign (privateKey key) . renderJSON $ signed doc
       , signatureKey = Some $ publicKey key
       }
 
@@ -53,24 +58,17 @@ verifySignature :: BS.L.ByteString -> Signature -> Bool
 verifySignature inp Signature{signature = sig, signatureKey = Some pub} =
   verify pub inp sig
 
-instance ToJSON WriteJSON a => ToJSON WriteJSON (Signed a) where
-  toJSON Signed{..} = do
-     signed'     <- toJSON signed
-     signatures' <- toJSON signatures
-     return $ JSObject [
-         ("signed"     , signed')
-       , ("signatures" , signatures')
+instance ToJSON a => ToJSON (Signed a) where
+  toJSON Signed{..} = JSObject [
+         ("signed"     , toJSON signed)
+       , ("signatures" , toJSON signatures)
        ]
 
-instance ToJSON WriteJSON Signature where
-  toJSON Signature{..} = do
-     keyid  <- writeKeyAsId signatureKey
-     method <- toJSON (somePublicKeyType signatureKey)
-     sig    <- toJSON (B64.fromByteString signature)
-     return $ JSObject [
-         ("keyid"  , keyid)
-       , ("method" , method)
-       , ("sig"    , sig)
+instance ToJSON Signature where
+  toJSON Signature{..} = JSObject [
+         ("keyid"  , writeKeyAsId signatureKey)
+       , ("method" , toJSON $ somePublicKeyType signatureKey)
+       , ("sig"    , toJSON $ B64.fromByteString signature)
        ]
 
 instance FromJSON ReadJSON Signature where
@@ -84,31 +82,38 @@ instance FromJSON ReadJSON Signature where
         , signatureKey = key
         }
 
-instance FromJSON ReadJSON a => FromJSON ReadJSON (Signed a) where
-  fromJSON enc = do
-      signed'    <- fromJSField enc "signed"
-      -- Important that we fully decode signed' first in the case that it
-      -- contains a key dictionary (which we might need to resolve signatures)
-      signed     <- fromJSON signed'
-      signatures <- fromJSField enc "signatures"
+{-------------------------------------------------------------------------------
+  JSON aids
+-------------------------------------------------------------------------------}
 
-      -- Signature verification
-      --
-      -- NOTES:
-      -- 1. By definition, the signature must be verified against the canonical
-      --    JSON format. This means we _must_ parse and then pretty print (as
-      --    we do here) because the document as stored may or may not be in
-      --    canonical format.
-      -- 2. However, it is important that we NOT translate from the JSValue
-      --    to whatever internal datatype we are using and then back to JSValue,
-      --    because that may not roundtrip: we must allow for additional fields
-      --    in the JSValue that we ignore (and would therefore lose when we
-      --    attempt to roundtrip).
-      -- 3. We verify that all signatures are valid, but we cannot verify (here)
-      --    that these signatures are signed with the right key, or that we
-      --    have a sufficient number of signatures. This will be the
-      --    responsibility of the calling code.
-      validate "signatures" $
-        all (verifySignature (renderCanonicalJSON signed')) signatures
+-- | General FromJSON instance for signed datatypes
+--
+-- We don't give a general FromJSON instance for Signed because for some
+-- datatypes we need to do something special (datatypes where we need to
+-- read key environments); for instance, see the "Signed Root" instance.
+signedFromJSON :: FromJSON ReadJSON a => JSValue -> ReadJSON (Signed a)
+signedFromJSON envelope = do
+    enc        <- fromJSField envelope "signed"
+    signed     <- fromJSON enc
+    signatures <- fromJSField envelope "signatures"
+    validate "signatures" $ verifySignatures enc signatures
+    return Signed{..}
 
-      return Signed{..}
+-- | Signature verification
+--
+-- NOTES:
+-- 1. By definition, the signature must be verified against the canonical
+--    JSON format. This means we _must_ parse and then pretty print (as
+--    we do here) because the document as stored may or may not be in
+--    canonical format.
+-- 2. However, it is important that we NOT translate from the JSValue
+--    to whatever internal datatype we are using and then back to JSValue,
+--    because that may not roundtrip: we must allow for additional fields
+--    in the JSValue that we ignore (and would therefore lose when we
+--    attempt to roundtrip).
+-- 3. We verify that all signatures are valid, but we cannot verify (here)
+--    that these signatures are signed with the right key, or that we
+--    have a sufficient number of signatures. This will be the
+--    responsibility of the calling code.
+verifySignatures :: JSValue -> [Signature] -> Bool
+verifySignatures = all . verifySignature . renderCanonicalJSON

@@ -1,6 +1,12 @@
 module Hackage.Security.Key.Env (
     KeyEnv -- opaque
   , keyEnvMap
+    -- * Convenience constructors
+  , fromPublicKeys
+  , fromPublicKeys'
+  , fromKeys
+  , fromKeys'
+    -- * The usual accessors
   , empty
   , null
   , insert
@@ -19,6 +25,25 @@ import Hackage.Security.Some
 newtype KeyEnv = KeyEnv {
     keyEnvMap :: Map KeyId (Some PublicKey)
   }
+
+{-------------------------------------------------------------------------------
+  Convenience constructors
+-------------------------------------------------------------------------------}
+
+fromPublicKeys :: [Some PublicKey] -> KeyEnv
+fromPublicKeys = KeyEnv . Map.fromList . map aux
+  where
+    aux :: Some PublicKey -> (KeyId, Some PublicKey)
+    aux pub = (someKeyId pub, pub)
+
+fromPublicKeys' :: [PublicKey typ] -> KeyEnv
+fromPublicKeys' = fromPublicKeys . map Some
+
+fromKeys :: [Some Key] -> KeyEnv
+fromKeys = fromPublicKeys . map somePublicKey
+
+fromKeys' :: [Key typ] -> KeyEnv
+fromKeys' = fromKeys . map Some
 
 {-------------------------------------------------------------------------------
   The usual accessors
@@ -43,7 +68,7 @@ union (KeyEnv env) (KeyEnv env') = KeyEnv (env `Map.union` env')
   JSON
 -------------------------------------------------------------------------------}
 
-instance Monad m => ToJSON m KeyEnv where
+instance ToJSON KeyEnv where
   toJSON (KeyEnv keyEnv) = toJSON keyEnv
 
 -- TODO: verify key ID matches

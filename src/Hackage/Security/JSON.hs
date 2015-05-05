@@ -14,7 +14,6 @@ module Hackage.Security.JSON (
   , JSValue(..)
   ) where
 
-import Control.Monad
 import Data.Map (Map)
 import Data.Time
 import Text.JSON.Canonical
@@ -30,15 +29,15 @@ import System.Locale
   We parameterize over the monad here to avoid mutual module dependencies.
 -------------------------------------------------------------------------------}
 
-class ToJSON m a where
-  toJSON :: a -> m JSValue
+class ToJSON a where
+  toJSON :: a -> JSValue
 
 class FromJSON m a where
   fromJSON :: JSValue -> m a
 
 -- | Used in the 'ToJSON' instance for 'Map'
-class ToObjectKey m a where
-  toObjectKey :: a -> m String
+class ToObjectKey a where
+  toObjectKey :: a -> String
 
 -- | Used in the 'FromJSON' instance for 'Map'
 class FromObjectKey m a where
@@ -52,8 +51,8 @@ class (Applicative m, Monad m) => ReportSchemaErrors m where
   ToObjectKey and FromObjectKey instances
 -------------------------------------------------------------------------------}
 
-instance Monad m => ToObjectKey m String where
-  toObjectKey = return
+instance ToObjectKey String where
+  toObjectKey = id
 
 instance Monad m => FromObjectKey m String where
   fromObjectKey = return
@@ -62,35 +61,35 @@ instance Monad m => FromObjectKey m String where
   ToJSON and FromJSON instances
 -------------------------------------------------------------------------------}
 
-instance Monad m => ToJSON m JSValue where
-  toJSON = return
+instance ToJSON JSValue where
+  toJSON = id
 
 instance Monad m => FromJSON m JSValue where
   fromJSON = return
 
-instance Monad m => ToJSON m String where
-  toJSON = return . JSString
+instance ToJSON String where
+  toJSON = JSString
 
 instance ReportSchemaErrors m => FromJSON m String where
   fromJSON (JSString str) = return str
   fromJSON _              = expected "string"
 
-instance Monad m => ToJSON m Int where
-  toJSON = return . JSNum
+instance ToJSON Int where
+  toJSON = JSNum
 
 instance ReportSchemaErrors m => FromJSON m Int where
   fromJSON (JSNum i) = return i
   fromJSON _         = expected "int"
 
-instance (Monad m, ToJSON m a) => ToJSON m [a] where
-  toJSON = liftM JSArray . mapM toJSON
+instance ToJSON a => ToJSON [a] where
+  toJSON = JSArray . map toJSON
 
 instance (ReportSchemaErrors m, FromJSON m a) => FromJSON m [a] where
   fromJSON (JSArray as) = mapM fromJSON as
   fromJSON _            = expected "array"
 
-instance Monad m => ToJSON m UTCTime where
-  toJSON = return . JSString . formatTime defaultTimeLocale "%FT%TZ"
+instance ToJSON UTCTime where
+  toJSON = JSString . formatTime defaultTimeLocale "%FT%TZ"
 
 instance ReportSchemaErrors m => FromJSON m UTCTime where
   fromJSON enc = do
@@ -103,14 +102,13 @@ instance ReportSchemaErrors m => FromJSON m UTCTime where
       parseTimeM _trim = parseTime
 #endif
 
-instance ( Monad m
-         , ToObjectKey m k
-         , ToJSON m a
-         ) => ToJSON m (Map k a) where
-  toJSON = liftM JSObject . mapM aux . Map.toList
+instance ( ToObjectKey k
+         , ToJSON a
+         ) => ToJSON (Map k a) where
+  toJSON = JSObject . map aux . Map.toList
     where
-      aux :: (k, a) -> m (String, JSValue)
-      aux (k, a) = liftM2 (,) (toObjectKey k) (toJSON a)
+      aux :: (k, a) -> (String, JSValue)
+      aux (k, a) = (toObjectKey k, toJSON a)
 
 instance ( ReportSchemaErrors m
          , Ord k

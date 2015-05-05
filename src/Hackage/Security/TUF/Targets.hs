@@ -262,22 +262,17 @@ parseDelegation = \pat repl -> runExcept $ go pat repl
   JSON
 -------------------------------------------------------------------------------}
 
-instance Monad m => ToJSON m (Pattern typ) where
-  toJSON = return . JSString . prettyPattern
-instance Monad m => ToJSON m (Replacement typ) where
-  toJSON = return . JSString . prettyReplacement
+instance ToJSON (Pattern typ) where
+  toJSON = JSString . prettyPattern
+instance ToJSON (Replacement typ) where
+  toJSON = JSString . prettyReplacement
 
-instance ToJSON WriteJSON DelegationSpec where
-  toJSON DelegationSpec{delegation = Delegation path name, ..} = do
-    delegationName'          <- toJSON name
-    delegationSpecKeys'      <- mapM writeKeyAsId delegationSpecKeys
-    delegationSpecThreshold' <- toJSON delegationSpecThreshold
-    delegationPath'          <- toJSON path
-    return $ JSObject [
-        ("name"      , delegationName')
-      , ("keyids"    , JSArray delegationSpecKeys')
-      , ("threshold" , delegationSpecThreshold')
-      , ("path"      , delegationPath')
+instance ToJSON DelegationSpec where
+  toJSON DelegationSpec{delegation = Delegation path name, ..} = JSObject [
+        ("name"      , toJSON name)
+      , ("keyids"    , JSArray $ map writeKeyAsId delegationSpecKeys)
+      , ("threshold" , toJSON delegationSpecThreshold)
+      , ("path"      , toJSON path)
       ]
 
 instance FromJSON ReadJSON DelegationSpec where
@@ -290,12 +285,10 @@ instance FromJSON ReadJSON DelegationSpec where
       Left  err        -> expected $ "valid name/path combination: " ++ err
       Right delegation -> return DelegationSpec{..}
 
-instance ToJSON WriteJSON Delegations where
-  toJSON (Delegations roles) = do
-    roles' <- toJSON roles
-    return $ JSObject [
+instance ToJSON Delegations where
+  toJSON (Delegations roles) = JSObject [
         ("keys"  , undefined) -- TODO
-      , ("roles" , roles')
+      , ("roles" , toJSON roles)
       ]
 
 instance FromJSON ReadJSON Delegations where
@@ -304,18 +297,13 @@ instance FromJSON ReadJSON Delegations where
     roles <- fromJSField enc "roles"
     return $ Delegations roles
 
-instance ToJSON WriteJSON Targets where
-  toJSON Targets{..} = do
-    targetsVersion'     <- toJSON targetsVersion
-    targetsExpires'     <- toJSON targetsExpires
-    targets'            <- toJSON targets
-    targetsDelegations' <- toJSON targetsDelegations
-    return $ JSObject [
+instance ToJSON Targets where
+  toJSON Targets{..} = JSObject [
         ("_type"       , JSString "Targets")
-      , ("version"     , targetsVersion')
-      , ("expires"     , targetsExpires')
-      , ("targets"     , targets')
-      , ("delegations" , targetsDelegations')
+      , ("version"     , toJSON targetsVersion)
+      , ("expires"     , toJSON targetsExpires)
+      , ("targets"     , toJSON targets)
+      , ("delegations" , toJSON targetsDelegations)
       ]
 
 instance FromJSON ReadJSON Targets where

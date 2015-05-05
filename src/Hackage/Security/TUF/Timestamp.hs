@@ -8,8 +8,10 @@ import Data.Time
 import qualified Data.Map as Map
 
 import Hackage.Security.JSON
+import Hackage.Security.Key.ExplicitSharing
 import Hackage.Security.TUF.FileMap (FileMap, FileInfo(..), HashFn(..))
 import Hackage.Security.TUF.Ints
+import Hackage.Security.TUF.Signed
 import qualified Hackage.Security.TUF.FileMap as FileMap
 
 {-------------------------------------------------------------------------------
@@ -40,16 +42,12 @@ snapshotHash Timestamp{..} =
   JSON
 -------------------------------------------------------------------------------}
 
-instance Monad m => ToJSON m Timestamp where
-  toJSON Timestamp{..} = do
-    timestampVersion' <- toJSON timestampVersion
-    timestampExpires' <- toJSON timestampExpires
-    timestampMeta'    <- toJSON timestampMeta
-    return $ JSObject [
+instance ToJSON Timestamp where
+  toJSON Timestamp{..} = JSObject [
         ("_type"   , JSString "Timestamp")
-      , ("version" , timestampVersion')
-      , ("expires" , timestampExpires')
-      , ("meta"    , timestampMeta')
+      , ("version" , toJSON timestampVersion)
+      , ("expires" , toJSON timestampExpires)
+      , ("meta"    , toJSON timestampMeta)
       ]
 
 instance ReportSchemaErrors m => FromJSON m Timestamp where
@@ -59,3 +57,6 @@ instance ReportSchemaErrors m => FromJSON m Timestamp where
     timestampExpires <- fromJSField enc "expires"
     timestampMeta    <- fromJSField enc "meta"
     return Timestamp{..}
+
+instance FromJSON ReadJSON (Signed Timestamp) where
+  fromJSON = signedFromJSON
