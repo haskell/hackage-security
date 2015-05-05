@@ -5,6 +5,7 @@ module Hackage.Security.Key.ExplicitSharing (
   , runWriteJSON
   , runReadJSON
     -- * Primitive functions
+  , addKeys
   , getAccumulatedKeys
   , validate
   , writeKeyAsId
@@ -18,8 +19,11 @@ module Hackage.Security.Key.ExplicitSharing (
   , readCanonical
   ) where
 
+import Control.Exception
 import Control.Monad.Except
+import Control.Monad.Reader
 import Control.Monad.State
+import Data.Typeable (Typeable)
 import qualified Data.ByteString.Lazy as BS.L
 
 import Hackage.Security.Key
@@ -48,7 +52,9 @@ data DeserializationError =
 
     -- | Some verification step failed
   | DeserializationErrorValidation String
-  deriving Show
+  deriving (Typeable, Show)
+
+instance Exception DeserializationError
 
 newtype WriteJSON a = WriteJSON {
     unWriteJSON :: State KeyEnv a
@@ -63,24 +69,27 @@ runWriteJSON :: WriteJSON a -> (a, KeyEnv)
 runWriteJSON act = runState (unWriteJSON act) KeyEnv.empty
 
 newtype ReadJSON a = ReadJSON {
-    unReadJSON :: ExceptT DeserializationError (State KeyEnv) a
+    unReadJSON :: ExceptT DeserializationError (Reader KeyEnv) a
   }
   deriving ( Functor
            , Applicative
            , Monad
            , MonadError DeserializationError
-           , MonadState KeyEnv
+           , MonadReader KeyEnv
            )
 
 instance ReportSchemaErrors ReadJSON where
   expected str = throwError $ DeserializationErrorSchema $ "Expected " ++ str
 
-runReadJSON :: KeyEnv -> ReadJSON a -> (Either DeserializationError a, KeyEnv)
-runReadJSON env act = runState (runExceptT (unReadJSON act)) env
+runReadJSON :: KeyEnv -> ReadJSON a -> Either DeserializationError a
+runReadJSON env act = runReader (runExceptT (unReadJSON act)) env
 
 {-------------------------------------------------------------------------------
   Primitive functions
 -------------------------------------------------------------------------------}
+
+addKeys :: KeyEnv -> ReadJSON a -> ReadJSON a
+addKeys = local . KeyEnv.union
 
 getAccumulatedKeys :: MonadState KeyEnv m => m KeyEnv
 getAccumulatedKeys = get
@@ -103,7 +112,7 @@ recordKey key = modify $ KeyEnv.insert key
 
 lookupKey :: KeyId -> ReadJSON (Some PublicKey)
 lookupKey kId = do
-    env <- get
+    env <- ask
     case KeyEnv.lookup kId env of
       Just key -> return key
       Nothing  -> throwError $ DeserializationErrorUnknownKey kId
@@ -119,10 +128,10 @@ renderJSON a = let (val, keyEnv) = runWriteJSON (toJSON a)
 parseJSON :: FromJSON ReadJSON a
           => KeyEnv
           -> BS.L.ByteString
-          -> (Either DeserializationError a, KeyEnv)
+          -> Either DeserializationError a
 parseJSON env bs =
     case parseCanonicalJSON bs of
-      Left  err -> (Left (DeserializationErrorMalformed err), env)
+      Left  err -> Left (DeserializationErrorMalformed err)
       Right val -> runReadJSON env (fromJSON val)
 
 writeCanonical :: ToJSON WriteJSON a => FilePath -> a -> IO KeyEnv
@@ -134,5 +143,5 @@ writeCanonical fp a = do
 readCanonical :: FromJSON ReadJSON a
               => KeyEnv
               -> FilePath
-              -> IO (Either DeserializationError a, KeyEnv)
+              -> IO (Either DeserializationError a)
 readCanonical env fp = parseJSON env <$> BS.L.readFile fp

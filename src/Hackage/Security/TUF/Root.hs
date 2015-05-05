@@ -8,19 +8,26 @@ module Hackage.Security.TUF.Root (
   , roleTimestamp
   , roleSnapshot
   , verifyThreshold
+    -- * Bootstrapping
+  , readRootFile
   ) where
 
-import Control.Monad.State
+import Control.Exception
+import Control.Monad.Reader
 import Data.Time
 import Data.Map (Map)
-import qualified Data.Map as Map
+import qualified Data.Map             as Map
+import qualified Data.ByteString.Lazy as BS.L
 
 import Hackage.Security.JSON
 import Hackage.Security.Key
+import Hackage.Security.Key.Env (KeyEnv)
 import Hackage.Security.Key.ExplicitSharing
 import Hackage.Security.Some
 import Hackage.Security.TUF.Ints
 import Hackage.Security.TUF.Signed
+import Text.JSON.Canonical
+import qualified Hackage.Security.Key.Env as KeyEnv
 
 {-------------------------------------------------------------------------------
   Datatypes
@@ -116,9 +123,11 @@ instance ToJSON WriteJSON RoleSpec where
 -- | We have to careful reading a root file to read the key dictionary first
 instance FromJSON ReadJSON Root where
   fromJSON enc = do
-    -- TODO: Check that current key dict is empty
-    -- TODO: Should we verify _type?
-    put =<< fromJSField enc "keys"
+    -- Make sure we've loaded the key environment (see bootstrapping, below)
+    keyEnvEmpty <- asks KeyEnv.null
+    assert (not keyEnvEmpty) $ return ()
+
+    -- TODO: verify _type
     rootVersion <- fromJSField enc "version"
     rootExpires <- fromJSField enc "expires"
     rootRoles   <- fromJSField enc "roles"
@@ -129,3 +138,28 @@ instance FromJSON ReadJSON RoleSpec where
     roleSpecKeys      <- mapM readKeyAsId =<< fromJSField enc "keyids"
     roleSpecThreshold <- fromJSField enc "threshold"
     return RoleSpec{..}
+
+{-------------------------------------------------------------------------------
+  Bootstrapping
+-------------------------------------------------------------------------------}
+
+-- | Read a root JSON value
+--
+-- The root JSON file is a bit different because it contains its own key
+-- environment, so we need to extract this separately. We cannot extract it
+-- locally in the ReadJSON instance for Root because although this environment
+-- is defined inside the Root datatype, it is needed outside of it: both in the
+-- Signed envelope around the root data (for the signatures), but also for
+-- reading any of the other json files.
+readRootFile :: FilePath -> IO (Either DeserializationError (Signed Root, KeyEnv))
+readRootFile fp = go <$> BS.L.readFile fp
+  where
+    go :: BS.L.ByteString -> Either DeserializationError (Signed Root, KeyEnv)
+    go bs =
+      case parseCanonicalJSON bs of
+        Left  err -> Left $ DeserializationErrorMalformed err
+        Right enc -> runReadJSON KeyEnv.empty $ do
+          signed  <- fromJSField enc    "signed"
+          keyDict <- fromJSField signed "keys"
+          root    <- addKeys keyDict $ fromJSON enc
+          return (root, keyDict)

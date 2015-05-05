@@ -2,11 +2,13 @@ module Hackage.Security.Key.Env (
     KeyEnv -- opaque
   , keyEnvMap
   , empty
+  , null
   , insert
   , lookup
+  , union
   ) where
 
-import Prelude hiding (lookup)
+import Prelude hiding (lookup, null)
 import Data.Map (Map)
 import qualified Data.Map as Map
 
@@ -25,11 +27,17 @@ newtype KeyEnv = KeyEnv {
 empty :: KeyEnv
 empty = KeyEnv Map.empty
 
+null :: KeyEnv -> Bool
+null (KeyEnv env) = Map.null env
+
 insert :: Some PublicKey -> KeyEnv -> KeyEnv
 insert key (KeyEnv env) = KeyEnv $ Map.insert (someKeyId key) key env
 
 lookup :: KeyId -> KeyEnv -> Maybe (Some PublicKey)
 lookup kId (KeyEnv env) = Map.lookup kId env
+
+union :: KeyEnv -> KeyEnv -> KeyEnv
+union (KeyEnv env) (KeyEnv env') = KeyEnv (env `Map.union` env')
 
 {-------------------------------------------------------------------------------
   JSON

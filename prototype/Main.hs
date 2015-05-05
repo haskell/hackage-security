@@ -120,17 +120,17 @@ cmdRoundtrip :: FilePath -> Options -> IO ()
 cmdRoundtrip fp _opts = do
     case fp of
       "root.json" -> do
-        (root :: Signed Root, _keyEnv) <- readJSON KeyEnv.empty fp
+        (root, _keyEnv) <- readRoot fp
         BS.L.putStr . fst $ renderJSON root
       "snapshot.json" -> do
         -- We need the root file to resolve keys
-        (_root    :: Signed Root    , keyEnv) <- readJSON KeyEnv.empty "root.json"
-        (snapshot :: Signed Snapshot, _     ) <- readJSON keyEnv       "snapshot.json"
+        (_root, keyEnv) <- readRoot "root.json"
+        (snapshot :: Signed Snapshot) <- readJSON keyEnv "snapshot.json"
         BS.L.putStr . fst $ renderJSON snapshot
       "timestamp.json" -> do
         -- We need the root file to resolve keys
-        (_root     :: Signed Root     , keyEnv) <- readJSON KeyEnv.empty "root.json"
-        (timestamp :: Signed Timestamp, _     ) <- readJSON keyEnv       "timestamp.json"
+        (_root, keyEnv) <- readRoot "root.json"
+        (timestamp :: Signed Timestamp) <- readJSON keyEnv "timestamp.json"
         BS.L.putStr . fst $ renderJSON timestamp
       _otherwise ->
         putStrLn $ "Don't know how to parse " ++ fp
@@ -163,9 +163,9 @@ cmdCheck opts = do
     -- TODO: Although the version number is allowed to stay the same, we should
     -- probably verify that _if_ it does stay the same _then_ the snapshot
     -- timestamp should also stay the same?
-    (root, keyEnv) <- readJSON KeyEnv.empty pathClientRoot
-    (oldTS, _) <- readJSON keyEnv pathClientTime
-    (newTS, _) <- readJSON keyEnv pathServerTime
+    (root, keyEnv) <- readRoot pathClientRoot
+    oldTS <- readJSON keyEnv pathClientTime
+    newTS <- readJSON keyEnv pathServerTime
 
     -- Verify the timestamp file
     let tsRole = roleTimestamp (signed root)
@@ -230,7 +230,7 @@ cmdUpload pkg opts = do
     now <- getCurrentTime
 
     -- Read root metadata
-    (root, keyEnv) <- readJSON KeyEnv.empty pathRoot
+    (root, keyEnv) <- readRoot pathRoot
     let root'          = signed root
         snapshotKeys'  = roleSpecKeys (roleSnapshot  root')
         timestampKeys' = roleSpecKeys (roleTimestamp root')
@@ -245,7 +245,7 @@ cmdUpload pkg opts = do
         targetPath     = mkPath opts Server ("targets" </> pkg)
 
     -- Create new snapshot
-    (oldSnapshot, _) <- readJSON keyEnv pathSnapshot
+    oldSnapshot <- readJSON keyEnv pathSnapshot
     let oldSnapshot' = signed oldSnapshot
         newSnapshot' = Snapshot {
             snapshotVersion = incrementVersion (snapshotVersion oldSnapshot')
@@ -256,7 +256,7 @@ cmdUpload pkg opts = do
         newSnapshot  = withSignatures snapshotKeys newSnapshot'
 
     -- Create new timestamp
-    (oldTimestamp, _) <- readJSON keyEnv pathTimestamp
+    oldTimestamp <- readJSON keyEnv pathTimestamp
     let oldTimestamp' = signed oldTimestamp
         newTimestamp' = Timestamp {
             timestampVersion = incrementVersion (timestampVersion oldTimestamp')
@@ -280,7 +280,7 @@ cmdUpload pkg opts = do
 
     readPrivateKey :: FilePath -> Some PublicKey -> IO (Some Key)
     readPrivateKey prefix pub =
-        fst <$> readJSON KeyEnv.empty path
+        readJSON KeyEnv.empty path
       where
         kId   = keyIdString (someKeyId pub)
         path' = "keys" </> prefix </> kId <.> "private"
@@ -299,12 +299,11 @@ mkPath Options{..} where_ fp =
       Client  -> optClient  </> fp
       Offline -> optOffline </> fp
 
-readJSON :: FromJSON ReadJSON a => KeyEnv -> FilePath -> IO (a, KeyEnv)
-readJSON env fp' = do
-  (mParsed, keyEnv) <- readCanonical env fp'
-  case mParsed of
-    Left  err    -> throwIO . userError $ "Failed to parse: " ++ show err
-    Right parsed -> return (parsed, keyEnv)
+readRoot :: FilePath -> IO (Signed Root, KeyEnv)
+readRoot fp = either throwIO return =<< readRootFile fp
+
+readJSON :: FromJSON ReadJSON a => KeyEnv -> FilePath -> IO a
+readJSON env fp = either throwIO return =<< readCanonical env fp
 
 oneDay :: NominalDiffTime
 oneDay = 24 * 60 * 60
