@@ -17,35 +17,17 @@ module Hackage.Security.Key (
     -- * Key IDs
   , KeyId(..)
   , HasKeyId(..)
-    -- * Explicit sharing
-  , KeyEnv(..)
-  , keyEnvEmpty
-  , keyEnvInsert
-  , keyEnvLookup
-  , writeKeyAsId
-  , readKeyAsId
-    -- * JSON auxiliary
-  , WriteJSON(..)
-  , ReadJSON(..)
-  , renderJSON
-  , validate
-  , getAccumulatedKeys
-  , writeCanonical
-  , readCanonical
     -- * Signing
   , sign
   , verify
   ) where
 
-import Control.Monad.Except
-import Control.Monad.State
 import Data.Digest.Pure.SHA
-import Data.Map (Map)
+import Data.Functor.Identity
 import Text.JSON.Canonical
 import qualified Crypto.Sign.Ed25519  as Ed25519
 import qualified Data.ByteString      as BS
 import qualified Data.ByteString.Lazy as BS.L
-import qualified Data.Map             as Map
 
 import Hackage.Security.JSON
 import Hackage.Security.Some
@@ -151,7 +133,12 @@ class HasKeyId key where
   keyId :: key typ -> KeyId
 
 instance HasKeyId PublicKey where
-  keyId = KeyId . showDigest . sha256 . fst . renderJSON
+  keyId = KeyId
+        . showDigest
+        . sha256
+        . renderCanonicalJSON
+        . runIdentity
+        . toJSON
 
 instance HasKeyId Key where
   keyId = keyId . publicKey
@@ -171,127 +158,6 @@ sign (PrivateKeyEd25519 pri) =
 verify :: PublicKey typ -> BS.L.ByteString -> BS.ByteString -> Bool
 verify (PublicKeyEd25519 pub) inp sig =
     Ed25519.verify' pub (BS.concat $ BS.L.toChunks inp) (Ed25519.Signature sig)
-
-{-------------------------------------------------------------------------------
-  Monads we use for writing and reading JSON with explicit key sharing
--------------------------------------------------------------------------------}
-
-data DeserializationError =
-    -- | Malformed JSON has syntax errors in the JSON itself
-    -- (i.e., we cannot even parse it to a JSValue)
-    DeserializationErrorMalformed String
-
-    -- | Invalid JSON has valid syntax but invalid structure
-    --
-    -- The string gives a hint about what we expected instead
-  | DeserializationErrorSchema String
-
-    -- | The JSON file contains a key ID of an unknown key
-  | DeserializationErrorUnknownKey KeyId
-
-    -- | Some verification step failed
-  | DeserializationErrorValidation String
-  deriving Show
-
-newtype WriteJSON a = WriteJSON {
-    unWriteJSON :: State KeyEnv a
-  }
-  deriving ( Functor
-           , Applicative
-           , Monad
-           , MonadState KeyEnv
-           )
-
-runWriteJSON :: WriteJSON a -> (a, KeyEnv)
-runWriteJSON act = runState (unWriteJSON act) keyEnvEmpty
-
-newtype ReadJSON a = ReadJSON {
-    unReadJSON :: ExceptT DeserializationError (State KeyEnv) a
-  }
-  deriving ( Functor
-           , Applicative
-           , Monad
-           , MonadError DeserializationError
-           , MonadState KeyEnv
-           )
-
-instance ReportSchemaErrors ReadJSON where
-  expected str = throwError $ DeserializationErrorSchema $ "Expected " ++ str
-
-runReadJSON :: KeyEnv -> ReadJSON a -> (Either DeserializationError a, KeyEnv)
-runReadJSON env act = runState (runExceptT (unReadJSON act)) env
-
-getAccumulatedKeys :: MonadState KeyEnv m => m KeyEnv
-getAccumulatedKeys = get
-
-validate :: String -> Bool -> ReadJSON ()
-validate _   True  = return ()
-validate msg False = throwError $ DeserializationErrorValidation msg
-
-{-------------------------------------------------------------------------------
-  Explicit sharing
--------------------------------------------------------------------------------}
-
-newtype KeyEnv = KeyEnv {
-    keyEnvMap :: Map KeyId (Some PublicKey)
-  }
-
-keyEnvEmpty :: KeyEnv
-keyEnvEmpty = KeyEnv Map.empty
-
-keyEnvInsert :: Some PublicKey -> KeyEnv -> KeyEnv
-keyEnvInsert key (KeyEnv env) = KeyEnv $ Map.insert (someKeyId key) key env
-
-keyEnvLookup :: KeyId -> KeyEnv -> Maybe (Some PublicKey)
-keyEnvLookup kId (KeyEnv env) = Map.lookup kId env
-
-writeKeyAsId :: Some PublicKey -> WriteJSON JSValue
-writeKeyAsId key = do
-    recordKey key
-    return $ JSString . keyIdString . someKeyId $ key
-
-readKeyAsId :: JSValue -> ReadJSON (Some PublicKey)
-readKeyAsId (JSString kId) = lookupKey (KeyId kId)
-readKeyAsId _ = expected "key ID"
-
-{-------------------------------------------------------------------------------
-  JSON auxiliary
--------------------------------------------------------------------------------}
-
-recordKey :: MonadState KeyEnv m => Some PublicKey -> m ()
-recordKey key = modify $ keyEnvInsert key
-
-lookupKey :: KeyId -> ReadJSON (Some PublicKey)
-lookupKey kId = do
-    env <- get
-    case keyEnvLookup kId env of
-      Just key -> return key
-      Nothing  -> throwError $ DeserializationErrorUnknownKey kId
-
-renderJSON :: ToJSON WriteJSON a => a -> (BS.L.ByteString, KeyEnv)
-renderJSON a = let (val, keyEnv) = runWriteJSON (toJSON a)
-               in (renderCanonicalJSON val, keyEnv)
-
-parseJSON :: FromJSON ReadJSON a
-          => KeyEnv
-          -> BS.L.ByteString
-          -> (Either DeserializationError a, KeyEnv)
-parseJSON env bs =
-    case parseCanonicalJSON bs of
-      Left  err -> (Left (DeserializationErrorMalformed err), env)
-      Right val -> runReadJSON env (fromJSON val)
-
-writeCanonical :: ToJSON WriteJSON a => FilePath -> a -> IO KeyEnv
-writeCanonical fp a = do
-     let (bs, env) = renderJSON a
-     BS.L.writeFile fp bs
-     return env
-
-readCanonical :: FromJSON ReadJSON a
-              => KeyEnv
-              -> FilePath
-              -> IO (Either DeserializationError a, KeyEnv)
-readCanonical env fp = parseJSON env <$> BS.L.readFile fp
 
 {-------------------------------------------------------------------------------
   JSON encoding and decoding
@@ -377,10 +243,3 @@ instance ReportSchemaErrors m => FromJSON m (Some KeyType) where
     case tag of
       "ed25519"  -> return . Some $ KeyTypeEd25519
       _otherwise -> expected "valid key type"
-
-instance Monad m => ToJSON m KeyEnv where
-  toJSON (KeyEnv keyEnv) = toJSON keyEnv
-
--- TODO: verify key ID matches
-instance ReportSchemaErrors m => FromJSON m KeyEnv where
-  fromJSON enc = KeyEnv <$> fromJSON enc

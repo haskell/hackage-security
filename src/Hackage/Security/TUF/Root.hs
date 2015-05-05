@@ -17,6 +17,7 @@ import qualified Data.Map as Map
 
 import Hackage.Security.JSON
 import Hackage.Security.Key
+import Hackage.Security.Key.ExplicitSharing
 import Hackage.Security.Some
 import Hackage.Security.TUF.Ints
 import Hackage.Security.TUF.Signed

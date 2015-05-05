@@ -13,6 +13,7 @@ import System.FilePath
 
 import Hackage.Security.JSON
 import Hackage.Security.Key
+import Hackage.Security.Key.ExplicitSharing
 import Hackage.Security.Some
 import Hackage.Security.TUF.Ints
 import Hackage.Security.TUF.FileMap (FileMap)
