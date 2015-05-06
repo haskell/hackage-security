@@ -48,8 +48,8 @@ class AsType f where
   Hiding existentials
 -------------------------------------------------------------------------------}
 
-data Some key where
-    Some :: (Eq (key typ), Ord (key typ)) => key typ -> Some key
+data Some f where
+    Some :: (Eq (f a), Ord (f a)) => f a -> Some f
 
 instance Typed f => Eq (Some f) where
     Some a == Some b =

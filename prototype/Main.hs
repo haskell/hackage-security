@@ -1,4 +1,5 @@
 {-# LANGUAGE CPP #-}
+{-# LANGUAGE TemplateHaskell #-}
 module Main where
 
 import Control.Exception
@@ -52,10 +53,12 @@ cmdBootstrap opts = do
     rootKeys     <- replicateM 3 $ createKey KeyTypeEd25519
     snapshotKey  <- createKey KeyTypeEd25519
     timestampKey <- createKey KeyTypeEd25519
+    targetKeys   <- replicateM 3 $ createKey KeyTypeEd25519
+    trustees     <- replicateM 3 $ createKey KeyTypeEd25519
     let root = Root {
             rootVersion = FileVersion 1
           , rootExpires = addUTCTime (365 * oneDay) now
-          , rootKeys    = KeyEnv.fromKeys . map Some $ concat [
+          , rootKeys    = KeyEnv.fromKeys' $ concat [
                               rootKeys
                             , [snapshotKey]
                             , [timestampKey]
@@ -87,28 +90,53 @@ cmdBootstrap opts = do
                 ("snapshot.json", FileMap.fileInfoJSON signedSnapshot)
               ]
           }
-        signedRoot      = withSignatures (map Some rootKeys) root
-        signedSnapshot  = withSignatures [Some snapshotKey]  snapshot
-        signedTimestamp = withSignatures [Some timestampKey] timestamp
+        topLevelTargets = Targets {
+            targetsVersion     = FileVersion 1
+          , targetsExpires     = never
+          , targets            = FileMap.empty
+          , targetsDelegations = Delegations {
+                delegationsKeys  = KeyEnv.fromKeys' trustees
+              , delegationsRoles = [
+                    DelegationSpec {
+                        delegationSpecKeys      = map (Some . publicKey) targetKeys
+                      , delegationSpecThreshold = KeyThreshold 1
+                      , delegation = $(qqd "targets/*/*/*" "targets/*/targets.json")
+                      }
+                  , DelegationSpec {
+                        delegationSpecKeys      = map (Some . publicKey) trustees
+                      , delegationSpecThreshold = KeyThreshold 1
+                      , delegation = $(qqd "targets/*/*/*.cabal" "targets/*/*/revisions.json")
+                      }
+                  ]
+              }
+          }
+        signedRoot            = withSignatures (map Some rootKeys)   root
+        signedSnapshot        = withSignatures [Some snapshotKey]    snapshot
+        signedTimestamp       = withSignatures [Some timestampKey]   timestamp
+        signedTopLevelTargets = withSignatures (map Some targetKeys) topLevelTargets
 
     -- Write keys
-    forM_ rootKeys $ writeKey Offline "root"
+    forM_ rootKeys   $ writeKey Offline "root"
+    forM_ targetKeys $ writeKey Offline "target"
+    forM_ trustees   $ writeKey Offline "trustee"
     writeKey Server "snapshot"  snapshotKey
     writeKey Server "timestamp" timestampKey
 
     -- Write server state
-    void $ writeCanonical pathRoot      signedRoot
-    void $ writeCanonical pathSnapshot  signedSnapshot
-    void $ writeCanonical pathTimestamp signedTimestamp
+    writeCanonical pathRoot            signedRoot
+    writeCanonical pathSnapshot        signedSnapshot
+    writeCanonical pathTimestamp       signedTimestamp
+    writeCanonical pathTopLevelTargets signedTopLevelTargets
   where
-    pathRoot      = mkPath opts Server "root.json"
-    pathSnapshot  = mkPath opts Server "snapshot.json"
-    pathTimestamp = mkPath opts Server "timestamp.json"
+    pathRoot            = mkPath opts Server "root.json"
+    pathSnapshot        = mkPath opts Server "snapshot.json"
+    pathTimestamp       = mkPath opts Server "timestamp.json"
+    pathTopLevelTargets = mkPath opts Server "targets.json"
 
     writeKey :: Where -> FilePath -> Key Ed25519 -> IO ()
     writeKey where_ prefix key = do
         createDirectoryIfMissing True (takeDirectory path)
-        void $ writeCanonical path key
+        writeCanonical path key
       where
         kId  = keyIdString (keyId key)
         path = mkPath opts where_ ("keys" </> prefix </> kId <.> "private")
@@ -228,7 +256,7 @@ bootstrapClient opts = do
 -------------------------------------------------------------------------------}
 
 cmdUpload :: String -> Version -> Options -> IO ()
-cmdUpload pkg version opts = do
+cmdUpload pkg _version opts = do
     now <- getCurrentTime
 
     -- Read root metadata
@@ -273,8 +301,8 @@ cmdUpload pkg version opts = do
     -- TODO: There is a race condition here. The spec talk about "consistent
     -- snapshots" but there's a lot of detail there and I don't know if we
     -- want to adopt the same solution.
-    void $ writeCanonical pathSnapshot  newSnapshot
-    void $ writeCanonical pathTimestamp newTimestamp
+    writeCanonical pathSnapshot  newSnapshot
+    writeCanonical pathTimestamp newTimestamp
   where
     pathRoot      = mkPath opts Server "root.json"
     pathSnapshot  = mkPath opts Server "snapshot.json"
@@ -312,3 +340,6 @@ readJSON env fp = either throwIO return =<< readCanonical env fp
 
 oneDay :: NominalDiffTime
 oneDay = 24 * 60 * 60
+
+never :: UTCTime
+never = UTCTime (toEnum maxBound) 0
