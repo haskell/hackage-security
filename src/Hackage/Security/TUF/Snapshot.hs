@@ -15,7 +15,7 @@ import Hackage.Security.TUF.Signed
 -------------------------------------------------------------------------------}
 
 data Snapshot = Snapshot {
-    snapshotVersion :: Version
+    snapshotVersion :: FileVersion
   , snapshotExpires :: UTCTime
   , snapshotMeta    :: FileMap
   }

@@ -19,7 +19,7 @@ import qualified Hackage.Security.TUF.FileMap as FileMap
 -------------------------------------------------------------------------------}
 
 data Timestamp = Timestamp {
-    timestampVersion :: Version
+    timestampVersion :: FileVersion
   , timestampExpires :: UTCTime
   , timestampMeta    :: FileMap
   }

@@ -24,7 +24,7 @@ import Hackage.Security.TUF.FileMap (FileMap)
 -------------------------------------------------------------------------------}
 
 data Targets = Targets {
-    targetsVersion     :: Version
+    targetsVersion     :: FileVersion
   , targetsExpires     :: UTCTime
   , targets            :: FileMap
   , targetsDelegations :: Delegations

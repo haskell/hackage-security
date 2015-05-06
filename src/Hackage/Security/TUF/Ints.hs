@@ -1,10 +1,10 @@
 -- | Some simple wrappers around integer values
 module Hackage.Security.TUF.Ints (
-    Version(..)
+    FileVersion(..)
+  , FileLength(..)
   , KeyThreshold(..)
-  , Length(..)
     -- * Utility
-  , incrementVersion
+  , incrementFileVersion
   ) where
 
 import Hackage.Security.JSON
@@ -13,26 +13,42 @@ import Hackage.Security.JSON
   Simple wrappers
 -------------------------------------------------------------------------------}
 
-newtype Version      = Version Int      deriving (Eq, Ord)
+-- | File version
+--
+-- The file version is a flat integer which must monotonically increase on
+-- every file update.
+newtype FileVersion = FileVersion Int
+  deriving (Eq, Ord)
+
+-- | File length
+--
+-- Having verified file length information means we can protect against
+-- endless data attacks and similar.
+newtype FileLength = FileLength Int
+  deriving (Eq, Ord)
+
+-- | Key threshold
+--
+-- The key threshold is the minimum number of keys a document must be signed
+-- with. Key thresholds are specified in 'RoleSpec' or 'DelegationsSpec'.
 newtype KeyThreshold = KeyThreshold Int deriving (Eq, Ord)
-newtype Length       = Length Int       deriving (Eq, Ord)
 
 {-------------------------------------------------------------------------------
   Utility
 -------------------------------------------------------------------------------}
 
-incrementVersion :: Version -> Version
-incrementVersion (Version i) = Version (i + 1)
+incrementFileVersion :: FileVersion -> FileVersion
+incrementFileVersion (FileVersion i) = FileVersion (i + 1)
 
 {-------------------------------------------------------------------------------
   JSON
 -------------------------------------------------------------------------------}
 
-instance ToJSON Version where
-  toJSON (Version i) = toJSON i
+instance ToJSON FileVersion where
+  toJSON (FileVersion i) = toJSON i
 
-instance ReportSchemaErrors m => FromJSON m Version where
-  fromJSON enc = Version <$> fromJSON enc
+instance ReportSchemaErrors m => FromJSON m FileVersion where
+  fromJSON enc = FileVersion <$> fromJSON enc
 
 instance ToJSON KeyThreshold where
   toJSON (KeyThreshold i) = toJSON i
@@ -40,8 +56,8 @@ instance ToJSON KeyThreshold where
 instance ReportSchemaErrors m => FromJSON m KeyThreshold where
   fromJSON enc = KeyThreshold <$> fromJSON enc
 
-instance ToJSON Length where
-  toJSON (Length i) = toJSON i
+instance ToJSON FileLength where
+  toJSON (FileLength i) = toJSON i
 
-instance ReportSchemaErrors m => FromJSON m Length where
-  fromJSON enc = Length <$> fromJSON enc
+instance ReportSchemaErrors m => FromJSON m FileLength where
+  fromJSON enc = FileLength <$> fromJSON enc

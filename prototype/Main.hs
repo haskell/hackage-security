@@ -4,6 +4,7 @@ module Main where
 import Control.Exception
 import Control.Monad
 import Data.Time
+import Data.Version
 import System.Directory
 import System.FilePath
 import qualified Data.Map as Map
@@ -36,10 +37,10 @@ main = do
     interpretCommand (optCommand opts) opts
 
 interpretCommand :: Command -> Options -> IO ()
-interpretCommand Bootstrap      = cmdBootstrap
-interpretCommand (Roundtrip fp) = cmdRoundtrip fp
-interpretCommand Check          = cmdCheck
-interpretCommand (Upload pkg)   = cmdUpload pkg
+interpretCommand Bootstrap            = cmdBootstrap
+interpretCommand (Roundtrip fp)       = cmdRoundtrip fp
+interpretCommand Check                = cmdCheck
+interpretCommand (Upload pkg version) = cmdUpload pkg version
 
 {-------------------------------------------------------------------------------
   Bootstrapping
@@ -52,7 +53,7 @@ cmdBootstrap opts = do
     snapshotKey  <- createKey KeyTypeEd25519
     timestampKey <- createKey KeyTypeEd25519
     let root = Root {
-            rootVersion = Version 1
+            rootVersion = FileVersion 1
           , rootExpires = addUTCTime (365 * oneDay) now
           , rootKeys    = KeyEnv.fromKeys . map Some $ concat [
                               rootKeys
@@ -75,12 +76,12 @@ cmdBootstrap opts = do
               ]
           }
         snapshot = Snapshot {
-            snapshotVersion = Version 1
+            snapshotVersion = FileVersion 1
           , snapshotExpires = addUTCTime (3 * oneDay) now
           , snapshotMeta    = FileMap.empty
           }
         timestamp = Timestamp {
-            timestampVersion = Version 1
+            timestampVersion = FileVersion 1
           , timestampExpires = addUTCTime (3 * oneDay) now
           , timestampMeta    = FileMap.fromList [
                 ("snapshot.json", FileMap.fileInfoJSON signedSnapshot)
@@ -226,8 +227,8 @@ bootstrapClient opts = do
   Uploading new packages
 -------------------------------------------------------------------------------}
 
-cmdUpload :: String -> Options -> IO ()
-cmdUpload pkg opts = do
+cmdUpload :: String -> Version -> Options -> IO ()
+cmdUpload pkg version opts = do
     now <- getCurrentTime
 
     -- Read root metadata
@@ -249,7 +250,7 @@ cmdUpload pkg opts = do
     oldSnapshot <- readJSON keyEnv pathSnapshot
     let oldSnapshot' = signed oldSnapshot
         newSnapshot' = Snapshot {
-            snapshotVersion = incrementVersion (snapshotVersion oldSnapshot')
+            snapshotVersion = incrementFileVersion (snapshotVersion oldSnapshot')
           , snapshotExpires = addUTCTime (3 * oneDay) now
           , snapshotMeta    = FileMap.insert targetPath targetMetaInfo
                                 (snapshotMeta oldSnapshot')
@@ -260,7 +261,7 @@ cmdUpload pkg opts = do
     oldTimestamp <- readJSON keyEnv pathTimestamp
     let oldTimestamp' = signed oldTimestamp
         newTimestamp' = Timestamp {
-            timestampVersion = incrementVersion (timestampVersion oldTimestamp')
+            timestampVersion = incrementFileVersion (timestampVersion oldTimestamp')
           , timestampExpires = addUTCTime (3 * oneDay) now
           , timestampMeta    = FileMap.fromList [
                 ("snapshot.json", FileMap.fileInfoJSON newSnapshot)

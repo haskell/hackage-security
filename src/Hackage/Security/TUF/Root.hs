@@ -40,7 +40,7 @@ data Role =
 -- must be listed in 'rootKeys'. (Delegation keys satisfy a similar invariant,
 -- see Targets.)
 data Root = Root {
-    rootVersion :: Version
+    rootVersion :: FileVersion
   , rootExpires :: UTCTime
   , rootKeys    :: KeyEnv
   , rootRoles   :: Map Role RoleSpec

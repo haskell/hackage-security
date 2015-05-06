@@ -5,6 +5,7 @@ module Prototype.Options (
   ) where
 
 import Data.Monoid
+import Data.Version
 import Options.Applicative
 
 {-------------------------------------------------------------------------------
@@ -32,7 +33,7 @@ data Command =
   | Check
 
     -- | Upload a new version for a package
-  | Upload String
+  | Upload String Version
   deriving Show
 
 {-------------------------------------------------------------------------------
@@ -73,7 +74,8 @@ parseOptions = Options
             info (pure Check)
                  (progDesc "Check for updates")
         , command "upload" $
-            info (Upload <$> argument str (metavar "PKG_NAME"))
+            info (Upload <$> argument str (metavar "PKG_NAME")
+                         <*> argument auto (metavar "VERSION"))
                  (progDesc "Upload a (new version of) a package")
         ])
 

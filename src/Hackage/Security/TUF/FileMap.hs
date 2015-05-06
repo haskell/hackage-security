@@ -40,7 +40,7 @@ data HashFn = HashFnSHA256
 newtype FileMap = FileMap { fileMap :: Map FilePath FileInfo }
 
 data FileInfo = FileInfo {
-    fileInfoLength :: Length
+    fileInfoLength :: FileLength
   , fileInfoHashes :: Map HashFn String
   }
 
@@ -67,7 +67,7 @@ fromList = FileMap . Map.fromList
 -- | Compute 'FileInfo'
 fileInfo :: BS.L.ByteString -> FileInfo
 fileInfo bs = FileInfo {
-      fileInfoLength = Length . fromIntegral $ BS.L.length bs
+      fileInfoLength = FileLength . fromIntegral $ BS.L.length bs
     , fileInfoHashes = Map.fromList [
           (HashFnSHA256, showDigest (sha256 bs))
         ]
