@@ -102,14 +102,9 @@ cmdBootstrap opts = do
                 delegationsKeys  = KeyEnv.fromKeys trustees
               , delegationsRoles = [
                     DelegationSpec {
-                        delegationSpecKeys      = map somePublicKey targetKeys
-                      , delegationSpecThreshold = KeyThreshold 1
-                      , delegation = $(qqd "targets/*/*/*" "targets/*/targets.json")
-                      }
-                  , DelegationSpec {
-                        delegationSpecKeys      = map somePublicKey trustees
-                      , delegationSpecThreshold = KeyThreshold 1
-                      , delegation = $(qqd "targets/*/*/*.cabal" "targets/*/*/revisions.json")
+                        delegationSpecKeys      = []
+                      , delegationSpecThreshold = KeyThreshold 0
+                      , delegation = $(qqd "targets/*/*/*" "targets/*/*/targets.json")
                       }
                   ]
               }
