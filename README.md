@@ -23,12 +23,11 @@ author signing (or not).
 
 ##### Package specific metadata
 
-Unsigned packages will be stored in `unsigned/`. Version 1.0 of package `Foo`
-will be stored in `unsigned/Foo/1.0`. This directory will contain a single
-metadata file containing hashes and sizes of the package tarball and the
-`.cabal` files:
+Version 1.0 of package `Foo` will be stored in `targets/Foo/1.0`. This directory
+will contain a single metadata file `targets/Foo/1.0/targets.json` containing
+hashes and sizes of the package tarball and the `.cabal` files:
 
-```
+``` javascript
 { "signed" : {
      "_type"   : "Targets"
    , "version" : VERSION
@@ -54,7 +53,7 @@ cannot expire.
 We then have a top-level `targets.json` that contains the required delegation
 information:
 
-```
+``` javascript
 { "signed" : {
       "_type"       : Targets
     , "version"     : VERSION
@@ -63,15 +62,15 @@ information:
     , "delegations" : {
           "keys"  : []
         , "roles" : [
-               { "name"      : "unsigned/*/*/targets.json"
+               { "name"      : "targets/*/*/targets.json"
                , "keyids"    : []
                , "threshold" : 0
-               , "path"      : "unsigned/*/*/*"
+               , "path"      : "targets/*/*/*"
                }
              ]
        }
     }
-, "signatures" : <target keys>
+, "signatures" : /* target keys */
 }
 ```
 
@@ -79,11 +78,11 @@ This file itself is signed by the target keys (kept offline by the Hackage
 admins).  
 
 <blockquote>
-_Deviation from TUF spec_
+<i>Extension to TUF spec.</i>
 This uses an extension to the TUF spec where we can use wildcards in names as
-well as in paths. This means that we list a **single** path with a **single**
-replacement name. Alternatively, we could have a list of pairs of paths and
-names.)
+well as in paths. This means that we list a <b>single</b> path with a
+<b>single</b> replacement name. (Alternatively, we could have a list of pairs of
+paths and names.)
 </blockquote>
 
 New unsigned packages, as well as new versions of existing unsigned packages,
@@ -92,10 +91,11 @@ offline target keys are not required).
 
 ##### Security
 
-As per the TUF specification, the hash and size of _all_ metadata files (which
-therefore includes package specific `unsigned/Foo/1.0/targets.json`) is listed
-in the snapshot. This means that untrusted mirrors or man-in-the-middle attacks
-cannot change which packages are visible or change the packages themselves.
+As per the TUF specification, the hashes and sizes of _all_ metadata files
+(which therefore includes package specific `targets/Foo/1.0/targets.json`) are
+listed in the snapshot. This means that untrusted mirrors or man-in-the-middle
+attacks cannot change which packages are visible or change the packages
+themselves.
 
 However, since the snapshot key is stored on the server, if the server itself is
 compromised almost all security guarantees are void.
@@ -107,31 +107,31 @@ in phase 1 of the project.)
 
 ##### Package specific metadata
 
-Signed packages are stored in the directory `signed/`. As for unsigned packages,
-we keep metadata specific for each package version. Unlike for unsigned
-packages, however, we store two files: one that can be signed by the package
-author, and one that can be signed by the Hackage trustees, which can upload new
-`.cabal` file revisions but not change the package contents.
+As for unsigned packages, we keep metadata specific for each package version.
+Unlike for unsigned packages, however, we store two files: one that can be
+signed by the package author, and one that can be signed by the Hackage
+trustees, which can upload new `.cabal` file revisions but not change the
+package contents.
 
 Thus we have `targets.json`, containing precisely two entries:
 
-```
+``` javascript
 { "signed" : {
      "_type"   : "Targets"
    , "version" : VERSION
    , "expires" : never
    , "targets" : {
-         "Foo-1.0.tar.gz"     : FILEINFO
-       , "Foo-1.0.cabal"      : FILEINFO
+         "Foo-1.0.tar.gz" : FILEINFO
+       , "Foo-1.0.cabal"  : FILEINFO
        }
    }
-, "signatures" : <signatures from package authors>
+, "signatures" : /* signatures from package authors */
 }
 ```
 
 and `revisions.json`:
 
-```
+``` javascript
 { "signed" : {
      "_type"   : "Targets"
    , "version" : VERSION
@@ -142,7 +142,7 @@ and `revisions.json`:
        , ...
        }
    }
-, "signatures" : <signatures from package authors or Hackage trustees>
+, "signatures" : /* signatures from package authors or Hackage trustees */
 }
 ```
 
@@ -151,65 +151,89 @@ and `revisions.json`:
 Delegation for signed packages is a bit more complicated. We extend the
 top-level targets file to
 
-```
+``` javascript
 { "signed" : {
       "_type"       : Targets
     , "version"     : VERSION
-    , "expires"     : never
+    , "expires"     : EXPIRES
     , "targets"     : []
     , "delegations" : {
-          "keys"  : <Hackage trustee keys>
+          "keys"  : /* Hackage trustee keys */
         , "roles" : [
-               { "name"      : "unsigned/*/*/targets.json"
+               { "name"      : "*/*/targets.json"
                , "keyids"    : []
                , "threshold" : 0
-               , "path"      : "unsigned/*/*/*"
+               , "path"      : "*/*/*"
                }
-             , { "name"      : "signed/*/targets.json"
+             // Delegation for package Bar
+             , { "name"      : "targets/Bar/targets.json"
                , "keyids"    : <top-level target keys>
                , "threshold" : THRESHOLD
-               , "path"      : "signed/*/*/*"
+               , "path"      : "targets/Bar/*/*"
                }
-             , { "name"      : "signed/*/*/revisions.json"
+             , { "name"      : "targets/Bar/*/revisions.json"
                , "keyids"    : <Hackage trustee key IDs>
                , "threshold" : THRESHOLD
-               , "path"      : "signed/*/*/*.cabal"
+               , "path"      : "targets/Bar/*/*.cabal"
                }
+             // Delegation for package Baz
+             , { "name"      : "targets/Baz/targets.json"
+               , "keyids"    : <top-level target keys>
+               , "threshold" : THRESHOLD
+               , "path"      : "targets/Baz/*/*"
+               }
+             , { "name"      : "targets/Baz/*/revisions.json"
+               , "keyids"    : <Hackage trustee key IDs>
+               , "threshold" : THRESHOLD
+               , "path"      : "targets/Baz/*/*.cabal"
+               }
+             // .. delegation for other signed packages ..
              ]
-       }
+        }
     }
-, "signatures" : <target keys>
+, "signatures" : /* target keys */
 }
 ```
 
-This indicates that all cabal files for package `Foo-1.0` are listed in
-`signed/Foo/1.0/revisions.json`, and that this file must be signed by the
-Hackage trustees. In addition, it says that any file in `signed/Foo/1.0` can
-also be listed in `signed/Foo/targets.json`. This &ldquo;middle level&rdquo;
-targets file contains further delegation information:
+Since this lists all signed packages, we must list an expiry date here so that
+attackers cannot mount freeze attacks (although this is somewhat less of an
+issue here as freezing this list would make en entire new package, rather than
+a new package version, invisible).
 
-```
+This says that the delegation information for package `Bar-`_x.y_ is found in
+`targets/Bar/targets.json` as well as `targets/Bar/`_x.y_`/revisions.json`,
+where the latter can only contain information about the `.cabal` files, not the
+package itself. Note that these rules overlap with the rule for unsigned
+packages, and so we need a priority scheme between rules. The TUF specification
+leaves this quite open; in our case, we can implement a very simple rule: more
+specific rules (rules with fewer wildcards) take precedence over less specific
+rules.
+
+This &ldquo;middle level&rdquo; targets file `targets/Bar/targets.json`
+introduces the author keys and contains further delegation information:
+
+``` javascript
 { "signed" : {
       "_type"       : "Targets"
     , "version"     : VERSION
-    , "expires"     : EXPIRES
+    , "expires"     : never
     , "targets"     : {}
     , "delegations" : {
-          "keys"  : <package maintainer keys>
+          "keys"  : /* package maintainer keys */
         , "roles" : [
               { "name"      : "*/targets.json"
-              , "keyids"    : <package maintainer key IDs>
+              , "keyids"    : /* package maintainer key IDs */
               , "threshold" : THRESHOLD
               , "path"      : "*/*"
               }
             , { "name"      : "*/revisions.json"
-              , "keyids"    : <package maintainer key IDs>
+              , "keyids"    : /* package maintainer key IDs */
               , "threshold" : THRESHOLD
               , "path"      : "*/*.cabal"
               }
             ]
     }
-, "signatures" : <signatures from top-level target keys>
+, "signatures" : /* signatures from top-level target keys */
 }
 ```
 
@@ -217,9 +241,9 @@ Some notes:
 
 1. When a new signed package is introduced, the Hackage admins need to create
    and sign a new `targets.json` that lists the package author keys and
-   appropriate delegation information. However, once this is done, the Hackage
-   admins do not need to be involved when package authors wish to upload
-   new versions.
+   appropriate delegation information, as well as add corresponding entries to
+   the top-level delegation file. However, once this is done, the Hackage admins
+   do not need to be involved when package authors wish to upload new versions.
 
 2. When package authors upload a new version, they need to sign only a single
    file that contains the information about that particular version.
@@ -233,20 +257,32 @@ Some notes:
    when the set of trustees changes we only need to modify one file (as opposed
    to each middle-level package delegation information).
 
+5. For signed packages that do not want to allow Hackage trustees to sign
+   `.cabal` file revisions we can just omit the corresponding entry from the
+   top-level delegations file.
+
 ##### Transition packages from `unsigned` to `signed`
 
 When a package that previously did not opt-in to author signing now wants
-author-signing, we just need to move it from `unsigned/` to `signed/` and
-set up the appropriate middle-level delegation information.
+author-signing, we just need to add the appropriate entries to the top-level
+delegation file and set up the appropriate middle-level delegation information.
 
 ##### Security
 
 When the snapshot key is compromised, attackers still do not have access to
-package author keys, which are strictly kept offline. However, they can change
-the index to record packages that were previously listed as `signed/` now as
-`unsigned/`. Clients (i.e., `cabal-install`) SHOULD warn about packages that
-were previously signed and are now listed as unsigned (and probably even refuse
-to install such packages by default).
+package author keys, which are strictly kept offline. However, they can still
+mount freeze attacks on packages versions, because there is no file (which is
+signed with offline key) listing which versions are available.
+
+We could increase security here by changing the middle-level `targets.json` to
+remove the wildcard rule, list all versions explicitly, and change the top-level
+delegation information to say that the middle-level file should be signed by
+the package authors instead.
+
+Note that we do not use a wildcard for signed packages in the top-level
+`targets.json` for a similar reason: by listing all packages that we expect to
+be signed explicitly, we have a list of signed packages which is signed by
+offline keys (in this case, the target keys).
 
 ### Snapshot
 
@@ -261,7 +297,7 @@ file). The only thing that is missing from the index tarball, compared to the
 `snapshot.json` file from the TUF spec, is the version, expiry time, and
 signatures. Therefore our `snapshot.json` looks like
 
-```
+``` javascript
 { "signed" : {
       "_type"   : "Snapshot"
     , "version" : VERSION
@@ -296,7 +332,7 @@ potential endless data attack. To make the initial HTTP request more efficient,
 we can easily bundle both `timestamp.json` and `snapshot.json` in a single JSON
 file:
 
-```
+``` javascript
 { "timestamp.json": { "signed": ..., "signatures": ... }
 , "snapshot.json" : { "signed": ..., "signatures": ... }
 }
@@ -313,10 +349,3 @@ file:
   (`Foo-1.0-rev1.cabal`), but in the tarball these entries actually _overwrite_
   each other (they all have the same filename). We need to define precisely
   how we deal with this.
-
-* The threshold for Hackage trustees should probably be set to 1, but we might
-  want to be able to override this for specific more sensitive packages; indeed,
-  for some packages we may want to disable trustee signing completely. If we
-  want that, we might want to some sort 'priority' scheme for delegation rules;
-  the TUF spec mentions that this might be desirable but does not make any
-  specific recommendations.
