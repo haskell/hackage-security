@@ -73,12 +73,12 @@ delegation information:
               { "name"      : "*/targets.json"
               , "keyids"    : <package maintainer key IDs>
               , "threshold" : THRESHOLD
-              , "paths"     : "*/*"
+              , "path"      : "*/*"
               }
             , { "name"      : "*/revisions.json"
               , "keyids"    : <package maintainer key IDs>
               , "threshold" : THRESHOLD
-              , "paths"     : "*/*.cabal"
+              , "path"      : "*/*.cabal"
               }
             ]
     }
@@ -123,12 +123,12 @@ The top-level `targets.json` also lists only delegation information.
               { "name"      : "targets/*/targets.json"
               , "keyids"    : <top-level target keys>
               , "threshold" : THRESHOLD
-              , "paths"     : "targets/*/*/*"
+              , "path"      : "targets/*/*/*"
               }
             , { "name"      : "targets/*/*/revisions.json"
               , "keyids"    : <Hackage trustee key IDs>
               , "threshold" : THRESHOLD
-              , "paths"     : "targets/*/*/*.cabal"
+              , "path"      : "targets/*/*/*.cabal"
               }
             ]
     }
