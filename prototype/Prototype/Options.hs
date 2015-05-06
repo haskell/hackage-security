@@ -4,9 +4,11 @@ module Prototype.Options (
   , getOptions
   ) where
 
+import Control.Monad
 import Data.Monoid
 import Data.Version
 import Options.Applicative
+import Text.ParserCombinators.ReadP (ReadP, readP_to_S)
 
 {-------------------------------------------------------------------------------
   Datatypes
@@ -74,13 +76,16 @@ parseOptions = Options
             info (pure Check)
                  (progDesc "Check for updates")
         , command "upload" $
-            info (Upload <$> argument str (metavar "PKGNAME")
-                         <*> argument auto (metavar "VERSION"))
+            info (Upload <$> argument str                   (metavar "PKGNAME")
+                         <*> argument (str >>= readVersion) (metavar "VERSION"))
                  (progDesc "Upload a (new version of) a package")
         ])
 
 parseFilePath :: Parser FilePath
 parseFilePath = argument str (metavar "PATH")
+
+readVersion :: String -> ReadM Version
+readVersion = readP_to_M parseVersion
 
 {-------------------------------------------------------------------------------
   Top-level API
@@ -94,3 +99,13 @@ getOptions = execParser opts
       , progDesc "Client interface"
       , header "Secure Hackage Prototype"
       ]
+
+{-------------------------------------------------------------------------------
+  Auxiliary
+-------------------------------------------------------------------------------}
+
+readP_to_M :: ReadP a -> String -> ReadM a
+readP_to_M parser input =
+    case filter (null . snd) $ readP_to_S parser input of
+      [(a, "")]  -> return a
+      _otherwise -> fail $ "Failed to parse " ++ show input

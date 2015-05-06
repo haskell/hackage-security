@@ -62,6 +62,7 @@ cmdBootstrap opts = do
                               rootKeys
                             , [snapshotKey]
                             , [timestampKey]
+                            , targetKeys
                             ]
           , rootRoles   = Map.fromList [
                 (RoleRoot, RoleSpec {
@@ -98,7 +99,7 @@ cmdBootstrap opts = do
             targetsVersion     = FileVersion 1
           , targetsExpires     = never
           , targets            = FileMap.empty
-          , targetsDelegations = Delegations {
+          , targetsDelegations = Just $ Delegations {
                 delegationsKeys  = KeyEnv.fromKeys trustees
               , delegationsRoles = [
                     DelegationSpec {
@@ -133,9 +134,7 @@ cmdBootstrap opts = do
     pathTopLevelTargets = mkPath opts Server "targets.json"
 
     writeKey :: Where -> FilePath -> Some Key -> IO ()
-    writeKey where_ prefix key = do
-        createDirectoryIfMissing True (takeDirectory path)
-        writeCanonical path key
+    writeKey where_ prefix key = writeCanonical' path key
       where
         kId  = keyIdString (someKeyId key)
         path = mkPath opts where_ ("keys" </> prefix </> kId <.> "private")
@@ -254,7 +253,7 @@ bootstrapClient opts = do
 -------------------------------------------------------------------------------}
 
 cmdUpload :: String -> Version -> Options -> IO ()
-cmdUpload pkg _version opts = do
+cmdUpload pkg version opts = do
     now <- getCurrentTime
 
     -- Read root metadata
@@ -267,10 +266,30 @@ cmdUpload pkg _version opts = do
     snapshotKeys  <- forM snapshotKeys'  $ readPrivateKey opts "snapshot"
     timestampKeys <- forM timestampKeys' $ readPrivateKey opts "timestamp"
 
-    -- Construct the "target"
-    let targetContents = BS.L.C8.pack pkg -- Fake package contents
-        targetMetaInfo = FileMap.fileInfo targetContents
-        targetPath     = mkPath opts Server ("targets" </> pkg)
+    -- Fake the package tarball
+    let tarGzContents = BS.L.C8.pack pkg -- Fake package contents
+        tarGzMetaInfo = FileMap.fileInfo tarGzContents
+        tarGzFileName = pkg ++ "-" ++ showVersion version ++ ".tar.gz"
+
+    -- Construct target metadata
+    let packageTargets = Targets {
+            targetsVersion     = FileVersion 1
+          , targetsExpires     = never
+          , targets            = FileMap.fromList [
+                (tarGzFileName, tarGzMetaInfo)
+              ]
+          , targetsDelegations = Nothing
+          }
+        signedPackageTargets = withSignatures [] packageTargets
+        packageTargetsPath   = joinPath [
+                                   "targets"
+                                 , pkg
+                                 , showVersion version
+                                 , "targets.json"
+                                 ]
+
+    -- Write package targets
+    writeCanonical' (mkPath opts Server packageTargetsPath) signedPackageTargets
 
     -- Update snapshot
     oldSnapshot <- readJSON keyEnv pathSnapshot
@@ -278,10 +297,12 @@ cmdUpload pkg _version opts = do
         newSnapshot' = Snapshot {
             snapshotVersion = incrementFileVersion (snapshotVersion oldSnapshot')
           , snapshotExpires = addUTCTime (3 * oneDay) now
-          , snapshotMeta    = FileMap.insert targetPath targetMetaInfo
+          , snapshotMeta    = FileMap.insert
+                                packageTargetsPath
+                                (FileMap.fileInfoJSON packageTargets)
                                 (snapshotMeta oldSnapshot')
           }
-        newSnapshot  = withSignatures snapshotKeys newSnapshot'
+        newSnapshot = withSignatures snapshotKeys newSnapshot'
 
     -- Create new timestamp
     oldTimestamp <- readJSON keyEnv pathTimestamp
@@ -341,3 +362,8 @@ oneDay = 24 * 60 * 60
 
 never :: UTCTime
 never = UTCTime (toEnum maxBound) 0
+
+writeCanonical' :: ToJSON a => FilePath -> a -> IO ()
+writeCanonical' fp a = do
+    createDirectoryIfMissing True (takeDirectory fp)
+    writeCanonical fp a

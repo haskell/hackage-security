@@ -10,6 +10,7 @@ module Hackage.Security.JSON (
     -- * Utility
   , fromJSObject
   , fromJSField
+  , fromJSOptField
     -- * Re-exports
   , JSValue(..)
   ) where
@@ -131,9 +132,18 @@ fromJSObject (JSObject obj) = return obj
 fromJSObject _              = expected "object"
 
 -- | Extract a field from a JSON object
-fromJSField :: (ReportSchemaErrors m, FromJSON m a) => JSValue -> String -> m a
+fromJSField :: (ReportSchemaErrors m, FromJSON m a)
+            => JSValue -> String -> m a
 fromJSField val nm = do
     obj <- fromJSObject val
     case lookup nm obj of
       Just fld -> fromJSON fld
       Nothing  -> expected $ "field " ++ show nm
+
+fromJSOptField :: (ReportSchemaErrors m, FromJSON m a)
+               => JSValue -> String -> m (Maybe a)
+fromJSOptField val nm = do
+    obj <- fromJSObject val
+    case lookup nm obj of
+      Just fld -> Just <$> fromJSON fld
+      Nothing  -> return Nothing

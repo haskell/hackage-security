@@ -34,7 +34,7 @@ data Targets = Targets {
     targetsVersion     :: FileVersion
   , targetsExpires     :: UTCTime
   , targets            :: FileMap
-  , targetsDelegations :: Delegations
+  , targetsDelegations :: Maybe Delegations
   }
 
 -- | Delegations
@@ -334,21 +334,21 @@ instance FromJSON ReadJSON Delegations where
     return Delegations{..}
 
 instance ToJSON Targets where
-  toJSON Targets{..} = JSObject [
+  toJSON Targets{..} = JSObject $ [
         ("_type"       , JSString "Targets")
       , ("version"     , toJSON targetsVersion)
       , ("expires"     , toJSON targetsExpires)
       , ("targets"     , toJSON targets)
-      , ("delegations" , toJSON targetsDelegations)
-      ]
+      ] ++
+      [ ("delegations" , toJSON d) | Just d <- [ targetsDelegations ] ]
 
 instance FromJSON ReadJSON Targets where
   fromJSON enc = do
     -- TODO: verify _type
-    targetsVersion     <- fromJSField enc "version"
-    targetsExpires     <- fromJSField enc "expires"
-    targets            <- fromJSField enc "targets"
-    targetsDelegations <- fromJSField enc "delegations"
+    targetsVersion     <- fromJSField    enc "version"
+    targetsExpires     <- fromJSField    enc "expires"
+    targets            <- fromJSField    enc "targets"
+    targetsDelegations <- fromJSOptField enc "delegations"
     return Targets{..}
 
 {-------------------------------------------------------------------------------
