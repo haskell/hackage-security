@@ -3,9 +3,7 @@ module Hackage.Security.Key.Env (
   , keyEnvMap
     -- * Convenience constructors
   , fromPublicKeys
-  , fromPublicKeys'
   , fromKeys
-  , fromKeys'
     -- * The usual accessors
   , empty
   , null
@@ -36,14 +34,8 @@ fromPublicKeys = KeyEnv . Map.fromList . map aux
     aux :: Some PublicKey -> (KeyId, Some PublicKey)
     aux pub = (someKeyId pub, pub)
 
-fromPublicKeys' :: [PublicKey typ] -> KeyEnv
-fromPublicKeys' = fromPublicKeys . map Some
-
 fromKeys :: [Some Key] -> KeyEnv
 fromKeys = fromPublicKeys . map somePublicKey
-
-fromKeys' :: [Key typ] -> KeyEnv
-fromKeys' = fromKeys . map Some
 
 {-------------------------------------------------------------------------------
   The usual accessors

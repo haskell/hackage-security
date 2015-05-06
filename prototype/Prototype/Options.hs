@@ -74,7 +74,7 @@ parseOptions = Options
             info (pure Check)
                  (progDesc "Check for updates")
         , command "upload" $
-            info (Upload <$> argument str (metavar "PKG_NAME")
+            info (Upload <$> argument str (metavar "PKGNAME")
                          <*> argument auto (metavar "VERSION"))
                  (progDesc "Upload a (new version of) a package")
         ])

@@ -7,6 +7,7 @@ module Hackage.Security.TUF.Root (
     -- * Utility
   , roleTimestamp
   , roleSnapshot
+  , roleTargets
   , verifyThreshold
   ) where
 
@@ -65,6 +66,10 @@ roleTimestamp Root{..} = rootRoles Map.! RoleTimestamp
 -- | Get the specification for the snapshot role
 roleSnapshot :: Root -> RoleSpec
 roleSnapshot Root{..} = rootRoles Map.! RoleSnapshot
+
+-- | Get the specification for the targets role
+roleTargets :: Root -> RoleSpec
+roleTargets Root{..} = rootRoles Map.! RoleTargets
 
 -- | Verify that we have at least 'roleSpecThreshold' signatures signed by
 -- 'roleSpecKeys'.

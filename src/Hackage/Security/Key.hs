@@ -15,6 +15,7 @@ module Hackage.Security.Key (
   , publicKey
   , privateKey
   , createKey
+  , createKey'
     -- * Key IDs
   , KeyId(..)
   , HasKeyId(..)
@@ -23,6 +24,7 @@ module Hackage.Security.Key (
   , verify
   ) where
 
+import Control.Monad
 import Data.Digest.Pure.SHA
 import Text.JSON.Canonical
 import qualified Crypto.Sign.Ed25519  as Ed25519
@@ -112,6 +114,9 @@ someKeyId (Some a) = keyId a
 
 createKey :: KeyType key -> IO (Key key)
 createKey KeyTypeEd25519 = uncurry KeyEd25519 <$> Ed25519.createKeypair
+
+createKey' :: KeyType key -> IO (Some Key)
+createKey' = liftM Some . createKey
 
 {-------------------------------------------------------------------------------
   Key IDs
@@ -209,11 +214,9 @@ instance ToJSON (PublicKey typ) where
               ])
           ]
 
-instance ToJSON (Some PublicKey) where
-  toJSON (Some pub) = toJSON pub
-
-instance ToJSON (Some KeyType) where
-  toJSON (Some pub) = toJSON pub
+instance ToJSON (Some Key)        where toJSON (Some a) = toJSON a
+instance ToJSON (Some PublicKey)  where toJSON (Some a) = toJSON a
+instance ToJSON (Some KeyType)    where toJSON (Some a) = toJSON a
 
 instance ReportSchemaErrors m => FromJSON m (Some PublicKey) where
   fromJSON enc = do

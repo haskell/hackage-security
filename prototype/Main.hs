@@ -50,30 +50,34 @@ interpretCommand (Upload pkg version) = cmdUpload pkg version
 cmdBootstrap :: Options -> IO ()
 cmdBootstrap opts = do
     now <- getCurrentTime
-    rootKeys     <- replicateM 3 $ createKey KeyTypeEd25519
-    snapshotKey  <- createKey KeyTypeEd25519
-    timestampKey <- createKey KeyTypeEd25519
-    targetKeys   <- replicateM 3 $ createKey KeyTypeEd25519
-    trustees     <- replicateM 3 $ createKey KeyTypeEd25519
+    rootKeys     <- replicateM 3 $ createKey' KeyTypeEd25519
+    snapshotKey  <- createKey' KeyTypeEd25519
+    timestampKey <- createKey' KeyTypeEd25519
+    targetKeys   <- replicateM 3 $ createKey' KeyTypeEd25519
+    trustees     <- replicateM 3 $ createKey' KeyTypeEd25519
     let root = Root {
             rootVersion = FileVersion 1
           , rootExpires = addUTCTime (365 * oneDay) now
-          , rootKeys    = KeyEnv.fromKeys' $ concat [
+          , rootKeys    = KeyEnv.fromKeys $ concat [
                               rootKeys
                             , [snapshotKey]
                             , [timestampKey]
                             ]
           , rootRoles   = Map.fromList [
                 (RoleRoot, RoleSpec {
-                    roleSpecKeys      = map (Some . publicKey) rootKeys
+                    roleSpecKeys      = map somePublicKey rootKeys
                   , roleSpecThreshold = KeyThreshold 2
                   })
               , (RoleSnapshot, RoleSpec {
-                    roleSpecKeys      = [Some . publicKey $ snapshotKey]
+                    roleSpecKeys      = [somePublicKey snapshotKey]
                   , roleSpecThreshold = KeyThreshold 1
                   })
               , (RoleTimestamp, RoleSpec {
-                    roleSpecKeys      = [Some . publicKey $ timestampKey]
+                    roleSpecKeys      = [somePublicKey timestampKey]
+                  , roleSpecThreshold = KeyThreshold 1
+                  })
+              , (RoleTargets, RoleSpec {
+                    roleSpecKeys      = map somePublicKey targetKeys
                   , roleSpecThreshold = KeyThreshold 1
                   })
               ]
@@ -95,25 +99,25 @@ cmdBootstrap opts = do
           , targetsExpires     = never
           , targets            = FileMap.empty
           , targetsDelegations = Delegations {
-                delegationsKeys  = KeyEnv.fromKeys' trustees
+                delegationsKeys  = KeyEnv.fromKeys trustees
               , delegationsRoles = [
                     DelegationSpec {
-                        delegationSpecKeys      = map (Some . publicKey) targetKeys
+                        delegationSpecKeys      = map somePublicKey targetKeys
                       , delegationSpecThreshold = KeyThreshold 1
                       , delegation = $(qqd "targets/*/*/*" "targets/*/targets.json")
                       }
                   , DelegationSpec {
-                        delegationSpecKeys      = map (Some . publicKey) trustees
+                        delegationSpecKeys      = map somePublicKey trustees
                       , delegationSpecThreshold = KeyThreshold 1
                       , delegation = $(qqd "targets/*/*/*.cabal" "targets/*/*/revisions.json")
                       }
                   ]
               }
           }
-        signedRoot            = withSignatures (map Some rootKeys)   root
-        signedSnapshot        = withSignatures [Some snapshotKey]    snapshot
-        signedTimestamp       = withSignatures [Some timestampKey]   timestamp
-        signedTopLevelTargets = withSignatures (map Some targetKeys) topLevelTargets
+        signedRoot            = withSignatures rootKeys       root
+        signedSnapshot        = withSignatures [snapshotKey]  snapshot
+        signedTimestamp       = withSignatures [timestampKey] timestamp
+        signedTopLevelTargets = withSignatures targetKeys     topLevelTargets
 
     -- Write keys
     forM_ rootKeys   $ writeKey Offline "root"
@@ -133,14 +137,13 @@ cmdBootstrap opts = do
     pathTimestamp       = mkPath opts Server "timestamp.json"
     pathTopLevelTargets = mkPath opts Server "targets.json"
 
-    writeKey :: Where -> FilePath -> Key Ed25519 -> IO ()
+    writeKey :: Where -> FilePath -> Some Key -> IO ()
     writeKey where_ prefix key = do
         createDirectoryIfMissing True (takeDirectory path)
         writeCanonical path key
       where
-        kId  = keyIdString (keyId key)
+        kId  = keyIdString (someKeyId key)
         path = mkPath opts where_ ("keys" </> prefix </> kId <.> "private")
-
 
 {-------------------------------------------------------------------------------
   Internal checks
@@ -266,15 +269,15 @@ cmdUpload pkg _version opts = do
         timestampKeys' = roleSpecKeys (roleTimestamp root')
 
     -- Read the corresponding private keys
-    snapshotKeys  <- forM snapshotKeys'  $ readPrivateKey "snapshot"
-    timestampKeys <- forM timestampKeys' $ readPrivateKey "timestamp"
+    snapshotKeys  <- forM snapshotKeys'  $ readPrivateKey opts "snapshot"
+    timestampKeys <- forM timestampKeys' $ readPrivateKey opts "timestamp"
 
     -- Construct the "target"
     let targetContents = BS.L.C8.pack pkg -- Fake package contents
         targetMetaInfo = FileMap.fileInfo targetContents
         targetPath     = mkPath opts Server ("targets" </> pkg)
 
-    -- Create new snapshot
+    -- Update snapshot
     oldSnapshot <- readJSON keyEnv pathSnapshot
     let oldSnapshot' = signed oldSnapshot
         newSnapshot' = Snapshot {
@@ -308,14 +311,6 @@ cmdUpload pkg _version opts = do
     pathSnapshot  = mkPath opts Server "snapshot.json"
     pathTimestamp = mkPath opts Server "timestamp.json"
 
-    readPrivateKey :: FilePath -> Some PublicKey -> IO (Some Key)
-    readPrivateKey prefix pub =
-        readJSON KeyEnv.empty path
-      where
-        kId   = keyIdString (someKeyId pub)
-        path' = "keys" </> prefix </> kId <.> "private"
-        path  = mkPath opts Server path'
-
 {-------------------------------------------------------------------------------
   Auxiliary
 -------------------------------------------------------------------------------}
@@ -337,6 +332,14 @@ readRoot fp = either throwIO (return . aux) =<< readCanonical KeyEnv.empty fp
 
 readJSON :: FromJSON ReadJSON a => KeyEnv -> FilePath -> IO a
 readJSON env fp = either throwIO return =<< readCanonical env fp
+
+readPrivateKey :: Options -> FilePath -> Some PublicKey -> IO (Some Key)
+readPrivateKey opts prefix pub =
+    readJSON KeyEnv.empty path
+  where
+    kId   = keyIdString (someKeyId pub)
+    path' = "keys" </> prefix </> kId <.> "private"
+    path  = mkPath opts Server path'
 
 oneDay :: NominalDiffTime
 oneDay = 24 * 60 * 60
