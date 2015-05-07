@@ -49,7 +49,9 @@ class AsType f where
 -------------------------------------------------------------------------------}
 
 data Some f where
-    Some :: (Eq (f a), Ord (f a)) => f a -> Some f
+    Some :: (Eq (f a), Ord (f a), Show (f a)) => f a -> Some f
+
+deriving instance Show (Some f)
 
 instance Typed f => Eq (Some f) where
     Some a == Some b =

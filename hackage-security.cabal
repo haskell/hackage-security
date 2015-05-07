@@ -17,11 +17,13 @@ flag base46
 
 library
   exposed-modules:     Hackage.Security.Base64
+                       Hackage.Security.Client
                        Hackage.Security.JSON
                        Hackage.Security.Key
                        Hackage.Security.Key.Env
                        Hackage.Security.Key.ExplicitSharing
                        Hackage.Security.Some
+                       Hackage.Security.TUF
                        Hackage.Security.TUF.FileMap
                        Hackage.Security.TUF.Ints
                        Hackage.Security.TUF.Root
@@ -29,6 +31,7 @@ library
                        Hackage.Security.TUF.Snapshot
                        Hackage.Security.TUF.Targets
                        Hackage.Security.TUF.Timestamp
+                       Hackage.Security.Verified
   other-modules:       Prelude
                        Text.JSON.Canonical
   -- We support ghc 7.2 and up

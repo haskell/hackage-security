@@ -8,7 +8,7 @@ module Hackage.Security.TUF.Root (
   , roleTimestamp
   , roleSnapshot
   , roleTargets
-  , verifyThreshold
+  , verifyThreshold -- TODO: Remove from API
   ) where
 
 import Data.Time
@@ -33,7 +33,7 @@ data Role =
   | RoleTargets
   | RoleTimestamp
   | RoleMirrors
-  deriving (Eq, Ord)
+  deriving (Show, Eq, Ord)
 
 -- | The root metadata
 --
@@ -51,6 +51,7 @@ data RoleSpec = RoleSpec {
     roleSpecKeys      :: [Some PublicKey]
   , roleSpecThreshold :: KeyThreshold
   }
+  deriving (Show)
 
 {-------------------------------------------------------------------------------
   Utility

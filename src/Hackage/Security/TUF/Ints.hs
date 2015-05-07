@@ -18,20 +18,21 @@ import Hackage.Security.JSON
 -- The file version is a flat integer which must monotonically increase on
 -- every file update.
 newtype FileVersion = FileVersion Int
-  deriving (Eq, Ord)
+  deriving (Eq, Ord, Show)
 
 -- | File length
 --
 -- Having verified file length information means we can protect against
 -- endless data attacks and similar.
 newtype FileLength = FileLength Int
-  deriving (Eq, Ord)
+  deriving (Eq, Ord, Show)
 
 -- | Key threshold
 --
 -- The key threshold is the minimum number of keys a document must be signed
 -- with. Key thresholds are specified in 'RoleSpec' or 'DelegationsSpec'.
-newtype KeyThreshold = KeyThreshold Int deriving (Eq, Ord)
+newtype KeyThreshold = KeyThreshold Int
+  deriving (Eq, Ord, Show)
 
 {-------------------------------------------------------------------------------
   Utility

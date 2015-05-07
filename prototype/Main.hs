@@ -29,6 +29,7 @@ import Hackage.Security.TUF.Targets
 import Hackage.Security.TUF.Timestamp
 import qualified Hackage.Security.TUF.FileMap as FileMap
 import qualified Hackage.Security.Key.Env     as KeyEnv
+import qualified Hackage.Security.Client
 
 import Prototype.Options
 
@@ -88,13 +89,12 @@ cmdBootstrap opts = do
           , snapshotExpires = addUTCTime (3 * oneDay) now
           , snapshotMeta    = FileMap.empty
           }
-        timestamp = Timestamp {
-            timestampVersion = FileVersion 1
-          , timestampExpires = addUTCTime (3 * oneDay) now
-          , timestampMeta    = FileMap.fromList [
-                ("snapshot.json", FileMap.fileInfoJSON signedSnapshot)
-              ]
-          }
+        timestamp = Timestamp
+          (FileVersion 1)
+          (addUTCTime (3 * oneDay) now)
+          (FileMap.fromList [
+              ("snapshot.json", FileMap.fileInfoJSON signedSnapshot)
+            ])
         topLevelTargets = Targets {
             targetsVersion     = FileVersion 1
           , targetsExpires     = never
@@ -167,7 +167,10 @@ cmdRoundtrip fp _opts = do
 -------------------------------------------------------------------------------}
 
 cmdCheck :: Options -> IO ()
-cmdCheck opts = do
+cmdCheck opts = undefined -- replaced by generic function in lib
+{-
+
+
     now <- getCurrentTime
 
     -- If the client does not yet have a copy of root.json, get one
@@ -213,26 +216,7 @@ cmdCheck opts = do
     pathClientRoot = mkPath opts Client "root.json"
     pathClientTime = mkPath opts Client "timestamp.json"
     pathServerTime = mkPath opts Server "timestamp.json"
-
--- | Timestamp verification
---
--- NOTE: deserialization for Signed documents will already have verified that
--- the signatures are correct; so here we just need to need to verify that we
--- have at least @threshold@ of the timestamp role keys.
-verifyTimestamp :: UTCTime           -- ^ Now
-                -> RoleSpec          -- ^ Timestamp role specification
-                -> Signed Timestamp  -- ^ Old timestamp
-                -> Signed Timestamp  -- ^ New timestamp
-                -> Bool
-verifyTimestamp now tsRole oldTS newTS
-  | timestampExpires newTS' < now                     = False
-  | timestampVersion newTS' < timestampVersion oldTS' = False
-  | not (verifyThreshold tsRole (signatures newTS))   = False
-  | otherwise = True
-  where
-    oldTS', newTS' :: Timestamp
-    oldTS' = signed oldTS
-    newTS' = signed newTS
+-}
 
 bootstrapClient :: Options -> IO ()
 bootstrapClient opts = do
@@ -307,13 +291,12 @@ cmdUpload pkg version opts = do
     -- Create new timestamp
     oldTimestamp <- readJSON keyEnv pathTimestamp
     let oldTimestamp' = signed oldTimestamp
-        newTimestamp' = Timestamp {
-            timestampVersion = incrementFileVersion (timestampVersion oldTimestamp')
-          , timestampExpires = addUTCTime (3 * oneDay) now
-          , timestampMeta    = FileMap.fromList [
+        newTimestamp' = Timestamp
+          (incrementFileVersion (_timestampVersion oldTimestamp'))
+          (addUTCTime (3 * oneDay) now)
+          (FileMap.fromList [
                 ("snapshot.json", FileMap.fileInfoJSON newSnapshot)
-              ]
-          }
+            ])
         newTimestamp  = withSignatures timestampKeys newTimestamp'
 
     -- Write new files
