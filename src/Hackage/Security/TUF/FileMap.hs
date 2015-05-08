@@ -21,6 +21,9 @@ module Hackage.Security.TUF.FileMap (
   , fileInfo
   , fileInfoJSON
   , verifyFileInfoJSON
+    -- * Comparing file maps
+  , FileChange(..)
+  , fileMapChanges
   ) where
 
 import Prelude hiding (lookup)
@@ -87,6 +90,30 @@ fileInfoJSON = fileInfo . renderJSON
 
 verifyFileInfoJSON :: ToJSON a => Trusted FileInfo -> a -> Bool
 verifyFileInfoJSON info a = trusted info == fileInfoJSON a
+
+{-------------------------------------------------------------------------------
+  Comparing filemaps
+-------------------------------------------------------------------------------}
+
+data FileChange =
+    FileNew     FilePath
+  | FileDeleted FilePath
+  | FileChanged FilePath
+  deriving (Eq, Ord, Show)
+
+fileMapChanges :: FileMap -> FileMap -> [FileChange]
+fileMapChanges (FileMap a) (FileMap b) = go (Map.toList a) (Map.toList b)
+  where
+    -- Assumes the old and new lists are sorted alphabetically
+    -- (Map.toList guarantees this)
+    go :: [(FilePath, FileInfo)] -> [(FilePath, FileInfo)] -> [FileChange]
+    go [] new = map (FileNew     . fst) new
+    go old [] = map (FileDeleted . fst) old
+    go old@((fp, nfo):old') new@((fp', nfo'):new')
+      | fp < fp'    = FileDeleted fp  : go old' new
+      | fp > fp'    = FileNew     fp' : go old  new'
+      | nfo /= nfo' = FileChanged fp  : go old' new'
+      | otherwise   = go old' new'
 
 {-------------------------------------------------------------------------------
   JSON

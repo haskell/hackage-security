@@ -108,7 +108,7 @@ instance Exception RoleVerificationError
 
 -- | Verify a timestamp
 verifyTimestamp :: Trusted Root      -- ^ Trusted root data
-                -> Maybe FileVersion -- ^ Previous version (if any)
+                -> FileVersion       -- ^ Previous version
                 -> Maybe UTCTime     -- ^ Time now (if checking expiry)
                 -> Signed Timestamp  -- ^ Timestamp to verify
                 -> Either RoleVerificationError (Trusted Timestamp)
@@ -117,7 +117,7 @@ verifyTimestamp root = verifyRole (rootRoleTimestamp root) Nothing
 -- | Verify snapshot
 verifySnapshot :: Trusted Root       -- ^ Root data
                -> Trusted FileInfo   -- ^ File info (from the timestamp file)
-               -> Maybe FileVersion  -- ^ Previous version (if any)
+               -> FileVersion        -- ^ Previous version
                -> Maybe UTCTime      -- ^ Time now (if checking expiry)
                -> Signed Snapshot    -- ^ Snapshot to verify
                -> Either RoleVerificationError (Trusted Snapshot)
@@ -138,12 +138,12 @@ verifySnapshot root finfo = verifyRole (rootRoleSnapshot root) (Just finfo)
 verifyRole :: forall a. (TUFHeader a, ToJSON a)
            => Trusted (RoleSpec a)     -- ^ For signature validation
            -> Maybe (Trusted FileInfo) -- ^ File info (if known)
-           -> Maybe FileVersion        -- ^ Previous version (if any)
+           -> FileVersion              -- ^ Previous version
            -> Maybe UTCTime            -- ^ Time now (if checking expiry)
            -> Signed a -> Either RoleVerificationError (Trusted a)
 verifyRole (trusted -> RoleSpec{roleSpecThreshold = KeyThreshold threshold, ..})
            mFileInfo
-           mPrev
+           prev
            mNow
            Signed{..} =
     runExcept go
@@ -165,11 +165,8 @@ verifyRole (trusted -> RoleSpec{roleSpecThreshold = KeyThreshold threshold, ..})
             throwError RoleVerificationErrorExpired
 
       -- Verify timestamp
-      case mPrev of
-        Nothing   -> return ()
-        Just prev ->
-          when (fileVersion signed < prev) $
-            throwError RoleVerificationErrorVersion
+      when (fileVersion signed < prev) $
+        throwError RoleVerificationErrorVersion
 
       -- Verify signatures
       -- NOTE: We only need to verify the keys that were used; if the signature

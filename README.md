@@ -292,10 +292,10 @@ According to the official specification we should have a file `snapshot.json`,
 signed with the snapshot key, which lists the hashes of _all_ metadata files
 in the repo. In Hackage however we have the index tarball, which _contains_
 all metadata files in the repo (that is, it contains all the `.cabal` files,
-but it also contains all the `targets.json` files, as well as the `root.json`
-file). The only thing that is missing from the index tarball, compared to the
-`snapshot.json` file from the TUF spec, is the version, expiry time, and
-signatures. Therefore our `snapshot.json` looks like
+but it also contains all the `targets.json` files). The only thing that is
+missing from the index tarball, compared to the `snapshot.json` file from the
+TUF spec, is the version, expiry time, and signatures. Therefore our
+`snapshot.json` looks like
 
 ``` javascript
 { "signed" : {
@@ -303,7 +303,8 @@ signatures. Therefore our `snapshot.json` looks like
     , "version" : VERSION
     , "expires" : EXPIRES
     , "meta"    : {
-           "index.tar"    : FILEINFO
+           "root.json"    : FILEINFO
+         , "index.tar"    : FILEINFO
          , "index.tar.gz" : FILEINFO
         }
     }
@@ -315,6 +316,12 @@ Then the combination of `snapshot.json` together with the index tarball is
 a strict superset of the information in TUF's `snapshot.json` (instead of
 containing the hashes of the metadata in the repo, it contains the actual
 metadata themselves).
+
+(We list the file info of the root metadata explicitly, rather than recording it
+in the index tarball, because during the check for updates process (section 5.1,
+&ldquo;The Client Application&rdquo;, of the TUF spec) we need to know if the
+root metadata has changed; we don't want to have to download the entire index
+tarball to do that.)
 
 #### Efficiency of requests
 

@@ -21,6 +21,7 @@ data File =
     FileSnapshot
   | FileTimestamp
   | FileRoot
+  | FileIndexTarball
 
 -- | Repository
 --
@@ -32,19 +33,32 @@ data Repository = Repository {
     -- | Download a file from the server
     repGetRemote :: File -> IO FilePath
 
-    -- | Get a cached file (if it exists)
-  , repGetCached :: File -> IO (Maybe FilePath)
-
-    -- | Get the (cached) root metadata
+    -- | Get a cached file
     --
-    -- This must always succeed; how the initial root metadata is distributed
-    -- to clients is outside the scope of this module.
-  , repGetRoot :: IO FilePath
+    -- NOTE: We expect this to succeed always. In particular, it means that
+    -- "new" clients (that have never communicated with the server before)
+    -- must be given initial root data, as well as a corresponding snapshot
+    -- containing the hash of that root data and a corresponding timestamp.
+    -- If we didn't do this, the logic in 'checkForUpdates' (such as "did the
+    -- root data change?") would be a lot more cumbersome.
+  , repGetCached :: File -> IO FilePath
   }
 
 {-------------------------------------------------------------------------------
   Checking for updates
 -------------------------------------------------------------------------------}
+
+-- | Should we check expiry dates?
+data CheckExpiry =
+    -- | Yes, check expiry dates
+    CheckExpiry
+
+    -- | No, don't check expiry dates.
+    --
+    -- This should ONLY be used in exceptional circumstances (such as when
+    -- the main server is down for longer than the expiry dates used in the
+    -- timestamp files on mirrors).
+  | DontCheckExpiry
 
 data HasUpdates = HasUpdates | NoUpdates
 
@@ -52,24 +66,28 @@ data HasUpdates = HasUpdates | NoUpdates
 --
 -- This implements the logic described in Section 5.1, "The client application",
 -- of the TUF spec.
-checkForUpdates :: Repository -> IO HasUpdates
-checkForUpdates Repository{..} = do
-    -- TODO: We should make checking expiry dates optional
-    now <- getCurrentTime
+--
+-- TODO: We need to catch exceptions and if we catch one, update the root
+-- and start over.
+checkForUpdates :: CheckExpiry -> Repository -> IO HasUpdates
+checkForUpdates checkExpiry Repository{..} = do
+    mNow <- case checkExpiry of
+              CheckExpiry     -> Just <$> getCurrentTime
+              DontCheckExpiry -> return Nothing
 
     -- We need the cached root information in order to resolve key IDs and
     -- verify signatures
     cachedRoot :: Trusted Root
-       <- repGetRoot
+       <- repGetCached FileRoot
       >>= readJSON KeyEnv.empty
       >>= return . trustLocalFile
     let keyEnv = rootKeys (trusted cachedRoot)
 
-    -- Get the old timestamp (if any)
-    mOldTS :: Maybe (Trusted Timestamp)
+    -- Get the old timestamp
+    oldTS :: Trusted Timestamp
        <- repGetCached FileTimestamp
-      >>= readOptJSON keyEnv
-      >>= return . fmap trustLocalFile
+      >>= readJSON keyEnv
+      >>= return . trustLocalFile
 
     -- Get the new timestamp
     newTS :: Trusted Timestamp
@@ -77,22 +95,18 @@ checkForUpdates Repository{..} = do
       >>= readJSON keyEnv
       >>= throwErrors . verifyTimestamp
             cachedRoot
-            (fmap fileVersion mOldTS)
-            (Just now)
+            (fileVersion oldTS)
+            mNow
 
     -- Check if the snapshot has changed
-    let snapshotChanged =
-          case mOldTS of
-            Nothing    -> True
-            Just oldTS -> snapshotFileInfo newTS /= snapshotFileInfo oldTS
-    if not snapshotChanged
+    if snapshotFileInfo newTS /= snapshotFileInfo oldTS
       then return NoUpdates
       else do
         -- Get the old snapshot (if any)
-        mOldSS :: Maybe (Trusted Snapshot)
+        oldSS :: Trusted Snapshot
            <- repGetCached FileSnapshot
-          >>= readOptJSON keyEnv
-          >>= return . fmap trustLocalFile
+          >>= readJSON keyEnv
+          >>= return . trustLocalFile
 
         -- Get the new snapshot
         newSS :: Trusted Snapshot
@@ -101,14 +115,35 @@ checkForUpdates Repository{..} = do
           >>= throwErrors . verifySnapshot
                 cachedRoot
                 (snapshotFileInfo newTS)
-                (fmap fileVersion mOldSS)
-                (Just now)
+                (fileVersion oldSS)
+                mNow
+
+        -- Check which files have changed
+        let fileChanges = fileMapChanges (snapshotMeta (trusted oldSS))
+                                         (snapshotMeta (trusted newSS))
+
+        -- If root metadata changed, update and restart
+        when (FileChanged "root.json" `elem` fileChanges) $
+          updateRoot
+
+        -- If index has changed, download it and verify it
+        when (FileChanged "index.tar" `elem` fileChanges) $
+          -- TODO: verify
+          void $ repGetCached FileIndexTarball
 
         return HasUpdates
+  where
+    -- TODO
+    updateRoot :: IO ()
+    updateRoot = return ()
 
 {-------------------------------------------------------------------------------
   Auxiliary
 -------------------------------------------------------------------------------}
+
+-- | Local files are assumed trusted
+trustLocalFile :: Signed a -> Trusted a
+trustLocalFile Signed{..} = DeclareTrusted signed
 
 readJSON :: FromJSON ReadJSON a => KeyEnv -> FilePath -> IO a
 readJSON keyEnv fpath = do
@@ -116,14 +151,6 @@ readJSON keyEnv fpath = do
     case result of
       Left err -> throwIO err
       Right a  -> return a
-
-readOptJSON :: FromJSON ReadJSON a => KeyEnv -> Maybe FilePath -> IO (Maybe a)
-readOptJSON _      Nothing      = return Nothing
-readOptJSON keyEnv (Just fpath) = Just <$> readJSON keyEnv fpath
-
--- | Local files are assumed trusted
-trustLocalFile :: Signed a -> Trusted a
-trustLocalFile Signed{..} = DeclareTrusted signed
 
 throwErrors :: Exception e => Either e a -> IO a
 throwErrors (Left err) = throwIO err
