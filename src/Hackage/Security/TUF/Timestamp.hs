@@ -1,49 +1,42 @@
 module Hackage.Security.TUF.Timestamp (
-    Timestamp(Timestamp)
-  , _timestampVersion
-  , _timestampExpires
-    -- * Accessing verified information
-  , timestampMeta
-  , snapshotHash
+    Timestamp(..)
+    -- * Accessing trusted information
+  , snapshotFileInfo
   ) where
-
-import Data.Time
-import qualified Data.Map as Map
 
 import Hackage.Security.JSON
 import Hackage.Security.Key.ExplicitSharing
-import Hackage.Security.TUF.FileMap (FileMap, FileInfo(..), HashFn(..))
-import Hackage.Security.TUF.Ints
+import Hackage.Security.TUF.Common
+import Hackage.Security.TUF.FileMap (FileMap, FileInfo(..))
 import Hackage.Security.TUF.Signed
+import Hackage.Security.Trusted.Unsafe
 import qualified Hackage.Security.TUF.FileMap as FileMap
-import {-# SOURCE #-} Hackage.Security.Verified
 
 {-------------------------------------------------------------------------------
   Datatypes
 -------------------------------------------------------------------------------}
 
 data Timestamp = Timestamp {
-    _timestampVersion :: FileVersion
-  , _timestampExpires :: UTCTime
-  , _timestampMeta    :: FileMap
+    timestampVersion :: FileVersion
+  , timestampExpires :: FileExpires
+  , timestampMeta    :: FileMap
   }
 
+instance TUFHeader Timestamp where
+  fileVersion = timestampVersion
+  fileExpires = timestampExpires
+
 {-------------------------------------------------------------------------------
-  Accessors
+  Accessing trusted information
 -------------------------------------------------------------------------------}
 
-timestampMeta :: Verified Timestamp -> FileMap
-timestampMeta = _timestampMeta . verified
-
--- | Get the hash of the snapshot.json file stored in the timestamp file
+-- | Snapshot file info
 --
 -- TODO: Perhaps we should change the types to make these runtime errors
 -- impossible.
-snapshotHash :: Verified Timestamp -> String
-snapshotHash ts =
-    fileInfoHashes Map.! HashFnSHA256
-  where
-    Just FileInfo{..} = FileMap.lookup "snapshot.json" (timestampMeta ts)
+snapshotFileInfo :: Trusted Timestamp -> Trusted FileInfo
+snapshotFileInfo (trusted -> Timestamp{..}) =
+    DeclareTrusted $ timestampMeta FileMap.! "snapshot.json"
 
 {-------------------------------------------------------------------------------
   JSON
@@ -52,17 +45,17 @@ snapshotHash ts =
 instance ToJSON Timestamp where
   toJSON Timestamp{..} = JSObject [
         ("_type"   , JSString "Timestamp")
-      , ("version" , toJSON _timestampVersion)
-      , ("expires" , toJSON _timestampExpires)
-      , ("meta"    , toJSON _timestampMeta)
+      , ("version" , toJSON timestampVersion)
+      , ("expires" , toJSON timestampExpires)
+      , ("meta"    , toJSON timestampMeta)
       ]
 
 instance ReportSchemaErrors m => FromJSON m Timestamp where
   fromJSON enc = do
     -- TODO: Should we verify _type?
-    _timestampVersion <- fromJSField enc "version"
-    _timestampExpires <- fromJSField enc "expires"
-    _timestampMeta    <- fromJSField enc "meta"
+    timestampVersion <- fromJSField enc "version"
+    timestampExpires <- fromJSField enc "expires"
+    timestampMeta    <- fromJSField enc "meta"
     return Timestamp{..}
 
 instance FromJSON ReadJSON (Signed Timestamp) where

@@ -23,15 +23,16 @@ library
                        Hackage.Security.Key.Env
                        Hackage.Security.Key.ExplicitSharing
                        Hackage.Security.Some
+                       Hackage.Security.Trusted
+                       Hackage.Security.Trusted.Unsafe
                        Hackage.Security.TUF
+                       Hackage.Security.TUF.Common
                        Hackage.Security.TUF.FileMap
-                       Hackage.Security.TUF.Ints
                        Hackage.Security.TUF.Root
                        Hackage.Security.TUF.Signed
                        Hackage.Security.TUF.Snapshot
                        Hackage.Security.TUF.Targets
                        Hackage.Security.TUF.Timestamp
-                       Hackage.Security.Verified
   other-modules:       Prelude
                        Text.JSON.Canonical
   -- We support ghc 7.2 and up
@@ -64,6 +65,7 @@ library
                        TupleSections
                        TypeFamilies
                        TypeOperators
+                       ViewPatterns
   other-extensions:    CPP
                        OverlappingInstances
                        PackageImports

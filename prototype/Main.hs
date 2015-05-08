@@ -21,12 +21,7 @@ import Hackage.Security.Key
 import Hackage.Security.Key.Env (KeyEnv)
 import Hackage.Security.Key.ExplicitSharing
 import Hackage.Security.Some
-import Hackage.Security.TUF.Ints
-import Hackage.Security.TUF.Root
-import Hackage.Security.TUF.Signed
-import Hackage.Security.TUF.Snapshot
-import Hackage.Security.TUF.Targets
-import Hackage.Security.TUF.Timestamp
+import Hackage.Security.TUF
 import qualified Hackage.Security.TUF.FileMap as FileMap
 import qualified Hackage.Security.Key.Env     as KeyEnv
 import qualified Hackage.Security.Client
@@ -58,46 +53,47 @@ cmdBootstrap opts = do
     trustees     <- replicateM 3 $ createKey' KeyTypeEd25519
     let root = Root {
             rootVersion = FileVersion 1
-          , rootExpires = addUTCTime (365 * oneDay) now
+          , rootExpires = FileExpires $ addUTCTime (365 * oneDay) now
           , rootKeys    = KeyEnv.fromKeys $ concat [
                               rootKeys
                             , [snapshotKey]
                             , [timestampKey]
                             , targetKeys
                             ]
-          , rootRoles   = Map.fromList [
-                (RoleRoot, RoleSpec {
+          , rootRoles   = RootRoles {
+                rootRolesRoot = RoleSpec {
                     roleSpecKeys      = map somePublicKey rootKeys
                   , roleSpecThreshold = KeyThreshold 2
-                  })
-              , (RoleSnapshot, RoleSpec {
+                  }
+              , rootRolesSnapshot = RoleSpec {
                     roleSpecKeys      = [somePublicKey snapshotKey]
                   , roleSpecThreshold = KeyThreshold 1
-                  })
-              , (RoleTimestamp, RoleSpec {
+                  }
+              , rootRolesTimestamp = RoleSpec {
                     roleSpecKeys      = [somePublicKey timestampKey]
                   , roleSpecThreshold = KeyThreshold 1
-                  })
-              , (RoleTargets, RoleSpec {
+                  }
+              , rootRolesTargets = RoleSpec {
                     roleSpecKeys      = map somePublicKey targetKeys
                   , roleSpecThreshold = KeyThreshold 1
-                  })
-              ]
+                  }
+              }
           }
         snapshot = Snapshot {
             snapshotVersion = FileVersion 1
-          , snapshotExpires = addUTCTime (3 * oneDay) now
+          , snapshotExpires = FileExpires $ addUTCTime (3 * oneDay) now
           , snapshotMeta    = FileMap.empty
           }
-        timestamp = Timestamp
-          (FileVersion 1)
-          (addUTCTime (3 * oneDay) now)
-          (FileMap.fromList [
-              ("snapshot.json", FileMap.fileInfoJSON signedSnapshot)
-            ])
+        timestamp = Timestamp {
+            timestampVersion = FileVersion 1
+          , timestampExpires = FileExpires $ addUTCTime (3 * oneDay) now
+          , timestampMeta    = FileMap.fromList [
+                ("snapshot.json", FileMap.fileInfoJSON signedSnapshot)
+              ]
+          }
         topLevelTargets = Targets {
             targetsVersion     = FileVersion 1
-          , targetsExpires     = never
+          , targetsExpires     = FileExpires never
           , targets            = FileMap.empty
           , targetsDelegations = Just $ Delegations {
                 delegationsKeys  = KeyEnv.fromKeys trustees
@@ -243,8 +239,8 @@ cmdUpload pkg version opts = do
     -- Read root metadata
     (root, keyEnv) <- readRoot pathRoot
     let root'          = signed root
-        snapshotKeys'  = roleSpecKeys (roleSnapshot  root')
-        timestampKeys' = roleSpecKeys (roleTimestamp root')
+        snapshotKeys'  = roleSpecKeys (rootRolesSnapshot  (rootRoles root'))
+        timestampKeys' = roleSpecKeys (rootRolesTimestamp (rootRoles root'))
 
     -- Read the corresponding private keys
     snapshotKeys  <- forM snapshotKeys'  $ readPrivateKey opts "snapshot"
@@ -258,7 +254,7 @@ cmdUpload pkg version opts = do
     -- Construct target metadata
     let packageTargets = Targets {
             targetsVersion     = FileVersion 1
-          , targetsExpires     = never
+          , targetsExpires     = FileExpires never
           , targets            = FileMap.fromList [
                 (tarGzFileName, tarGzMetaInfo)
               ]
@@ -280,7 +276,7 @@ cmdUpload pkg version opts = do
     let oldSnapshot' = signed oldSnapshot
         newSnapshot' = Snapshot {
             snapshotVersion = incrementFileVersion (snapshotVersion oldSnapshot')
-          , snapshotExpires = addUTCTime (3 * oneDay) now
+          , snapshotExpires = FileExpires $ addUTCTime (3 * oneDay) now
           , snapshotMeta    = FileMap.insert
                                 packageTargetsPath
                                 (FileMap.fileInfoJSON packageTargets)
@@ -291,12 +287,13 @@ cmdUpload pkg version opts = do
     -- Create new timestamp
     oldTimestamp <- readJSON keyEnv pathTimestamp
     let oldTimestamp' = signed oldTimestamp
-        newTimestamp' = Timestamp
-          (incrementFileVersion (_timestampVersion oldTimestamp'))
-          (addUTCTime (3 * oneDay) now)
-          (FileMap.fromList [
-                ("snapshot.json", FileMap.fileInfoJSON newSnapshot)
-            ])
+        newTimestamp' = Timestamp {
+            timestampVersion = incrementFileVersion (timestampVersion oldTimestamp')
+          , timestampExpires = FileExpires $ addUTCTime (3 * oneDay) now
+          , timestampMeta    = FileMap.fromList [
+                 ("snapshot.json", FileMap.fileInfoJSON newSnapshot)
+              ]
+          }
         newTimestamp  = withSignatures timestampKeys newTimestamp'
 
     -- Write new files

@@ -2,12 +2,10 @@ module Hackage.Security.TUF.Snapshot (
     Snapshot(..)
   ) where
 
-import Data.Time
-
 import Hackage.Security.JSON
 import Hackage.Security.Key.ExplicitSharing
+import Hackage.Security.TUF.Common
 import Hackage.Security.TUF.FileMap (FileMap)
-import Hackage.Security.TUF.Ints
 import Hackage.Security.TUF.Signed
 
 {-------------------------------------------------------------------------------
@@ -16,9 +14,13 @@ import Hackage.Security.TUF.Signed
 
 data Snapshot = Snapshot {
     snapshotVersion :: FileVersion
-  , snapshotExpires :: UTCTime
+  , snapshotExpires :: FileExpires
   , snapshotMeta    :: FileMap
   }
+
+instance TUFHeader Snapshot where
+  fileVersion = snapshotVersion
+  fileExpires = snapshotExpires
 
 {-------------------------------------------------------------------------------
   JSON

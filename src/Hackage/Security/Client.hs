@@ -1,17 +1,20 @@
 module Hackage.Security.Client (
     Repository(..)
   , File(..)
+    -- * Checking for updates
+  , HasUpdates(..)
   , checkForUpdates
   ) where
 
 import Control.Exception
+import Control.Monad
 import Data.Time
 
 import Hackage.Security.JSON
 import Hackage.Security.Key.ExplicitSharing
 import Hackage.Security.Key.Env (KeyEnv)
+import Hackage.Security.Trusted.Unsafe
 import Hackage.Security.TUF
-import Hackage.Security.Verified
 import qualified Hackage.Security.Key.Env as KeyEnv
 
 data File =
@@ -39,57 +42,89 @@ data Repository = Repository {
   , repGetRoot :: IO FilePath
   }
 
+{-------------------------------------------------------------------------------
+  Checking for updates
+-------------------------------------------------------------------------------}
+
+data HasUpdates = HasUpdates | NoUpdates
+
 -- | Generic logic for checking if there are updates
 --
 -- This implements the logic described in Section 5.1, "The client application",
 -- of the TUF spec.
-checkForUpdates :: Repository -> IO Bool
+checkForUpdates :: Repository -> IO HasUpdates
 checkForUpdates Repository{..} = do
     -- TODO: We should make checking expiry dates optional
     now <- getCurrentTime
 
     -- We need the cached root information in order to resolve key IDs and
     -- verify signatures
-    cachedRoot <- decode KeyEnv.empty =<< repGetRoot
-    let keyEnv = rootKeys (signed cachedRoot)
+    cachedRoot :: Trusted Root
+       <- repGetRoot
+      >>= readJSON KeyEnv.empty
+      >>= return . trustLocalFile
+    let keyEnv = rootKeys (trusted cachedRoot)
 
     -- Get the old timestamp (if any)
-    mOldTimestamp :: Maybe (Signed Timestamp)
-                        <- repGetCached FileTimestamp
-                       >>= decode' keyEnv
+    mOldTS :: Maybe (Trusted Timestamp)
+       <- repGetCached FileTimestamp
+      >>= readOptJSON keyEnv
+      >>= return . fmap trustLocalFile
 
     -- Get the new timestamp
-    newTimestamp :: Verified Timestamp
-                    <- repGetRemote FileTimestamp
-                   >>= decode keyEnv
-                   >>= verifyRole'
-                         (roleTimestamp (signed cachedRoot))
-                         (fmap (_timestampVersion . signed) mOldTimestamp)
-                         (Just now)
+    newTS :: Trusted Timestamp
+       <- repGetRemote FileTimestamp
+      >>= readJSON keyEnv
+      >>= throwErrors . verifyTimestamp
+            cachedRoot
+            (fmap fileVersion mOldTS)
+            (Just now)
 
-    return undefined
+    -- Check if the snapshot has changed
+    let snapshotChanged =
+          case mOldTS of
+            Nothing    -> True
+            Just oldTS -> snapshotFileInfo newTS /= snapshotFileInfo oldTS
+    if not snapshotChanged
+      then return NoUpdates
+      else do
+        -- Get the old snapshot (if any)
+        mOldSS :: Maybe (Trusted Snapshot)
+           <- repGetCached FileSnapshot
+          >>= readOptJSON keyEnv
+          >>= return . fmap trustLocalFile
+
+        -- Get the new snapshot
+        newSS :: Trusted Snapshot
+           <- repGetRemote FileSnapshot
+          >>= readJSON keyEnv
+          >>= throwErrors . verifySnapshot
+                cachedRoot
+                (snapshotFileInfo newTS)
+                (fmap fileVersion mOldSS)
+                (Just now)
+
+        return HasUpdates
 
 {-------------------------------------------------------------------------------
   Auxiliary
 -------------------------------------------------------------------------------}
 
-decode :: FromJSON ReadJSON a => KeyEnv -> FilePath -> IO a
-decode keyEnv fpath = do
+readJSON :: FromJSON ReadJSON a => KeyEnv -> FilePath -> IO a
+readJSON keyEnv fpath = do
     result <- readCanonical keyEnv fpath
     case result of
       Left err -> throwIO err
       Right a  -> return a
 
-decode' :: FromJSON ReadJSON a => KeyEnv -> Maybe FilePath -> IO (Maybe a)
-decode' _      Nothing      = return Nothing
-decode' keyEnv (Just fpath) = Just <$> decode keyEnv fpath
+readOptJSON :: FromJSON ReadJSON a => KeyEnv -> Maybe FilePath -> IO (Maybe a)
+readOptJSON _      Nothing      = return Nothing
+readOptJSON keyEnv (Just fpath) = Just <$> readJSON keyEnv fpath
 
-verifyRole' :: VerificationInfo a
-            => RoleSpec           -- ^ Role specification to verify signatures
-            -> Maybe FileVersion  -- ^ Previous file version (if any)
-            -> Maybe UTCTime      -- ^ Time it is now to check expiry (if using)
-            -> Signed a -> IO (Verified a)
-verifyRole' role mPrev mNow signed =
-    case verifyRole role mPrev mNow signed of
-      Left err       -> throwIO err
-      Right verified -> return verified
+-- | Local files are assumed trusted
+trustLocalFile :: Signed a -> Trusted a
+trustLocalFile Signed{..} = DeclareTrusted signed
+
+throwErrors :: Exception e => Either e a -> IO a
+throwErrors (Left err) = throwIO err
+throwErrors (Right a)  = return a

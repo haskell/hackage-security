@@ -10,14 +10,17 @@ module Hackage.Security.TUF.FileMap (
     FileMap -- opaque
   , FileInfo(..)
   , HashFn(..)
+  , Hash(..)
     -- * Standard accessors
   , empty
   , lookup
+  , (!)
   , insert
   , fromList
     -- * Utility
   , fileInfo
   , fileInfoJSON
+  , verifyFileInfoJSON
   ) where
 
 import Prelude hiding (lookup)
@@ -27,8 +30,9 @@ import qualified Data.Map             as Map
 import qualified Data.ByteString.Lazy as BS.L
 
 import Hackage.Security.JSON
-import Hackage.Security.TUF.Ints
 import Hackage.Security.Key.ExplicitSharing (renderJSON)
+import Hackage.Security.Trusted
+import Hackage.Security.TUF.Common
 
 {-------------------------------------------------------------------------------
   Datatypes
@@ -41,8 +45,9 @@ newtype FileMap = FileMap { fileMap :: Map FilePath FileInfo }
 
 data FileInfo = FileInfo {
     fileInfoLength :: FileLength
-  , fileInfoHashes :: Map HashFn String
+  , fileInfoHashes :: Map HashFn Hash
   }
+  deriving Eq
 
 {-------------------------------------------------------------------------------
   Standard accessors
@@ -53,6 +58,9 @@ empty = FileMap Map.empty
 
 lookup :: FilePath -> FileMap -> Maybe FileInfo
 lookup fp = Map.lookup fp . fileMap
+
+(!) :: FileMap -> FilePath -> FileInfo
+fm ! fp = fileMap fm Map.! fp
 
 insert :: FilePath -> FileInfo -> FileMap -> FileMap
 insert fp nfo = FileMap . Map.insert fp nfo . fileMap
@@ -69,13 +77,16 @@ fileInfo :: BS.L.ByteString -> FileInfo
 fileInfo bs = FileInfo {
       fileInfoLength = FileLength . fromIntegral $ BS.L.length bs
     , fileInfoHashes = Map.fromList [
-          (HashFnSHA256, showDigest (sha256 bs))
+          (HashFnSHA256, Hash $ showDigest (sha256 bs))
         ]
     }
 
 -- | Compute 'FileInfo' over the canonical JSON form
 fileInfoJSON :: ToJSON a => a -> FileInfo
 fileInfoJSON = fileInfo . renderJSON
+
+verifyFileInfoJSON :: ToJSON a => Trusted FileInfo -> a -> Bool
+verifyFileInfoJSON info a = trusted info == fileInfoJSON a
 
 {-------------------------------------------------------------------------------
   JSON

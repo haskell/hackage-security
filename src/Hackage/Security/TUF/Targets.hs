@@ -13,7 +13,6 @@ module Hackage.Security.TUF.Targets (
   ) where
 
 import Control.Monad.Except
-import Data.Time
 import Language.Haskell.TH
 import System.FilePath
 import qualified Language.Haskell.TH.Syntax as TH
@@ -23,7 +22,7 @@ import Hackage.Security.Key
 import Hackage.Security.Key.Env (KeyEnv)
 import Hackage.Security.Key.ExplicitSharing
 import Hackage.Security.Some
-import Hackage.Security.TUF.Ints
+import Hackage.Security.TUF.Common
 import Hackage.Security.TUF.FileMap (FileMap)
 
 {-------------------------------------------------------------------------------
@@ -32,7 +31,7 @@ import Hackage.Security.TUF.FileMap (FileMap)
 
 data Targets = Targets {
     targetsVersion     :: FileVersion
-  , targetsExpires     :: UTCTime
+  , targetsExpires     :: FileExpires
   , targets            :: FileMap
   , targetsDelegations :: Maybe Delegations
   }
@@ -62,6 +61,10 @@ data DelegationSpec = DelegationSpec {
 data Delegation = forall a. Delegation (Pattern a) (Replacement a)
 
 deriving instance Show Delegation
+
+instance TUFHeader Targets where
+  fileVersion = targetsVersion
+  fileExpires = targetsExpires
 
 {-------------------------------------------------------------------------------
   Patterns and replacements
