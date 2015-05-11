@@ -5,6 +5,8 @@ module Hackage.Security.TUF.Targets (
   , Delegations(..)
   , DelegationSpec(..)
   , Delegation(..)
+    -- * Accessing trusted information
+  , trustedTargetsLookup
     -- * Utility
   , matchDelegation
   , identityReplacement
@@ -22,8 +24,12 @@ import Hackage.Security.Key
 import Hackage.Security.Key.Env (KeyEnv)
 import Hackage.Security.Key.ExplicitSharing
 import Hackage.Security.Some
+import Hackage.Security.Trusted.Unsafe
 import Hackage.Security.TUF.Common
+import Hackage.Security.TUF.FileInfo
 import Hackage.Security.TUF.FileMap (FileMap)
+import Hackage.Security.TUF.Signed
+import qualified Hackage.Security.TUF.FileMap as FileMap
 
 {-------------------------------------------------------------------------------
   TUF types
@@ -65,6 +71,14 @@ deriving instance Show Delegation
 instance TUFHeader Targets where
   fileVersion = targetsVersion
   fileExpires = targetsExpires
+
+{-------------------------------------------------------------------------------
+  Accessing trusted information
+-------------------------------------------------------------------------------}
+
+trustedTargetsLookup :: FilePath -> Trusted Targets -> Maybe (Trusted FileInfo)
+trustedTargetsLookup fp (trusted -> Targets{..}) =
+    fmap DeclareTrusted $ FileMap.lookup fp targets
 
 {-------------------------------------------------------------------------------
   Patterns and replacements
@@ -353,6 +367,11 @@ instance FromJSON ReadJSON Targets where
     targets            <- fromJSField    enc "targets"
     targetsDelegations <- fromJSOptField enc "delegations"
     return Targets{..}
+
+-- TODO: This is okay right now because targets do not introduce additional
+-- keys, but will no longer be okay once we have author keys.
+instance FromJSON ReadJSON (Signed Targets) where
+  fromJSON = signedFromJSON
 
 {-------------------------------------------------------------------------------
   Quasi-quotation

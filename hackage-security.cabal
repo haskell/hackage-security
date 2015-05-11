@@ -36,11 +36,12 @@ library
                        Hackage.Security.TUF.Timestamp
   other-modules:       Prelude
                        Text.JSON.Canonical
-  -- We support ghc 7.2 and up
+  -- We support ghc 7.2 (bundled with Cabal 1.12) and up
   -- Upper bounds deliberately omitted during development
   build-depends:       base              >= 4.4,
                        base64-bytestring >= 1.0,
                        bytestring        >= 0.9,
+                       Cabal             >= 1.12,
                        containers        >= 0.4,
                        ed25519           >= 0.0,
                        filepath          >= 1.2,

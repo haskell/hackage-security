@@ -105,8 +105,9 @@ data VerificationError =
      -- | File information mismatch
    | VerificationErrorFileInfo
 
-     -- | A file that we did not expect to be deleted got deleted
-   | VerificationErrorFileDeleted
+     -- | We tried to lookup file information about a particular target file,
+     -- but the information wasn't in the corresponding @targets.json@ file.
+   | VerificationErrorUnknownTarget
    deriving (Show, Typeable)
 
 instance Exception VerificationError

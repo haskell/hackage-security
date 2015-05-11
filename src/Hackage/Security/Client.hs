@@ -4,6 +4,8 @@ module Hackage.Security.Client (
     -- * Checking for updates
   , HasUpdates(..)
   , checkForUpdates
+    -- * Downloading targets
+  , downloadPackage
   ) where
 
 import Control.Exception
@@ -11,6 +13,10 @@ import Control.Monad hiding (forM_)
 import Data.Foldable (forM_)
 import Data.Time
 import Data.Typeable (Typeable)
+import System.FilePath
+
+import Distribution.Package (PackageIdentifier)
+import Distribution.Text
 
 import Hackage.Security.JSON
 import Hackage.Security.Key.Env (KeyEnv)
@@ -35,6 +41,12 @@ data File =
     -- to decide whether to download @00-index.tar@ or @00-index.tar.gz@.
   | FileIndex
 
+    -- | An actual package
+  | FilePackage PackageIdentifier
+
+    -- | Target file for a specific package
+  | FilePackageMetadata PackageIdentifier
+
 -- | Repository
 --
 -- This is an abstract representation of a repository. It simply provides a way
@@ -42,13 +54,20 @@ data File =
 -- For instance, for a local repository this could just be doing a file read,
 -- whereas for remote repositories this could be using any kind of HTTP client.
 data Repository = Repository {
-    -- | Download a file from the server (but don't trust it yet)
+    -- | Download a file from the server to a temporary location
+    -- (but don't trust it yet)
+    --
+    -- TODO: We don't currently instruct the repository to cleanup temporary
+    -- files when an exception occurs.
     repGetRemote :: File -> IO FilePath
 
     -- | Trust a previously downloaded remote file
+    --
+    -- This means moving the untrusted file from its temporary location to
+    -- its permanent location, possibly overwriting a previous version
   , repTrust :: File -> IO ()
 
-    -- | Get a cached file
+    -- | Get a cached file (if available)
   , repGetCached :: File -> IO (Maybe FilePath)
 
     -- | Get the cached root
@@ -214,7 +233,58 @@ updateRoot Repository{..} mNow mFileInfo = do
   Downloading target files
 -------------------------------------------------------------------------------}
 
+-- | Download a package to a temporary location
+--
+-- It is the responsibility of the calling code to move the package from its
+-- temporary location to a permanent location (or delete it).
+--
+-- Maybe through a VerificationError if the package cannot be verified against
+-- the previously downloaded metadata. It is up to the calling code to decide
+-- what to do with such an exception; in particular, we do NOT automatically
+-- renew the root metadata at this point (this matches the TUF spec).
+downloadPackage :: Repository -> PackageIdentifier -> IO FilePath
+downloadPackage Repository{..} pkgId = do
+    -- We need the cached root information in order to resolve key IDs and
+    -- verify signatures
+    cachedRoot :: Trusted Root
+       <- repGetCachedRoot
+      >>= readJSON KeyEnv.empty
+      >>= return . trustLocalFile
+    let keyEnv = rootKeys (trusted cachedRoot)
 
+    -- Get the metadata (from the previously updated index)
+    mTargets :: Maybe (Trusted Targets)
+       <- repGetCached (FilePackageMetadata pkgId)
+      >>= traverse (readJSON keyEnv)
+      >>= return . fmap trustLocalFile
+
+    -- If this is not found, the package is not available
+    case mTargets of
+      Nothing -> do
+        -- TODO: Not sure if we should be throwing an exception here or return
+        -- Maybe FilePath. Requesting a non-existing package is a bug.
+        throwIO $ userError "Invalid package"
+      Just targets -> do
+        targetMetaData :: Trusted FileInfo
+          <- case trustedTargetsLookup packageFileName targets of
+               Nothing  -> throwIO VerificationErrorUnknownTarget
+               Just nfo -> return nfo
+
+        -- TODO: should we check if we have a cached package available?
+        -- (the spec says no)
+        tarGz <- repGetRemote (FilePackage pkgId)
+
+        -- Verify the fileinfo
+        tarGzInfo <- fileInfoTargetFile tarGz
+        unless (verifyFileInfo targetMetaData tarGzInfo) $
+          throwIO VerificationErrorFileInfo
+
+        -- Return the path to the package
+        return tarGz
+  where
+    -- TODO: Is there a standard function in Cabal to do this?
+    packageFileName :: FilePath
+    packageFileName = display pkgId <.> "tar.gz"
 
 {-------------------------------------------------------------------------------
   Auxiliary
