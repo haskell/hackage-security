@@ -10,6 +10,8 @@ module Hackage.Security.TUF.Root (
   , rootRoleTargets
   , rootRoleTimestamp
     -- * Role verification
+  , VerificationError(..)
+  , verifyRoot
   , verifyTimestamp
   , verifySnapshot
   ) where
@@ -26,7 +28,7 @@ import Hackage.Security.Key.ExplicitSharing
 import Hackage.Security.Some
 import Hackage.Security.Trusted.Unsafe
 import Hackage.Security.TUF.Common
-import Hackage.Security.TUF.FileMap
+import Hackage.Security.TUF.FileInfo
 import Hackage.Security.TUF.Signed
 import Hackage.Security.TUF.Snapshot
 import Hackage.Security.TUF.Targets
@@ -90,38 +92,52 @@ rootRoleTimestamp = DeclareTrusted . rootRolesTimestamp . rootRoles . trusted
 -------------------------------------------------------------------------------}
 
 -- | Errors thrown during role validation
-data RoleVerificationError =
+data VerificationError =
      -- | Not enough signatures signed with the appropriate keys
-     RoleVerificationErrorSignatures
+     VerificationErrorSignatures
 
      -- | The file is expired
-   | RoleVerificationErrorExpired
+   | VerificationErrorExpired
 
      -- | The file version is less than the previous version
-   | RoleVerificationErrorVersion
+   | VerificationErrorVersion
 
      -- | File information mismatch
-   | RoleVerificationErrorFileInfo
+   | VerificationErrorFileInfo
+
+     -- | A file that we did not expect to be deleted got deleted
+   | VerificationErrorFileDeleted
    deriving (Show, Typeable)
 
-instance Exception RoleVerificationError
+instance Exception VerificationError
+
+-- | Verify (new) root info based on (old) root info
+verifyRoot :: Trusted Root             -- ^ Trusted (old) root data
+           -> Maybe (Trusted FileInfo) -- ^ Info for new root (if available)
+           -> Maybe UTCTime            -- ^ Time now (if checking expiry)
+           -> Signed Root              -- ^ New root data to verify
+           -> Either VerificationError (Trusted Root)
+verifyRoot oldRoot mInfo =
+    verifyRole (rootRoleRoot oldRoot) mInfo (Just (fileVersion oldRoot))
 
 -- | Verify a timestamp
 verifyTimestamp :: Trusted Root      -- ^ Trusted root data
-                -> FileVersion       -- ^ Previous version
+                -> Maybe FileVersion -- ^ Previous version (if available)
                 -> Maybe UTCTime     -- ^ Time now (if checking expiry)
                 -> Signed Timestamp  -- ^ Timestamp to verify
-                -> Either RoleVerificationError (Trusted Timestamp)
-verifyTimestamp root = verifyRole (rootRoleTimestamp root) Nothing
+                -> Either VerificationError (Trusted Timestamp)
+verifyTimestamp root =
+    verifyRole (rootRoleTimestamp root) Nothing
 
 -- | Verify snapshot
 verifySnapshot :: Trusted Root       -- ^ Root data
                -> Trusted FileInfo   -- ^ File info (from the timestamp file)
-               -> FileVersion        -- ^ Previous version
+               -> Maybe FileVersion  -- ^ Previous version (if available)
                -> Maybe UTCTime      -- ^ Time now (if checking expiry)
                -> Signed Snapshot    -- ^ Snapshot to verify
-               -> Either RoleVerificationError (Trusted Snapshot)
-verifySnapshot root finfo = verifyRole (rootRoleSnapshot root) (Just finfo)
+               -> Either VerificationError (Trusted Snapshot)
+verifySnapshot root info =
+    verifyRole (rootRoleSnapshot root) (Just info)
 
 -- | Role verification
 --
@@ -138,41 +154,44 @@ verifySnapshot root finfo = verifyRole (rootRoleSnapshot root) (Just finfo)
 verifyRole :: forall a. (TUFHeader a, ToJSON a)
            => Trusted (RoleSpec a)     -- ^ For signature validation
            -> Maybe (Trusted FileInfo) -- ^ File info (if known)
-           -> FileVersion              -- ^ Previous version
+           -> Maybe FileVersion        -- ^ Previous version (if available)
            -> Maybe UTCTime            -- ^ Time now (if checking expiry)
-           -> Signed a -> Either RoleVerificationError (Trusted a)
+           -> Signed a -> Either VerificationError (Trusted a)
 verifyRole (trusted -> RoleSpec{roleSpecThreshold = KeyThreshold threshold, ..})
            mFileInfo
-           prev
+           mPrev
            mNow
            Signed{..} =
     runExcept go
   where
-    go :: Except RoleVerificationError (Trusted a)
+    go :: Except VerificationError (Trusted a)
     go = do
       -- Verify file info
       case mFileInfo of
         Nothing   -> return ()
         Just info ->
-          unless (verifyFileInfoJSON info signed) $
-            throwError RoleVerificationErrorFileInfo
+          unless (verifyFileInfo info (fileInfoJSON signed)) $
+            throwError VerificationErrorFileInfo
 
       -- Verify expiry date
       case mNow of
         Nothing  -> return ()
         Just now ->
           when (fileExpires signed < FileExpires now) $
-            throwError RoleVerificationErrorExpired
+            throwError VerificationErrorExpired
 
       -- Verify timestamp
-      when (fileVersion signed < prev) $
-        throwError RoleVerificationErrorVersion
+      case mPrev of
+        Nothing   -> return ()
+        Just prev ->
+          when (fileVersion signed < prev) $
+            throwError VerificationErrorVersion
 
       -- Verify signatures
       -- NOTE: We only need to verify the keys that were used; if the signature
       -- was invalid we would already have thrown an error constructing Signed.
       unless (length (filter isRoleSpecKey signatures) >= threshold) $
-        throwError RoleVerificationErrorSignatures
+        throwError VerificationErrorSignatures
 
       -- Everything is A-OK!
       return $ DeclareTrusted signed

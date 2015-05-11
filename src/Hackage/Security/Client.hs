@@ -7,21 +7,33 @@ module Hackage.Security.Client (
   ) where
 
 import Control.Exception
-import Control.Monad
+import Control.Monad hiding (forM_)
+import Data.Foldable (forM_)
 import Data.Time
+import Data.Typeable (Typeable)
 
 import Hackage.Security.JSON
-import Hackage.Security.Key.ExplicitSharing
 import Hackage.Security.Key.Env (KeyEnv)
+import Hackage.Security.Key.ExplicitSharing
 import Hackage.Security.Trusted.Unsafe
 import Hackage.Security.TUF
 import qualified Hackage.Security.Key.Env as KeyEnv
 
 data File =
+    -- | The snapshot metadata (@snapshot.json@)
     FileSnapshot
+
+    -- | The timestamp metadata (@timestamp.json@)
   | FileTimestamp
+
+    -- | The root metadata (@root.json@)
   | FileRoot
-  | FileIndexTarball
+
+    -- | The index
+    --
+    -- When we request that the index is downloaded, it is up to the repository
+    -- to decide whether to download @00-index.tar@ or @00-index.tar.gz@.
+  | FileIndex
 
 -- | Repository
 --
@@ -30,18 +42,24 @@ data File =
 -- For instance, for a local repository this could just be doing a file read,
 -- whereas for remote repositories this could be using any kind of HTTP client.
 data Repository = Repository {
-    -- | Download a file from the server
+    -- | Download a file from the server (but don't trust it yet)
     repGetRemote :: File -> IO FilePath
 
+    -- | Trust a previously downloaded remote file
+  , repTrust :: File -> IO ()
+
     -- | Get a cached file
+  , repGetCached :: File -> IO (Maybe FilePath)
+
+    -- | Get the cached root
     --
-    -- NOTE: We expect this to succeed always. In particular, it means that
-    -- "new" clients (that have never communicated with the server before)
-    -- must be given initial root data, as well as a corresponding snapshot
-    -- containing the hash of that root data and a corresponding timestamp.
-    -- If we didn't do this, the logic in 'checkForUpdates' (such as "did the
-    -- root data change?") would be a lot more cumbersome.
-  , repGetCached :: File -> IO FilePath
+    -- This is a separate method only because clients must ALWAYS have root
+    -- information available.
+  , repGetCachedRoot :: IO FilePath
+
+    -- | Delete a previously downloaded remote file
+    -- (probably because the root metadata changed)
+  , repDeleteCached :: File -> IO ()
   }
 
 {-------------------------------------------------------------------------------
@@ -66,76 +84,137 @@ data HasUpdates = HasUpdates | NoUpdates
 --
 -- This implements the logic described in Section 5.1, "The client application",
 -- of the TUF spec.
---
--- TODO: We need to catch exceptions and if we catch one, update the root
--- and start over.
-checkForUpdates :: CheckExpiry -> Repository -> IO HasUpdates
-checkForUpdates checkExpiry Repository{..} = do
+checkForUpdates :: Repository -> CheckExpiry -> IO HasUpdates
+checkForUpdates rep@Repository{..} checkExpiry = do
     mNow <- case checkExpiry of
               CheckExpiry     -> Just <$> getCurrentTime
               DontCheckExpiry -> return Nothing
 
-    -- We need the cached root information in order to resolve key IDs and
-    -- verify signatures
-    cachedRoot :: Trusted Root
-       <- repGetCached FileRoot
+    -- TODO: Should we cap how often we go round this loop?
+    catches (go mNow) [
+        Handler $ \(_ex :: VerificationError) -> do
+          -- NOTE: This call to updateRoot is not itself protected by an
+          -- exception handler, and may therefore throw a VerificationError.
+          -- This is intentional: if we get verification errors during the
+          -- update process, _and_ we cannot update the main root info, then
+          -- we cannot do anything.
+          updateRoot rep mNow Nothing
+          checkForUpdates rep checkExpiry
+      , Handler $ \(_ex :: RootUpdated) -> do
+          checkForUpdates rep checkExpiry
+      ]
+  where
+    go :: Maybe UTCTime -> IO HasUpdates
+    go mNow = do
+      -- We need the cached root information in order to resolve key IDs and
+      -- verify signatures
+      cachedRoot :: Trusted Root
+         <- repGetCachedRoot
+        >>= readJSON KeyEnv.empty
+        >>= return . trustLocalFile
+      let keyEnv = rootKeys (trusted cachedRoot)
+
+      -- Get the old timestamp (if any)
+      mOldTS :: Maybe (Trusted Timestamp)
+         <- repGetCached FileTimestamp
+        >>= traverse (readJSON keyEnv)
+        >>= return . fmap trustLocalFile
+
+      -- Get the new timestamp
+      newTS :: Trusted Timestamp
+         <- repGetRemote FileTimestamp
+        >>= readJSON keyEnv
+        >>= throwErrors . verifyTimestamp
+              cachedRoot
+              (fmap fileVersion mOldTS)
+              mNow
+      repTrust FileTimestamp
+
+      -- Check if the snapshot has changed
+      case checkChanged (fmap trustedTimestampInfoSnapshot mOldTS)
+                        (trustedTimestampInfoSnapshot newTS) of
+        Nothing ->
+          return NoUpdates
+        Just updatedSnapshotInfo -> do
+          -- Get the old snapshot (if any)
+          mOldSS :: Maybe (Trusted Snapshot)
+             <- repGetCached FileSnapshot
+            >>= traverse (readJSON keyEnv)
+            >>= return . fmap trustLocalFile
+
+          -- Get the new snapshot
+          newSS :: Trusted Snapshot
+             <- repGetRemote FileSnapshot
+            >>= readJSON keyEnv
+            >>= throwErrors . verifySnapshot
+                  cachedRoot
+                  updatedSnapshotInfo
+                  (fmap fileVersion mOldSS)
+                  mNow
+          repTrust FileSnapshot
+
+          -- If root metadata changed, update and restart
+          let mOldRootInfo = fmap trustedSnapshotInfoRoot mOldSS
+              newRootInfo  = trustedSnapshotInfoRoot newSS
+          forM_ (checkChanged mOldRootInfo newRootInfo) $ \updatedRootInfo -> do
+            updateRoot rep mNow (Just updatedRootInfo)
+            throwIO RootUpdated
+
+          -- If the index changed, download it and verify it
+          let mOldIndexInfo = fmap trustedSnapshotInfoTar mOldSS
+              newIndexInfo  = trustedSnapshotInfoTar newSS
+          forM_ (checkChanged mOldIndexInfo newIndexInfo) $ \updatedTarInfo -> do
+            indexTar     <- repGetRemote FileIndex
+            indexTarInfo <- fileInfoTargetFile indexTar
+            unless (verifyFileInfo updatedTarInfo indexTarInfo) $
+              throwIO VerificationErrorFileInfo
+            repTrust FileIndex
+
+          -- TODO: We should now verify all target files, but until we have
+          -- author signing this is not necessary.
+
+          return HasUpdates
+
+    checkChanged :: Maybe (Trusted FileInfo)  -- ^ Old
+                 -> Trusted FileInfo          -- ^ New
+                 -> Maybe (Trusted FileInfo)  -- ^ New, if different from old
+    checkChanged Nothing    new = Just new
+    checkChanged (Just old) new = if old == new then Nothing else Just new
+
+-- | Root metadata updated
+--
+-- We throw this when we (succesfully) updated the root metadata as part of the
+-- normal update process so that we know to restart it.
+data RootUpdated = RootUpdated
+  deriving (Show, Typeable)
+
+instance Exception RootUpdated
+
+-- | Update the root metadata
+--
+-- Note that the new root metadata is verified using the old root metadata,
+-- and only then trusted.
+updateRoot :: Repository -> Maybe UTCTime -> Maybe (Trusted FileInfo) -> IO ()
+updateRoot Repository{..} mNow mFileInfo = do
+    oldRoot :: Trusted Root
+       <- repGetCachedRoot
       >>= readJSON KeyEnv.empty
       >>= return . trustLocalFile
-    let keyEnv = rootKeys (trusted cachedRoot)
 
-    -- Get the old timestamp
-    oldTS :: Trusted Timestamp
-       <- repGetCached FileTimestamp
-      >>= readJSON keyEnv
-      >>= return . trustLocalFile
+    _newRoot :: Trusted Root
+       <- repGetRemote FileRoot
+      >>= readJSON KeyEnv.empty
+      >>= throwErrors . verifyRoot oldRoot mFileInfo mNow
 
-    -- Get the new timestamp
-    newTS :: Trusted Timestamp
-       <- repGetRemote FileTimestamp
-      >>= readJSON keyEnv
-      >>= throwErrors . verifyTimestamp
-            cachedRoot
-            (fileVersion oldTS)
-            mNow
+    repTrust FileRoot
+    repDeleteCached FileTimestamp
+    repDeleteCached FileSnapshot
 
-    -- Check if the snapshot has changed
-    if snapshotFileInfo newTS /= snapshotFileInfo oldTS
-      then return NoUpdates
-      else do
-        -- Get the old snapshot (if any)
-        oldSS :: Trusted Snapshot
-           <- repGetCached FileSnapshot
-          >>= readJSON keyEnv
-          >>= return . trustLocalFile
+{-------------------------------------------------------------------------------
+  Downloading target files
+-------------------------------------------------------------------------------}
 
-        -- Get the new snapshot
-        newSS :: Trusted Snapshot
-           <- repGetRemote FileSnapshot
-          >>= readJSON keyEnv
-          >>= throwErrors . verifySnapshot
-                cachedRoot
-                (snapshotFileInfo newTS)
-                (fileVersion oldSS)
-                mNow
 
-        -- Check which files have changed
-        let fileChanges = fileMapChanges (snapshotMeta (trusted oldSS))
-                                         (snapshotMeta (trusted newSS))
-
-        -- If root metadata changed, update and restart
-        when (FileChanged "root.json" `elem` fileChanges) $
-          updateRoot
-
-        -- If index has changed, download it and verify it
-        when (FileChanged "index.tar" `elem` fileChanges) $
-          -- TODO: verify
-          void $ repGetCached FileIndexTarball
-
-        return HasUpdates
-  where
-    -- TODO
-    updateRoot :: IO ()
-    updateRoot = return ()
 
 {-------------------------------------------------------------------------------
   Auxiliary

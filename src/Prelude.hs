@@ -9,6 +9,7 @@ module Prelude (
   , Monoid(..)
   , (<$>)
   , (<$)
+  , traverse
 #endif
   ) where
 
@@ -18,4 +19,5 @@ import "base" Prelude as P
 import "base" Prelude as P
 import Control.Applicative
 import Data.Monoid
+import Data.Traversable (traverse)
 #endif

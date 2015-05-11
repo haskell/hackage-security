@@ -82,14 +82,11 @@ cmdBootstrap opts = do
         snapshot = Snapshot {
             snapshotVersion = FileVersion 1
           , snapshotExpires = FileExpires $ addUTCTime (3 * oneDay) now
-          , snapshotMeta    = FileMap.empty
           }
         timestamp = Timestamp {
-            timestampVersion = FileVersion 1
-          , timestampExpires = FileExpires $ addUTCTime (3 * oneDay) now
-          , timestampMeta    = FileMap.fromList [
-                ("snapshot.json", FileMap.fileInfoJSON signedSnapshot)
-              ]
+            timestampVersion      = FileVersion 1
+          , timestampExpires      = FileExpires $ addUTCTime (3 * oneDay) now
+          , timestampInfoSnapshot = fileInfoJSON signedSnapshot
           }
         topLevelTargets = Targets {
             targetsVersion     = FileVersion 1
@@ -248,7 +245,7 @@ cmdUpload pkg version opts = do
 
     -- Fake the package tarball
     let tarGzContents = BS.L.C8.pack pkg -- Fake package contents
-        tarGzMetaInfo = FileMap.fileInfo tarGzContents
+        tarGzMetaInfo = fileInfo tarGzContents
         tarGzFileName = pkg ++ "-" ++ showVersion version ++ ".tar.gz"
 
     -- Construct target metadata
@@ -277,10 +274,12 @@ cmdUpload pkg version opts = do
         newSnapshot' = Snapshot {
             snapshotVersion = incrementFileVersion (snapshotVersion oldSnapshot')
           , snapshotExpires = FileExpires $ addUTCTime (3 * oneDay) now
+          {-
           , snapshotMeta    = FileMap.insert
                                 packageTargetsPath
-                                (FileMap.fileInfoJSON packageTargets)
+                                (fileInfoJSON packageTargets)
                                 (snapshotMeta oldSnapshot')
+          -}
           }
         newSnapshot = withSignatures snapshotKeys newSnapshot'
 
@@ -288,11 +287,9 @@ cmdUpload pkg version opts = do
     oldTimestamp <- readJSON keyEnv pathTimestamp
     let oldTimestamp' = signed oldTimestamp
         newTimestamp' = Timestamp {
-            timestampVersion = incrementFileVersion (timestampVersion oldTimestamp')
-          , timestampExpires = FileExpires $ addUTCTime (3 * oneDay) now
-          , timestampMeta    = FileMap.fromList [
-                 ("snapshot.json", FileMap.fileInfoJSON newSnapshot)
-              ]
+            timestampVersion      = incrementFileVersion (timestampVersion oldTimestamp')
+          , timestampExpires      = FileExpires $ addUTCTime (3 * oneDay) now
+          , timestampInfoSnapshot = fileInfoJSON newSnapshot
           }
         newTimestamp  = withSignatures timestampKeys newTimestamp'
 

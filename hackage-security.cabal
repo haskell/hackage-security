@@ -27,6 +27,7 @@ library
                        Hackage.Security.Trusted.Unsafe
                        Hackage.Security.TUF
                        Hackage.Security.TUF.Common
+                       Hackage.Security.TUF.FileInfo
                        Hackage.Security.TUF.FileMap
                        Hackage.Security.TUF.Root
                        Hackage.Security.TUF.Signed
