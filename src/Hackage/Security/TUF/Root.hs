@@ -28,7 +28,6 @@ import Hackage.Security.Key.ExplicitSharing
 import Hackage.Security.Some
 import Hackage.Security.Trusted.Unsafe
 import Hackage.Security.TUF.Common
-import Hackage.Security.TUF.FileInfo
 import Hackage.Security.TUF.Signed
 import Hackage.Security.TUF.Snapshot
 import Hackage.Security.TUF.Targets
@@ -114,12 +113,10 @@ instance Exception VerificationError
 
 -- | Verify (new) root info based on (old) root info
 verifyRoot :: Trusted Root             -- ^ Trusted (old) root data
-           -> Maybe (Trusted FileInfo) -- ^ Info for new root (if available)
            -> Maybe UTCTime            -- ^ Time now (if checking expiry)
            -> Signed Root              -- ^ New root data to verify
            -> Either VerificationError (Trusted Root)
-verifyRoot oldRoot mInfo =
-    verifyRole (rootRoleRoot oldRoot) mInfo (Just (fileVersion oldRoot))
+verifyRoot old = verifyRole (rootRoleRoot old) (Just (fileVersion old))
 
 -- | Verify a timestamp
 verifyTimestamp :: Trusted Root      -- ^ Trusted root data
@@ -127,18 +124,15 @@ verifyTimestamp :: Trusted Root      -- ^ Trusted root data
                 -> Maybe UTCTime     -- ^ Time now (if checking expiry)
                 -> Signed Timestamp  -- ^ Timestamp to verify
                 -> Either VerificationError (Trusted Timestamp)
-verifyTimestamp root =
-    verifyRole (rootRoleTimestamp root) Nothing
+verifyTimestamp root = verifyRole (rootRoleTimestamp root)
 
 -- | Verify snapshot
 verifySnapshot :: Trusted Root       -- ^ Root data
-               -> Trusted FileInfo   -- ^ File info (from the timestamp file)
                -> Maybe FileVersion  -- ^ Previous version (if available)
                -> Maybe UTCTime      -- ^ Time now (if checking expiry)
                -> Signed Snapshot    -- ^ Snapshot to verify
                -> Either VerificationError (Trusted Snapshot)
-verifySnapshot root info =
-    verifyRole (rootRoleSnapshot root) (Just info)
+verifySnapshot root = verifyRole (rootRoleSnapshot root)
 
 -- | Role verification
 --
@@ -152,14 +146,16 @@ verifySnapshot root info =
 -- file or otherwise the signature won't match, and if the attacker has
 -- compromised the key then he might just as well increase the version number
 -- and resign.
-verifyRole :: forall a. (TUFHeader a, ToJSON a)
+--
+-- NOTE 2: We are not actually verifying the signatures _themselves_ here
+-- (we did that when we parsed the JSON). We are merely verifying the provenance
+-- of the keys.
+verifyRole :: forall a. TUFHeader a
            => Trusted (RoleSpec a)     -- ^ For signature validation
-           -> Maybe (Trusted FileInfo) -- ^ File info (if known)
            -> Maybe FileVersion        -- ^ Previous version (if available)
            -> Maybe UTCTime            -- ^ Time now (if checking expiry)
            -> Signed a -> Either VerificationError (Trusted a)
 verifyRole (trusted -> RoleSpec{roleSpecThreshold = KeyThreshold threshold, ..})
-           mFileInfo
            mPrev
            mNow
            Signed{..} =
@@ -167,13 +163,6 @@ verifyRole (trusted -> RoleSpec{roleSpecThreshold = KeyThreshold threshold, ..})
   where
     go :: Except VerificationError (Trusted a)
     go = do
-      -- Verify file info
-      case mFileInfo of
-        Nothing   -> return ()
-        Just info ->
-          unless (verifyFileInfo info (fileInfoJSON signed)) $
-            throwError VerificationErrorFileInfo
-
       -- Verify expiry date
       case mNow of
         Nothing  -> return ()

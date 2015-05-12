@@ -3,10 +3,11 @@ module Hackage.Security.TUF.FileInfo (
     FileInfo(..)
   , HashFn(..)
   , Hash(..)
+    -- * Extracting trusted info
+  , trustedFileInfoLength
     -- * Utility
   , fileInfo
-  , fileInfoJSON
-  , fileInfoTargetFile
+  , computeFileInfo
   , verifyFileInfo
   ) where
 
@@ -17,7 +18,6 @@ import qualified Data.Map             as Map
 import qualified Data.ByteString.Lazy as BS.L
 
 import Hackage.Security.JSON
-import Hackage.Security.Key.ExplicitSharing (renderJSON)
 import Hackage.Security.Trusted.Unsafe
 import Hackage.Security.TUF.Common
 
@@ -28,6 +28,13 @@ import Hackage.Security.TUF.Common
 data HashFn = HashFnSHA256
   deriving (Show, Eq, Ord)
 
+-- | File information
+--
+-- NOTE: Throughout we compute file information always over the raw bytes.
+-- For example, when @timestamp.json@ lists the hash of @snapshot.json@, this
+-- hash is computed over the actual @snapshot.json@ file (as opposed to the
+-- canonical form of the embedded JSON). This brings it in line with the hash
+-- computed over target files, where that is the only choice available.
 data FileInfo = FileInfo {
     fileInfoLength :: FileLength
   , fileInfoHashes :: Map HashFn Hash
@@ -35,10 +42,23 @@ data FileInfo = FileInfo {
   deriving (Eq, Ord, Show)
 
 {-------------------------------------------------------------------------------
+  Extracting trusted information
+-------------------------------------------------------------------------------}
+
+trustedFileInfoLength :: Trusted FileInfo -> Trusted FileLength
+trustedFileInfoLength = DeclareTrusted . fileInfoLength . trusted
+
+{-------------------------------------------------------------------------------
   Utility
 -------------------------------------------------------------------------------}
 
 -- | Compute 'FileInfo'
+--
+-- TODO: Currently this will load the entire input bytestring into memory.
+-- We need to make this incremental, by computing the length and all hashes
+-- in a single traversal over the input. However, the precise way to
+-- do that will depend on the hashing package we will use, and we have
+-- yet to pick that package.
 fileInfo :: BS.L.ByteString -> FileInfo
 fileInfo bs = FileInfo {
       fileInfoLength = FileLength . fromIntegral $ BS.L.length bs
@@ -47,25 +67,13 @@ fileInfo bs = FileInfo {
         ]
     }
 
--- | Compute 'FileInfo' over the canonical JSON form
-fileInfoJSON :: ToJSON a => a -> FileInfo
-fileInfoJSON = fileInfo . renderJSON
+-- | Compute 'FileInfo'
+computeFileInfo :: FilePath -> IO FileInfo
+computeFileInfo fp = fileInfo <$> BS.L.readFile fp
 
--- | Compute 'FileInfo' over target files on disk
---
--- NOTE: This should not be used on metadata files (for which we additionally
--- need to compute the canonical JSON form first).
---
--- TODO: When we call this on the index tarball it will load the entirely
--- index into memory. We should probably address that (but the way we address
--- it will depend on the package that we use to compute hashes, which might
--- still change).
-fileInfoTargetFile :: FilePath -> IO FileInfo
-fileInfoTargetFile fp = fileInfo <$> BS.L.readFile fp
-
--- | Compare reported (trusted) file info with computed file info.
-verifyFileInfo :: Trusted FileInfo -> FileInfo -> Bool
-verifyFileInfo info info' = trusted info == info'
+-- | Verify 'FileInfo'
+verifyFileInfo :: FilePath -> Trusted FileInfo -> IO Bool
+verifyFileInfo fp info = (== trusted info) <$> computeFileInfo fp
 
 {-------------------------------------------------------------------------------
   JSON

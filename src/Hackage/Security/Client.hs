@@ -9,8 +9,7 @@ module Hackage.Security.Client (
   ) where
 
 import Control.Exception
-import Control.Monad hiding (forM_)
-import Data.Foldable (forM_)
+import Control.Monad
 import Data.Time
 import Data.Typeable (Typeable)
 import System.FilePath
@@ -25,26 +24,48 @@ import Hackage.Security.Trusted.Unsafe
 import Hackage.Security.TUF
 import qualified Hackage.Security.Key.Env as KeyEnv
 
-data File =
-    -- | The snapshot metadata (@snapshot.json@)
-    FileSnapshot
-
+data File a =
     -- | The timestamp metadata (@timestamp.json@)
-  | FileTimestamp
+    --
+    -- We never have (explicit) fileinfo available for timestamps.
+    FileTimestamp
 
     -- | The root metadata (@root.json@)
-  | FileRoot
+    --
+    -- For root information we may or may not have fileinfo available:
+    --
+    -- * If during the normal update process the new snapshot tells us the root
+    --   information has changed, we can use the fileinfo from the snapshot.
+    -- * If however we need to update the root metadata due to a verification
+    --   exception we do not have any fileinfo.
+  | FileRoot (Maybe a)
+
+    -- | The snapshot metadata (@snapshot.json@)
+    --
+    -- We get fileinfo for the snapshot from the timestamp.
+  | FileSnapshot a
 
     -- | The index
     --
+    -- The index fileinfo comes from the snapshot.
+    --
     -- When we request that the index is downloaded, it is up to the repository
-    -- to decide whether to download @00-index.tar@ or @00-index.tar.gz@.
-  | FileIndex
+    -- to decide whether to download @00-index.tar@ or @00-index.tar.gz@. We
+    -- can see from the returned filename which file we are given.
+  | FileIndex {
+        fileIndexTarInfo   :: a
+      , fileIndexTarGzInfo :: a
+      }
 
     -- | An actual package
-  | FilePackage PackageIdentifier
+    --
+    -- Package fileinfo comes from the corresponding @targets.json@.
+  | FilePackage PackageIdentifier a
 
     -- | Target file for a specific package
+    --
+    -- This is extracted from the (trusted) local copy of the index tarball
+    -- so does not need fileinfo.
   | FilePackageMetadata PackageIdentifier
 
 type TemporaryPath = FilePath
@@ -62,10 +83,13 @@ data Repository = Repository {
     -- It is the responsibility of the callback to verify the downloaded file.
     -- Only when the callback returns without throwing an exception should be
     -- the file be trusted and moved to a permanent location.
-    repWithRemote :: forall a. File -> (TemporaryPath -> IO a) -> IO a
+    repWithRemote :: forall a.
+                     File (Trusted FileLength)
+                  -> (TemporaryPath -> IO a)
+                  -> IO a
 
     -- | Get a cached file (if available)
-  , repGetCached :: File -> IO (Maybe PermanentPath)
+  , repGetCached :: File () -> IO (Maybe PermanentPath)
 
     -- | Get the cached root
     --
@@ -75,7 +99,7 @@ data Repository = Repository {
 
     -- | Delete a previously downloaded remote file
     -- (probably because the root metadata changed)
-  , repDeleteCached :: File -> IO ()
+  , repDeleteCached :: File () -> IO ()
   }
 
 {-------------------------------------------------------------------------------
@@ -146,53 +170,87 @@ checkForUpdates rep@Repository{..} checkExpiry = do
                    mNow
 
       -- Check if the snapshot has changed
-      case checkChanged (fmap trustedTimestampInfoSnapshot mOldTS)
-                        (trustedTimestampInfoSnapshot newTS) of
-        Nothing ->
+      let mOldSnapshotInfo = fmap trustedTimestampInfoSnapshot mOldTS
+          newSnapshotInfo  = trustedTimestampInfoSnapshot newTS
+      if not (infoChanged mOldSnapshotInfo newSnapshotInfo)
+        then
           return NoUpdates
-        Just updatedSnapshotInfo -> do
+        else do
           -- Get the old snapshot (if any)
           mOldSS :: Maybe (Trusted Snapshot)
-             <- repGetCached FileSnapshot
+             <- repGetCached (FileSnapshot ())
             >>= traverse (readJSON keyEnv)
             >>= return . fmap trustLocalFile
 
           -- Get the new snapshot
+          let expectedSnapshot =
+                FileSnapshot (trustedFileInfoLength newSnapshotInfo)
           newSS :: Trusted Snapshot
-             <- repWithRemote FileSnapshot
-                    $ readJSON keyEnv
+             <- repWithRemote expectedSnapshot
+                    $ verifyFileInfo' (Just newSnapshotInfo)
+                  >=> readJSON keyEnv
                   >=> throwErrors . verifySnapshot
                         cachedRoot
-                        updatedSnapshotInfo
                         (fmap fileVersion mOldSS)
                         mNow
 
           -- If root metadata changed, update and restart
           let mOldRootInfo = fmap trustedSnapshotInfoRoot mOldSS
               newRootInfo  = trustedSnapshotInfoRoot newSS
-          forM_ (checkChanged mOldRootInfo newRootInfo) $ \updatedRootInfo -> do
-            updateRoot rep mNow (Just updatedRootInfo)
+          when (infoChanged mOldRootInfo newRootInfo) $ do
+            updateRoot rep mNow (Just newRootInfo)
             throwIO RootUpdated
 
           -- If the index changed, download it and verify it
-          let mOldIndexInfo = fmap trustedSnapshotInfoTar mOldSS
-              newIndexInfo  = trustedSnapshotInfoTar newSS
-          forM_ (checkChanged mOldIndexInfo newIndexInfo) $ \updatedTarInfo ->
-            repWithRemote FileIndex $ \indexTar -> do
-              indexTarInfo <- fileInfoTargetFile indexTar
-              unless (verifyFileInfo updatedTarInfo indexTarInfo) $
-                throwIO VerificationErrorFileInfo
+          let mOldTarInfo   = fmap trustedSnapshotInfoTar mOldSS
+              newTarInfo    = trustedSnapshotInfoTar   newSS
+              newTarGzInfo  = trustedSnapshotInfoTarGz newSS
+              expectedIndex = FileIndex {
+                  fileIndexTarInfo   = trustedFileInfoLength newTarInfo
+                , fileIndexTarGzInfo = trustedFileInfoLength newTarGzInfo
+                }
+          when (infoChanged mOldTarInfo newTarInfo) $
+            repWithRemote expectedIndex $ \indexPath -> do
+              -- Check against the appropriate hash, depending on which file the
+              -- 'Repository' decided to download. Note that we cannot ask the
+              -- repository for the @.tar@ file independent of which file it
+              -- decides to download; if it downloads a compressed file, we
+              -- don't want to require the 'Repository' to decompress an
+              -- unverified file (because a clever attacker could then exploit,
+              -- say, buffer overrun in the decompression algorithm).
+              let (_, indexExt) = splitExtension indexPath
+              void $ case indexExt of
+                ".tar"     -> verifyFileInfo' (Just newTarInfo)   indexPath
+                ".tar.gz"  -> verifyFileInfo' (Just newTarGzInfo) indexPath
+                _otherwise -> throwIO $ userError "Unexpected index extension"
 
-          -- TODO: We should now verify all target files, but until we have
-          -- author signing this is not necessary.
+          -- Since we regard all local files as trusted, strictly speaking we
+          -- should now verify the contents of the index tarball.
+          -- This means check two things:
+          --
+          -- 1. The index tarball contains delegated target.json files for
+          --    both unsigned and signed packages. We need to the signatures of
+          --    all signed metadata (that is: the metadata for signed packages).
+          --
+          -- 2. Since the tarball also contains the .cabal files, we should also
+          --    verify the hashes of those .cabal files against the hashes
+          --    recorded in signed metadata (there is no point comparing against
+          --    hashes recorded in unsigned metadata because attackers could
+          --    just change those).
+          --
+          -- Since we don't have author signing yet, we don't have any
+          -- additional signed metadata and therefore we currently don't have
+          -- to do anything here.
+          --
+          -- TODO: One question is whether we should regard the checkForUpdates
+          -- to have failed if one specific package metadata fails to verify.
+          -- See also <https://github.com/theupdateframework/tuf/issues/282>.
 
           return HasUpdates
 
-    checkChanged :: Maybe (Trusted FileInfo)  -- ^ Old
-                 -> Trusted FileInfo          -- ^ New
-                 -> Maybe (Trusted FileInfo)  -- ^ New, if different from old
-    checkChanged Nothing    new = Just new
-    checkChanged (Just old) new = if old == new then Nothing else Just new
+    infoChanged :: Maybe (Trusted FileInfo) -> Trusted FileInfo -> Bool
+    infoChanged Nothing    _   = True
+    infoChanged (Just old) new = old /= new
 
 -- | Root metadata updated
 --
@@ -214,13 +272,15 @@ updateRoot Repository{..} mNow mFileInfo = do
       >>= readJSON KeyEnv.empty
       >>= return . trustLocalFile
 
+    let expectedRoot = FileRoot (fmap trustedFileInfoLength mFileInfo)
     _newRoot :: Trusted Root
-       <- repWithRemote FileRoot
-              $ readJSON KeyEnv.empty
-            >=> throwErrors . verifyRoot oldRoot mFileInfo mNow
+       <- repWithRemote expectedRoot
+              $ verifyFileInfo' mFileInfo
+            >=> readJSON KeyEnv.empty
+            >=> throwErrors . verifyRoot oldRoot mNow
 
-    repDeleteCached FileTimestamp
-    repDeleteCached FileSnapshot
+    repDeleteCached $ FileTimestamp
+    repDeleteCached $ FileSnapshot ()
 
 {-------------------------------------------------------------------------------
   Downloading target files
@@ -237,13 +297,16 @@ updateRoot Repository{..} mNow mFileInfo = do
 -- * May throw a VerificationError if the package cannot be verified against
 --   the previously downloaded metadata. It is up to the calling code to decide
 --   what to do with such an exception; in particular, we do NOT automatically
---   renew the root metadata at this point (this matches the TUF spec).
+--   renew the root metadata at this point.
+--   (See also <https://github.com/theupdateframework/tuf/issues/281>.)
 -- * May throw an InvalidPackageException if the requested package does not
 --   exist (this is a programmer error).
 downloadPackage :: Repository -> PackageIdentifier -> (TemporaryPath -> IO a) -> IO a
 downloadPackage Repository{..} pkgId callback = do
     -- We need the cached root information in order to resolve key IDs and
     -- verify signatures
+    -- redundant signature verification
+    -- local information implicitly trusted becuse starts from implicitly trusted root info
     cachedRoot :: Trusted Root
        <- repGetCachedRoot
       >>= readJSON KeyEnv.empty
@@ -263,14 +326,9 @@ downloadPackage Repository{..} pkgId callback = do
            Just nfo -> return nfo
 
     -- TODO: should we check if cached package available? (spec says no)
-    repWithRemote (FilePackage pkgId) $ \tarGz -> do
-        -- Verify the fileinfo
-        tarGzInfo <- fileInfoTargetFile tarGz
-        unless (verifyFileInfo targetMetaData tarGzInfo) $
-          throwIO VerificationErrorFileInfo
-
-        -- Invoke the callback
-        callback tarGz
+    let expectedPkg = FilePackage pkgId (trustedFileInfoLength targetMetaData)
+    repWithRemote expectedPkg $ \tarGz -> do
+      callback =<< verifyFileInfo' (Just targetMetaData) tarGz
   where
     -- TODO: Is there a standard function in Cabal to do this?
     packageFileName :: FilePath
@@ -285,64 +343,6 @@ data InvalidPackageException = InvalidPackageException PackageIdentifier
 
 instance Exception InvalidPackageException
 
-{-
--- | Download a package to a temporary location
---
--- It is the responsibility of the calling code to move the package from its
--- temporary location to a permanent location (or delete it).
---
--- Maybe through a VerificationError if the package cannot be verified against
--- the previously downloaded metadata. It is up to the calling code to decide
--- what to do with such an exception; in particular, we do NOT automatically
--- renew the root metadata at this point (this matches the TUF spec).
-downloadPackage :: Repository -> PackageIdentifier -> IO FilePath
-downloadPackage Repository{..} pkgId = do
-    undefined
-    {-
-    -- We need the cached root information in order to resolve key IDs and
-    -- verify signatures
-    cachedRoot :: Trusted Root
-       <- repGetCachedRoot
-      >>= readJSON KeyEnv.empty
-      >>= return . trustLocalFile
-    let keyEnv = rootKeys (trusted cachedRoot)
-
-    -- Get the metadata (from the previously updated index)
-    mTargets :: Maybe (Trusted Targets)
-       <- repGetCached (FilePackageMetadata pkgId)
-      >>= traverse (readJSON keyEnv)
-      >>= return . fmap trustLocalFile
-
-    -- If this is not found, the package is not available
-    case mTargets of
-      Nothing -> do
-        -- TODO: Not sure if we should be throwing an exception here or return
-        -- Maybe FilePath. Requesting a non-existing package is a bug.
-        throwIO $ userError "Invalid package"
-      Just targets -> do
-        targetMetaData :: Trusted FileInfo
-          <- case trustedTargetsLookup packageFileName targets of
-               Nothing  -> throwIO VerificationErrorUnknownTarget
-               Just nfo -> return nfo
-
-        -- TODO: should we check if we have a cached package available?
-        -- (the spec says no)
-        tarGz <- repGetRemote (FilePackage pkgId)
-
-        -- Verify the fileinfo
-        tarGzInfo <- fileInfoTargetFile tarGz
-        unless (verifyFileInfo targetMetaData tarGzInfo) $
-          throwIO VerificationErrorFileInfo
-
-        -- Return the path to the package
-        return tarGz
-     -}
-  where
-    -- TODO: Is there a standard function in Cabal to do this?
-    packageFileName :: FilePath
-    packageFileName = display pkgId <.> "tar.gz"
--}
-
 {-------------------------------------------------------------------------------
   Auxiliary
 -------------------------------------------------------------------------------}
@@ -350,6 +350,17 @@ downloadPackage Repository{..} pkgId = do
 -- | Local files are assumed trusted
 trustLocalFile :: Signed a -> Trusted a
 trustLocalFile Signed{..} = DeclareTrusted signed
+
+-- | Just a simple wrapper around 'verifyFileInfo'
+--
+-- Throws a VerificationError if verification failed. For convenience in
+-- composition returns the argument FilePath otherwise.
+verifyFileInfo' :: Maybe (Trusted FileInfo) -> FilePath -> IO FilePath
+verifyFileInfo' Nothing     fp = return fp
+verifyFileInfo' (Just info) fp = do
+    verified <- verifyFileInfo fp info
+    unless verified $ throw VerificationErrorFileInfo
+    return fp
 
 readJSON :: FromJSON ReadJSON a => KeyEnv -> FilePath -> IO a
 readJSON keyEnv fpath = do

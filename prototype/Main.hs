@@ -86,7 +86,7 @@ cmdBootstrap opts = do
         timestamp = Timestamp {
             timestampVersion      = FileVersion 1
           , timestampExpires      = FileExpires $ addUTCTime (3 * oneDay) now
-          , timestampInfoSnapshot = fileInfoJSON signedSnapshot
+          --, timestampInfoSnapshot = fileInfoJSON signedSnapshot
           }
         topLevelTargets = Targets {
             targetsVersion     = FileVersion 1
@@ -289,7 +289,7 @@ cmdUpload pkg version opts = do
         newTimestamp' = Timestamp {
             timestampVersion      = incrementFileVersion (timestampVersion oldTimestamp')
           , timestampExpires      = FileExpires $ addUTCTime (3 * oneDay) now
-          , timestampInfoSnapshot = fileInfoJSON newSnapshot
+          --, timestampInfoSnapshot = fileInfoJSON newSnapshot
           }
         newTimestamp  = withSignatures timestampKeys newTimestamp'
 
