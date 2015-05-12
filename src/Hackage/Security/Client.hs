@@ -47,6 +47,9 @@ data File =
     -- | Target file for a specific package
   | FilePackageMetadata PackageIdentifier
 
+type TemporaryPath = FilePath
+type PermanentPath = FilePath
+
 -- | Repository
 --
 -- This is an abstract representation of a repository. It simply provides a way
@@ -54,27 +57,21 @@ data File =
 -- For instance, for a local repository this could just be doing a file read,
 -- whereas for remote repositories this could be using any kind of HTTP client.
 data Repository = Repository {
-    -- | Download a file from the server to a temporary location
-    -- (but don't trust it yet)
+    -- | Get a file from the server
     --
-    -- TODO: We don't currently instruct the repository to cleanup temporary
-    -- files when an exception occurs.
-    repGetRemote :: File -> IO FilePath
-
-    -- | Trust a previously downloaded remote file
-    --
-    -- This means moving the untrusted file from its temporary location to
-    -- its permanent location, possibly overwriting a previous version
-  , repTrust :: File -> IO ()
+    -- It is the responsibility of the callback to verify the downloaded file.
+    -- Only when the callback returns without throwing an exception should be
+    -- the file be trusted and moved to a permanent location.
+    repWithRemote :: forall a. File -> (TemporaryPath -> IO a) -> IO a
 
     -- | Get a cached file (if available)
-  , repGetCached :: File -> IO (Maybe FilePath)
+  , repGetCached :: File -> IO (Maybe PermanentPath)
 
     -- | Get the cached root
     --
     -- This is a separate method only because clients must ALWAYS have root
     -- information available.
-  , repGetCachedRoot :: IO FilePath
+  , repGetCachedRoot :: IO PermanentPath
 
     -- | Delete a previously downloaded remote file
     -- (probably because the root metadata changed)
@@ -141,13 +138,12 @@ checkForUpdates rep@Repository{..} checkExpiry = do
 
       -- Get the new timestamp
       newTS :: Trusted Timestamp
-         <- repGetRemote FileTimestamp
-        >>= readJSON keyEnv
-        >>= throwErrors . verifyTimestamp
-              cachedRoot
-              (fmap fileVersion mOldTS)
-              mNow
-      repTrust FileTimestamp
+        <- repWithRemote FileTimestamp
+               $ readJSON keyEnv
+             >=> throwErrors . verifyTimestamp
+                   cachedRoot
+                   (fmap fileVersion mOldTS)
+                   mNow
 
       -- Check if the snapshot has changed
       case checkChanged (fmap trustedTimestampInfoSnapshot mOldTS)
@@ -163,14 +159,13 @@ checkForUpdates rep@Repository{..} checkExpiry = do
 
           -- Get the new snapshot
           newSS :: Trusted Snapshot
-             <- repGetRemote FileSnapshot
-            >>= readJSON keyEnv
-            >>= throwErrors . verifySnapshot
-                  cachedRoot
-                  updatedSnapshotInfo
-                  (fmap fileVersion mOldSS)
-                  mNow
-          repTrust FileSnapshot
+             <- repWithRemote FileSnapshot
+                    $ readJSON keyEnv
+                  >=> throwErrors . verifySnapshot
+                        cachedRoot
+                        updatedSnapshotInfo
+                        (fmap fileVersion mOldSS)
+                        mNow
 
           -- If root metadata changed, update and restart
           let mOldRootInfo = fmap trustedSnapshotInfoRoot mOldSS
@@ -182,12 +177,11 @@ checkForUpdates rep@Repository{..} checkExpiry = do
           -- If the index changed, download it and verify it
           let mOldIndexInfo = fmap trustedSnapshotInfoTar mOldSS
               newIndexInfo  = trustedSnapshotInfoTar newSS
-          forM_ (checkChanged mOldIndexInfo newIndexInfo) $ \updatedTarInfo -> do
-            indexTar     <- repGetRemote FileIndex
-            indexTarInfo <- fileInfoTargetFile indexTar
-            unless (verifyFileInfo updatedTarInfo indexTarInfo) $
-              throwIO VerificationErrorFileInfo
-            repTrust FileIndex
+          forM_ (checkChanged mOldIndexInfo newIndexInfo) $ \updatedTarInfo ->
+            repWithRemote FileIndex $ \indexTar -> do
+              indexTarInfo <- fileInfoTargetFile indexTar
+              unless (verifyFileInfo updatedTarInfo indexTarInfo) $
+                throwIO VerificationErrorFileInfo
 
           -- TODO: We should now verify all target files, but until we have
           -- author signing this is not necessary.
@@ -221,11 +215,10 @@ updateRoot Repository{..} mNow mFileInfo = do
       >>= return . trustLocalFile
 
     _newRoot :: Trusted Root
-       <- repGetRemote FileRoot
-      >>= readJSON KeyEnv.empty
-      >>= throwErrors . verifyRoot oldRoot mFileInfo mNow
+       <- repWithRemote FileRoot
+              $ readJSON KeyEnv.empty
+            >=> throwErrors . verifyRoot oldRoot mFileInfo mNow
 
-    repTrust FileRoot
     repDeleteCached FileTimestamp
     repDeleteCached FileSnapshot
 
@@ -233,6 +226,66 @@ updateRoot Repository{..} mNow mFileInfo = do
   Downloading target files
 -------------------------------------------------------------------------------}
 
+-- | Download a package
+--
+-- It is the responsibility of the callback to move the package from its
+-- temporary location to a permanent location (if desired). The callback will
+-- only be invoked once the chain of trust has been verified.
+--
+-- Possibly exceptions thrown:
+--
+-- * May throw a VerificationError if the package cannot be verified against
+--   the previously downloaded metadata. It is up to the calling code to decide
+--   what to do with such an exception; in particular, we do NOT automatically
+--   renew the root metadata at this point (this matches the TUF spec).
+-- * May throw an InvalidPackageException if the requested package does not
+--   exist (this is a programmer error).
+downloadPackage :: Repository -> PackageIdentifier -> (TemporaryPath -> IO a) -> IO a
+downloadPackage Repository{..} pkgId callback = do
+    -- We need the cached root information in order to resolve key IDs and
+    -- verify signatures
+    cachedRoot :: Trusted Root
+       <- repGetCachedRoot
+      >>= readJSON KeyEnv.empty
+      >>= return . trustLocalFile
+    let keyEnv = rootKeys (trusted cachedRoot)
+
+    -- Get the metadata (from the previously updated index)
+    targets :: Trusted Targets
+       <- repGetCached (FilePackageMetadata pkgId)
+      >>= packageMustExist
+      >>= readJSON keyEnv
+      >>= return . trustLocalFile
+
+    targetMetaData :: Trusted FileInfo
+      <- case trustedTargetsLookup packageFileName targets of
+           Nothing  -> throwIO VerificationErrorUnknownTarget
+           Just nfo -> return nfo
+
+    -- TODO: should we check if cached package available? (spec says no)
+    repWithRemote (FilePackage pkgId) $ \tarGz -> do
+        -- Verify the fileinfo
+        tarGzInfo <- fileInfoTargetFile tarGz
+        unless (verifyFileInfo targetMetaData tarGzInfo) $
+          throwIO VerificationErrorFileInfo
+
+        -- Invoke the callback
+        callback tarGz
+  where
+    -- TODO: Is there a standard function in Cabal to do this?
+    packageFileName :: FilePath
+    packageFileName = display pkgId <.> "tar.gz"
+
+    packageMustExist :: Maybe FilePath -> IO FilePath
+    packageMustExist (Just fp) = return fp
+    packageMustExist Nothing   = throwIO $ InvalidPackageException pkgId
+
+data InvalidPackageException = InvalidPackageException PackageIdentifier
+  deriving (Show, Typeable)
+
+instance Exception InvalidPackageException
+
+{-
 -- | Download a package to a temporary location
 --
 -- It is the responsibility of the calling code to move the package from its
@@ -244,6 +297,8 @@ updateRoot Repository{..} mNow mFileInfo = do
 -- renew the root metadata at this point (this matches the TUF spec).
 downloadPackage :: Repository -> PackageIdentifier -> IO FilePath
 downloadPackage Repository{..} pkgId = do
+    undefined
+    {-
     -- We need the cached root information in order to resolve key IDs and
     -- verify signatures
     cachedRoot :: Trusted Root
@@ -281,10 +336,12 @@ downloadPackage Repository{..} pkgId = do
 
         -- Return the path to the package
         return tarGz
+     -}
   where
     -- TODO: Is there a standard function in Cabal to do this?
     packageFileName :: FilePath
     packageFileName = display pkgId <.> "tar.gz"
+-}
 
 {-------------------------------------------------------------------------------
   Auxiliary
