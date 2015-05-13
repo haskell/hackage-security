@@ -2,8 +2,8 @@ module Hackage.Security.TUF.Snapshot (
     Snapshot(..)
     -- * Trusted info
   , trustedSnapshotInfoRoot
-  , trustedSnapshotInfoTar
   , trustedSnapshotInfoTarGz
+  , trustedSnapshotInfoTar
   ) where
 
 import Hackage.Security.JSON
@@ -21,9 +21,21 @@ import qualified Hackage.Security.TUF.FileMap as FileMap
 data Snapshot = Snapshot {
     snapshotVersion   :: FileVersion
   , snapshotExpires   :: FileExpires
-  , snapshotInfoRoot  :: FileInfo
-  , snapshotInfoTar   :: FileInfo
+
+    -- | File info for the root metadata
+    --
+    -- We list this explicitly in the snapshot so that we can check if we need
+    -- to update the root metadata without first having to download the entire
+    -- index tarball.
+  , snapshotInfoRoot :: FileInfo
+
+    -- | Compressed index tarball
   , snapshotInfoTarGz :: FileInfo
+
+    -- | Uncompressed index tarball
+    --
+    -- Repositories are not required to provide this.
+  , snapshotInfoTar :: Maybe FileInfo
   }
 
 instance TUFHeader Snapshot where
@@ -37,11 +49,11 @@ instance TUFHeader Snapshot where
 trustedSnapshotInfoRoot  :: Trusted Snapshot -> Trusted FileInfo
 trustedSnapshotInfoRoot = DeclareTrusted . snapshotInfoRoot . trusted
 
-trustedSnapshotInfoTar :: Trusted Snapshot -> Trusted FileInfo
-trustedSnapshotInfoTar = DeclareTrusted . snapshotInfoTar . trusted
-
 trustedSnapshotInfoTarGz :: Trusted Snapshot -> Trusted FileInfo
 trustedSnapshotInfoTarGz = DeclareTrusted . snapshotInfoTarGz . trusted
+
+trustedSnapshotInfoTar :: Trusted Snapshot -> Maybe (Trusted FileInfo)
+trustedSnapshotInfoTar = fmap DeclareTrusted . snapshotInfoTar . trusted
 
 {-------------------------------------------------------------------------------
   JSON
@@ -55,21 +67,21 @@ instance ToJSON Snapshot where
       , ("meta"    , toJSON snapshotMeta)
       ]
     where
-      snapshotMeta = FileMap.fromList [
+      snapshotMeta = FileMap.fromList $ [
           ("root.json"    , snapshotInfoRoot)
-        , ("index.tar"    , snapshotInfoTar)
         , ("index.tar.gz" , snapshotInfoTarGz)
-        ]
+        ] ++
+        [ ("index.tar" , infoTar) | Just infoTar <- [snapshotInfoTar] ]
 
 instance ReportSchemaErrors m => FromJSON m Snapshot where
   fromJSON enc = do
     -- TODO: Should we verify _type?
-    snapshotVersion   <- fromJSField enc "version"
-    snapshotExpires   <- fromJSField enc "expires"
-    snapshotMeta      <- fromJSField enc "meta"
-    snapshotInfoRoot  <- FileMap.lookupM snapshotMeta "root.json"
-    snapshotInfoTar   <- FileMap.lookupM snapshotMeta "index.tar"
-    snapshotInfoTarGz <- FileMap.lookupM snapshotMeta "index.tar.gz" 
+    snapshotVersion    <- fromJSField enc "version"
+    snapshotExpires    <- fromJSField enc "expires"
+    snapshotMeta       <- fromJSField enc "meta"
+    snapshotInfoRoot   <- FileMap.lookupM snapshotMeta "root.json"
+    snapshotInfoTarGz  <- FileMap.lookupM snapshotMeta "index.tar.gz"
+    let snapshotInfoTar = FileMap.lookup "index.tar" snapshotMeta
     return Snapshot{..}
 
 instance FromJSON ReadJSON (Signed Snapshot) where

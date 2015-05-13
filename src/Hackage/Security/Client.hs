@@ -1,8 +1,7 @@
 module Hackage.Security.Client (
-    Repository(..)
-  , File(..)
     -- * Checking for updates
-  , HasUpdates(..)
+    HasUpdates(..)
+  , CheckExpiry(..)
   , checkForUpdates
     -- * Downloading targets
   , downloadPackage
@@ -17,90 +16,13 @@ import System.FilePath
 import Distribution.Package (PackageIdentifier)
 import Distribution.Text
 
+import Hackage.Security.Client.Repository
 import Hackage.Security.JSON
 import Hackage.Security.Key.Env (KeyEnv)
 import Hackage.Security.Key.ExplicitSharing
 import Hackage.Security.Trusted.Unsafe
 import Hackage.Security.TUF
 import qualified Hackage.Security.Key.Env as KeyEnv
-
-data File a =
-    -- | The timestamp metadata (@timestamp.json@)
-    --
-    -- We never have (explicit) fileinfo available for timestamps.
-    FileTimestamp
-
-    -- | The root metadata (@root.json@)
-    --
-    -- For root information we may or may not have fileinfo available:
-    --
-    -- * If during the normal update process the new snapshot tells us the root
-    --   information has changed, we can use the fileinfo from the snapshot.
-    -- * If however we need to update the root metadata due to a verification
-    --   exception we do not have any fileinfo.
-  | FileRoot (Maybe a)
-
-    -- | The snapshot metadata (@snapshot.json@)
-    --
-    -- We get fileinfo for the snapshot from the timestamp.
-  | FileSnapshot a
-
-    -- | The index
-    --
-    -- The index fileinfo comes from the snapshot.
-    --
-    -- When we request that the index is downloaded, it is up to the repository
-    -- to decide whether to download @00-index.tar@ or @00-index.tar.gz@. We
-    -- can see from the returned filename which file we are given.
-  | FileIndex {
-        fileIndexTarInfo   :: a
-      , fileIndexTarGzInfo :: a
-      }
-
-    -- | An actual package
-    --
-    -- Package fileinfo comes from the corresponding @targets.json@.
-  | FilePackage PackageIdentifier a
-
-    -- | Target file for a specific package
-    --
-    -- This is extracted from the (trusted) local copy of the index tarball
-    -- so does not need fileinfo.
-  | FilePackageMetadata PackageIdentifier
-
-type TemporaryPath = FilePath
-type PermanentPath = FilePath
-
--- | Repository
---
--- This is an abstract representation of a repository. It simply provides a way
--- to download metafiles and target files, without specifying how this is done.
--- For instance, for a local repository this could just be doing a file read,
--- whereas for remote repositories this could be using any kind of HTTP client.
-data Repository = Repository {
-    -- | Get a file from the server
-    --
-    -- It is the responsibility of the callback to verify the downloaded file.
-    -- Only when the callback returns without throwing an exception should be
-    -- the file be trusted and moved to a permanent location.
-    repWithRemote :: forall a.
-                     File (Trusted FileLength)
-                  -> (TemporaryPath -> IO a)
-                  -> IO a
-
-    -- | Get a cached file (if available)
-  , repGetCached :: File () -> IO (Maybe PermanentPath)
-
-    -- | Get the cached root
-    --
-    -- This is a separate method only because clients must ALWAYS have root
-    -- information available.
-  , repGetCachedRoot :: IO PermanentPath
-
-    -- | Delete a previously downloaded remote file
-    -- (probably because the root metadata changed)
-  , repDeleteCached :: File () -> IO ()
-  }
 
 {-------------------------------------------------------------------------------
   Checking for updates
@@ -117,8 +39,10 @@ data CheckExpiry =
     -- the main server is down for longer than the expiry dates used in the
     -- timestamp files on mirrors).
   | DontCheckExpiry
+  deriving Show
 
 data HasUpdates = HasUpdates | NoUpdates
+  deriving Show
 
 -- | Generic logic for checking if there are updates
 --
@@ -132,15 +56,17 @@ checkForUpdates rep@Repository{..} checkExpiry = do
 
     -- TODO: Should we cap how often we go round this loop?
     catches (go mNow) [
-        Handler $ \(_ex :: VerificationError) -> do
+        Handler $ \(ex :: VerificationError) -> do
           -- NOTE: This call to updateRoot is not itself protected by an
           -- exception handler, and may therefore throw a VerificationError.
           -- This is intentional: if we get verification errors during the
           -- update process, _and_ we cannot update the main root info, then
           -- we cannot do anything.
-          updateRoot rep mNow Nothing
+          putStrLn $ "Warning: verification error: " ++ show ex
+          updateRoot rep mNow (Left ex)
           checkForUpdates rep checkExpiry
-      , Handler $ \(_ex :: RootUpdated) -> do
+      , Handler $ \RootUpdated -> do
+          putStrLn $ "Notice: root updated"
           checkForUpdates rep checkExpiry
       ]
   where
@@ -198,18 +124,18 @@ checkForUpdates rep@Repository{..} checkExpiry = do
           let mOldRootInfo = fmap trustedSnapshotInfoRoot mOldSS
               newRootInfo  = trustedSnapshotInfoRoot newSS
           when (infoChanged mOldRootInfo newRootInfo) $ do
-            updateRoot rep mNow (Just newRootInfo)
+            updateRoot rep mNow (Right newRootInfo)
             throwIO RootUpdated
 
           -- If the index changed, download it and verify it
-          let mOldTarInfo   = fmap trustedSnapshotInfoTar mOldSS
-              newTarInfo    = trustedSnapshotInfoTar   newSS
+          let mOldTarGzInfo = fmap trustedSnapshotInfoTarGz mOldSS
               newTarGzInfo  = trustedSnapshotInfoTarGz newSS
+              mNewTarInfo   = trustedSnapshotInfoTar   newSS
               expectedIndex = FileIndex {
-                  fileIndexTarInfo   = trustedFileInfoLength newTarInfo
-                , fileIndexTarGzInfo = trustedFileInfoLength newTarGzInfo
+                  fileIndexTarGzInfo = trustedFileInfoLength newTarGzInfo
+                , fileIndexTarInfo   = fmap trustedFileInfoLength mNewTarInfo
                 }
-          when (infoChanged mOldTarInfo newTarInfo) $
+          when (infoChanged mOldTarGzInfo newTarGzInfo) $
             repWithRemote expectedIndex $ \indexPath -> do
               -- Check against the appropriate hash, depending on which file the
               -- 'Repository' decided to download. Note that we cannot ask the
@@ -220,9 +146,16 @@ checkForUpdates rep@Repository{..} checkExpiry = do
               -- say, buffer overrun in the decompression algorithm).
               let (_, indexExt) = splitExtension indexPath
               void $ case indexExt of
-                ".tar"     -> verifyFileInfo' (Just newTarInfo)   indexPath
-                ".tar.gz"  -> verifyFileInfo' (Just newTarGzInfo) indexPath
-                _otherwise -> throwIO $ userError "Unexpected index extension"
+                ".gz" ->
+                  verifyFileInfo' (Just newTarGzInfo) indexPath
+                ".tar" ->
+                  -- If the repository returns an uncompressed index but does
+                  -- not list a corresponding hash we throw an exception
+                  case mNewTarInfo of
+                    Just info -> verifyFileInfo' (Just info) indexPath
+                    Nothing   -> throwIO unexpectedUncompressedTar
+                _otherwise ->
+                  throwIO unexpectedIndexFormat
 
           -- Since we regard all local files as trusted, strictly speaking we
           -- should now verify the contents of the index tarball.
@@ -246,11 +179,16 @@ checkForUpdates rep@Repository{..} checkExpiry = do
           -- to have failed if one specific package metadata fails to verify.
           -- See also <https://github.com/theupdateframework/tuf/issues/282>.
 
+          putStrLn "There are updates!!"
           return HasUpdates
 
     infoChanged :: Maybe (Trusted FileInfo) -> Trusted FileInfo -> Bool
     infoChanged Nothing    _   = True
     infoChanged (Just old) new = old /= new
+
+    -- TODO: Should these be structured types?
+    unexpectedIndexFormat     = userError "Unexpected index format"
+    unexpectedUncompressedTar = userError "Unexpected uncompressed tarball"
 
 -- | Root metadata updated
 --
@@ -265,22 +203,38 @@ instance Exception RootUpdated
 --
 -- Note that the new root metadata is verified using the old root metadata,
 -- and only then trusted.
-updateRoot :: Repository -> Maybe UTCTime -> Maybe (Trusted FileInfo) -> IO ()
-updateRoot Repository{..} mNow mFileInfo = do
+--
+-- We don't always have root file information available. If we notice during
+-- the normal update process that the root information has changed then the
+-- snapshot will give us the new file information; but if we need to update
+-- the root information due to a verification error we do not.
+--
+-- If there was a verification error we additionally delete the cached
+-- snapshot and timestamp.
+updateRoot :: Repository
+           -> Maybe UTCTime
+           -> Either VerificationError (Trusted FileInfo)
+           -> IO ()
+updateRoot Repository{..} mNow eFileInfo = do
     oldRoot :: Trusted Root
        <- repGetCachedRoot
       >>= readJSON KeyEnv.empty
       >>= return . trustLocalFile
 
-    let expectedRoot = FileRoot (fmap trustedFileInfoLength mFileInfo)
+    let mFileInfo    = eitherToMaybe eFileInfo
+        expectedRoot = FileRoot (fmap trustedFileInfoLength mFileInfo)
     _newRoot :: Trusted Root
        <- repWithRemote expectedRoot
               $ verifyFileInfo' mFileInfo
             >=> readJSON KeyEnv.empty
             >=> throwErrors . verifyRoot oldRoot mNow
 
-    repDeleteCached $ FileTimestamp
-    repDeleteCached $ FileSnapshot ()
+    case eFileInfo of
+      Left _err -> do
+        repDeleteCached $ FileTimestamp
+        repDeleteCached $ FileSnapshot ()
+      Right _info ->
+        return ()
 
 {-------------------------------------------------------------------------------
   Downloading target files
@@ -315,7 +269,7 @@ downloadPackage Repository{..} pkgId callback = do
 
     -- Get the metadata (from the previously updated index)
     targets :: Trusted Targets
-       <- repGetCached (FilePackageMetadata pkgId)
+       <- repGetCached (FilePkgMeta pkgId)
       >>= packageMustExist
       >>= readJSON keyEnv
       >>= return . trustLocalFile
@@ -326,7 +280,7 @@ downloadPackage Repository{..} pkgId callback = do
            Just nfo -> return nfo
 
     -- TODO: should we check if cached package available? (spec says no)
-    let expectedPkg = FilePackage pkgId (trustedFileInfoLength targetMetaData)
+    let expectedPkg = FilePkgTarGz pkgId (trustedFileInfoLength targetMetaData)
     repWithRemote expectedPkg $ \tarGz -> do
       callback =<< verifyFileInfo' (Just targetMetaData) tarGz
   where
@@ -372,3 +326,7 @@ readJSON keyEnv fpath = do
 throwErrors :: Exception e => Either e a -> IO a
 throwErrors (Left err) = throwIO err
 throwErrors (Right a)  = return a
+
+eitherToMaybe :: Either a b -> Maybe b
+eitherToMaybe (Left  _) = Nothing
+eitherToMaybe (Right b) = Just b

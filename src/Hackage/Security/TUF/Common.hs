@@ -3,13 +3,17 @@ module Hackage.Security.TUF.Common (
     -- * Classes
     TUFHeader(..)
     -- * Types
-  , FileVersion(..)
-  , FileExpires(..)
+  , FileVersion -- opaque
+  , FileExpires -- opaque
   , FileLength(..)
   , Hash(..)
   , KeyThreshold(..)
     -- ** Utility
-  , incrementFileVersion
+  , expiresNever
+  , expiresInDays
+  , isExpired
+  , versionInitial
+  , versionIncrement
   ) where
 
 import Data.Time
@@ -61,8 +65,20 @@ newtype FileExpires = FileExpires UTCTime
   Utility
 -------------------------------------------------------------------------------}
 
-incrementFileVersion :: FileVersion -> FileVersion
-incrementFileVersion (FileVersion i) = FileVersion (i + 1)
+expiresNever :: FileExpires
+expiresNever = FileExpires $ UTCTime (toEnum maxBound) 0
+
+expiresInDays :: UTCTime -> Integer -> FileExpires
+expiresInDays now n = FileExpires $ addUTCTime (fromInteger n * oneDay) now
+
+isExpired :: UTCTime -> FileExpires -> Bool
+isExpired now (FileExpires e) = e < now
+
+versionInitial :: FileVersion
+versionInitial = FileVersion 1
+
+versionIncrement :: FileVersion -> FileVersion
+versionIncrement (FileVersion i) = FileVersion (i + 1)
 
 {-------------------------------------------------------------------------------
   JSON
@@ -97,3 +113,10 @@ instance ReportSchemaErrors m => FromJSON m Hash where
 
 instance ReportSchemaErrors m => FromJSON m FileExpires where
   fromJSON enc = FileExpires <$> fromJSON enc
+
+{-------------------------------------------------------------------------------
+  Auxiliary
+-------------------------------------------------------------------------------}
+
+oneDay :: NominalDiffTime
+oneDay = 24 * 60 * 60

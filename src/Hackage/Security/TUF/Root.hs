@@ -167,7 +167,7 @@ verifyRole (trusted -> RoleSpec{roleSpecThreshold = KeyThreshold threshold, ..})
       case mNow of
         Nothing  -> return ()
         Just now ->
-          when (fileExpires signed < FileExpires now) $
+          when (isExpired now (fileExpires signed)) $
             throwError VerificationErrorExpired
 
       -- Verify timestamp

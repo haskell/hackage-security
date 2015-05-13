@@ -1,7 +1,26 @@
-{-# LANGUAGE CPP #-}
-{-# LANGUAGE TemplateHaskell #-}
 module Main where
 
+import Hackage.Security.Client
+import Hackage.Security.Client.Repository.Local
+
+import ExampleClient.Options
+
+main :: IO ()
+main = do
+    opts@GlobalOpts{..} <- getOptions
+    case globalCommand of
+      Check -> check opts
+
+{-------------------------------------------------------------------------------
+  Checking for updates
+-------------------------------------------------------------------------------}
+
+check :: GlobalOpts -> IO ()
+check GlobalOpts{..} = do
+    let rep = localRepository globalRepo globalCache
+    print =<< checkForUpdates rep CheckExpiry
+
+{-
 import Control.Exception
 import Control.Monad
 import Data.Time
@@ -25,135 +44,11 @@ import Hackage.Security.TUF
 import qualified Hackage.Security.TUF.FileMap as FileMap
 import qualified Hackage.Security.Key.Env     as KeyEnv
 import qualified Hackage.Security.Client
-
-import Prototype.Options
-
-main :: IO ()
-main = do
-    opts <- getOptions
-    interpretCommand (optCommand opts) opts
+import qualified Hackage.Security.Client.Repository.Local
 
 interpretCommand :: Command -> Options -> IO ()
-interpretCommand Bootstrap            = cmdBootstrap
-interpretCommand (Roundtrip fp)       = cmdRoundtrip fp
 interpretCommand Check                = cmdCheck
 interpretCommand (Upload pkg version) = cmdUpload pkg version
-
-{-------------------------------------------------------------------------------
-  Bootstrapping
--------------------------------------------------------------------------------}
-
-cmdBootstrap :: Options -> IO ()
-cmdBootstrap opts = do
-    now <- getCurrentTime
-    rootKeys     <- replicateM 3 $ createKey' KeyTypeEd25519
-    snapshotKey  <- createKey' KeyTypeEd25519
-    timestampKey <- createKey' KeyTypeEd25519
-    targetKeys   <- replicateM 3 $ createKey' KeyTypeEd25519
-    trustees     <- replicateM 3 $ createKey' KeyTypeEd25519
-    let root = Root {
-            rootVersion = FileVersion 1
-          , rootExpires = FileExpires $ addUTCTime (365 * oneDay) now
-          , rootKeys    = KeyEnv.fromKeys $ concat [
-                              rootKeys
-                            , [snapshotKey]
-                            , [timestampKey]
-                            , targetKeys
-                            ]
-          , rootRoles   = RootRoles {
-                rootRolesRoot = RoleSpec {
-                    roleSpecKeys      = map somePublicKey rootKeys
-                  , roleSpecThreshold = KeyThreshold 2
-                  }
-              , rootRolesSnapshot = RoleSpec {
-                    roleSpecKeys      = [somePublicKey snapshotKey]
-                  , roleSpecThreshold = KeyThreshold 1
-                  }
-              , rootRolesTimestamp = RoleSpec {
-                    roleSpecKeys      = [somePublicKey timestampKey]
-                  , roleSpecThreshold = KeyThreshold 1
-                  }
-              , rootRolesTargets = RoleSpec {
-                    roleSpecKeys      = map somePublicKey targetKeys
-                  , roleSpecThreshold = KeyThreshold 1
-                  }
-              }
-          }
-        snapshot = Snapshot {
-            snapshotVersion = FileVersion 1
-          , snapshotExpires = FileExpires $ addUTCTime (3 * oneDay) now
-          }
-        timestamp = Timestamp {
-            timestampVersion      = FileVersion 1
-          , timestampExpires      = FileExpires $ addUTCTime (3 * oneDay) now
-          --, timestampInfoSnapshot = fileInfoJSON signedSnapshot
-          }
-        topLevelTargets = Targets {
-            targetsVersion     = FileVersion 1
-          , targetsExpires     = FileExpires never
-          , targets            = FileMap.empty
-          , targetsDelegations = Just $ Delegations {
-                delegationsKeys  = KeyEnv.fromKeys trustees
-              , delegationsRoles = [
-                    DelegationSpec {
-                        delegationSpecKeys      = []
-                      , delegationSpecThreshold = KeyThreshold 0
-                      , delegation = $(qqd "targets/*/*/*" "targets/*/*/targets.json")
-                      }
-                  ]
-              }
-          }
-        signedRoot            = withSignatures rootKeys       root
-        signedSnapshot        = withSignatures [snapshotKey]  snapshot
-        signedTimestamp       = withSignatures [timestampKey] timestamp
-        signedTopLevelTargets = withSignatures targetKeys     topLevelTargets
-
-    -- Write keys
-    forM_ rootKeys   $ writeKey Offline "root"
-    forM_ targetKeys $ writeKey Offline "target"
-    forM_ trustees   $ writeKey Offline "trustee"
-    writeKey Server "snapshot"  snapshotKey
-    writeKey Server "timestamp" timestampKey
-
-    -- Write server state
-    writeCanonical pathRoot            signedRoot
-    writeCanonical pathSnapshot        signedSnapshot
-    writeCanonical pathTimestamp       signedTimestamp
-    writeCanonical pathTopLevelTargets signedTopLevelTargets
-  where
-    pathRoot            = mkPath opts Server "root.json"
-    pathSnapshot        = mkPath opts Server "snapshot.json"
-    pathTimestamp       = mkPath opts Server "timestamp.json"
-    pathTopLevelTargets = mkPath opts Server "targets.json"
-
-    writeKey :: Where -> FilePath -> Some Key -> IO ()
-    writeKey where_ prefix key = writeCanonical' path key
-      where
-        kId  = keyIdString (someKeyId key)
-        path = mkPath opts where_ ("keys" </> prefix </> kId <.> "private")
-
-{-------------------------------------------------------------------------------
-  Internal checks
--------------------------------------------------------------------------------}
-
-cmdRoundtrip :: FilePath -> Options -> IO ()
-cmdRoundtrip fp _opts = do
-    case fp of
-      "root.json" -> do
-        (root, _keyEnv) <- readRoot fp
-        BS.L.putStr $ renderJSON root
-      "snapshot.json" -> do
-        -- We need the root file to resolve keys
-        (_root, keyEnv) <- readRoot "root.json"
-        (snapshot :: Signed Snapshot) <- readJSON keyEnv "snapshot.json"
-        BS.L.putStr $ renderJSON snapshot
-      "timestamp.json" -> do
-        -- We need the root file to resolve keys
-        (_root, keyEnv) <- readRoot "root.json"
-        (timestamp :: Signed Timestamp) <- readJSON keyEnv "timestamp.json"
-        BS.L.putStr $ renderJSON timestamp
-      _otherwise ->
-        putStrLn $ "Don't know how to parse " ++ fp
 
 {-------------------------------------------------------------------------------
   Check for updates
@@ -250,8 +145,8 @@ cmdUpload pkg version opts = do
 
     -- Construct target metadata
     let packageTargets = Targets {
-            targetsVersion     = FileVersion 1
-          , targetsExpires     = FileExpires never
+            targetsVersion     = versionInitial
+          , targetsExpires     = expiresNever
           , targets            = FileMap.fromList [
                 (tarGzFileName, tarGzMetaInfo)
               ]
@@ -272,8 +167,8 @@ cmdUpload pkg version opts = do
     oldSnapshot <- readJSON keyEnv pathSnapshot
     let oldSnapshot' = signed oldSnapshot
         newSnapshot' = Snapshot {
-            snapshotVersion = incrementFileVersion (snapshotVersion oldSnapshot')
-          , snapshotExpires = FileExpires $ addUTCTime (3 * oneDay) now
+            snapshotVersion = versionIncrement (snapshotVersion oldSnapshot')
+          , snapshotExpires = expiresInDays now 3
           {-
           , snapshotMeta    = FileMap.insert
                                 packageTargetsPath
@@ -287,8 +182,8 @@ cmdUpload pkg version opts = do
     oldTimestamp <- readJSON keyEnv pathTimestamp
     let oldTimestamp' = signed oldTimestamp
         newTimestamp' = Timestamp {
-            timestampVersion      = incrementFileVersion (timestampVersion oldTimestamp')
-          , timestampExpires      = FileExpires $ addUTCTime (3 * oneDay) now
+            timestampVersion      = versionIncrement (timestampVersion oldTimestamp')
+          , timestampExpires      = expiresInDays now 3
           --, timestampInfoSnapshot = fileInfoJSON newSnapshot
           }
         newTimestamp  = withSignatures timestampKeys newTimestamp'
@@ -337,10 +232,8 @@ readPrivateKey opts prefix pub =
 oneDay :: NominalDiffTime
 oneDay = 24 * 60 * 60
 
-never :: UTCTime
-never = UTCTime (toEnum maxBound) 0
-
 writeCanonical' :: ToJSON a => FilePath -> a -> IO ()
 writeCanonical' fp a = do
     createDirectoryIfMissing True (takeDirectory fp)
     writeCanonical fp a
+-}
