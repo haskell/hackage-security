@@ -44,7 +44,7 @@ localRepository repo cache = Repository {
 withRemote :: LocalRepo
            -> Cache
            -> File (Trusted FileLength)
-           -> (TemporaryPath -> IO a)
+           -> (TempPath -> IO a)
            -> IO a
 withRemote repo cache file callback = do
     result <- callback remotePath
@@ -55,7 +55,7 @@ withRemote repo cache file callback = do
     localPath  = cache </> fileToPath file
 
 -- | Get a cached file (if available)
-getCached :: Cache -> File () -> IO (Maybe PermanentPath)
+getCached :: Cache -> File () -> IO (Maybe FilePath)
 getCached cache file = do
     exists <- doesFileExist localPath
     if exists then return $ Just localPath
@@ -67,7 +67,7 @@ getCached cache file = do
 --
 -- This is a separate method only because clients must ALWAYS have root
 -- information available.
-getCachedRoot :: Cache -> IO PermanentPath
+getCachedRoot :: Cache -> IO FilePath
 getCachedRoot cache = do
     mPath <- getCached cache $ FileRoot Nothing
     case mPath of

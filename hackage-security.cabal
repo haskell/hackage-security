@@ -52,6 +52,7 @@ library
                        parsec            >= 3.1,
                        SHA               >= 1.6,
                        time              >= 1.2,
+                       transformers      >= 0.4,
                        -- whatever version is bundled with ghc
                        template-haskell
   hs-source-dirs:      src

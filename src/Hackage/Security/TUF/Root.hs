@@ -107,6 +107,11 @@ data VerificationError =
      -- | We tried to lookup file information about a particular target file,
      -- but the information wasn't in the corresponding @targets.json@ file.
    | VerificationErrorUnknownTarget
+
+     -- | The spec stipulates that if a verification error occurs during
+     -- the check for updates, we must download new root information and
+     -- start over. However, we limit how often we attempt this.
+   | VerificationErrorLoop
    deriving (Show, Typeable)
 
 instance Exception VerificationError

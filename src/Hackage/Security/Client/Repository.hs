@@ -1,8 +1,7 @@
 module Hackage.Security.Client.Repository (
     Repository(..)
   , File(..)
-  , TemporaryPath
-  , PermanentPath
+  , TempPath
   ) where
 
 import Distribution.Package (PackageIdentifier)
@@ -63,8 +62,8 @@ data File a =
   | FilePkgMeta PackageIdentifier
   deriving Show
 
-type TemporaryPath = FilePath
-type PermanentPath = FilePath
+-- | Path to temporary file
+type TempPath = FilePath
 
 -- | Repository
 --
@@ -93,17 +92,17 @@ data Repository = Repository {
     --   into the local repository.)
     repWithRemote :: forall a.
                      File (Trusted FileLength)
-                  -> (TemporaryPath -> IO a)
+                  -> (TempPath -> IO a)
                   -> IO a
 
     -- | Get a cached file (if available)
-  , repGetCached :: File () -> IO (Maybe PermanentPath)
+  , repGetCached :: File () -> IO (Maybe FilePath)
 
     -- | Get the cached root
     --
     -- This is a separate method only because clients must ALWAYS have root
     -- information available.
-  , repGetCachedRoot :: IO PermanentPath
+  , repGetCachedRoot :: IO FilePath
 
     -- | Delete a previously downloaded remote file
     -- (probably because the root metadata changed)
