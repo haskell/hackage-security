@@ -229,8 +229,29 @@ instance Exception RootUpdated
 -- snapshot will give us the new file information; but if we need to update
 -- the root information due to a verification error we do not.
 --
--- If there was a verification error we additionally delete the cached
--- snapshot and timestamp.
+-- We additionally delete the cached cached snapshot and timestamp. This is
+-- necessary for two reasons:
+--
+-- 1. If during the normal update process we notice that the root info was
+--    updated (because the hash of @root.json@ in the new snapshot is different
+--    from the old snapshot) we download new root info and start over, without
+--    (yet) downloading a (potential) new index. This means it is important that
+--    we not overwrite our local cached snapshot, because if we did we would
+--    then on the next iteration conclude there were no updates and we would
+--    fail to notice that we should have updated the index. However, unless we
+--    do something, this means that we would conclude on the next iteration once
+--    again that the root info has changed (because the hash in the new shapshot
+--    still doesn't match the hash in the cached snapshot), and we would loop
+--    until we throw a 'VerificationErrorLoop' exception. By deleting the local
+--    snapshot we basically reset the client to its initial state, and we will
+--    not try to download the root info once again. The only downside of this is
+--    that we will also re-download the index after every root info change.
+--    However, this should be infrequent enough that this isn't an issue.
+--
+-- 2. Additionally, deleting the local timestamp and snapshot protects against
+--    an attack where an attacker has set the file version of the snapshot or
+--    timestamp to MAX_INT, thereby making further updates impossible.
+--    (Such an attack would require a timestamp/snapshot key compromise.)
 updateRoot :: Repository
            -> Maybe UTCTime
            -> Either VerificationError (Trusted FileInfo)
@@ -249,12 +270,8 @@ updateRoot rep mNow eFileInfo = evalContT $ do
       >>= readJSON KeyEnv.empty
       >>= throwErrors . verifyRoot oldRoot mNow
 
-    case eFileInfo of
-      Left _err -> do
-        repDeleteCached rep $ FileTimestamp
-        repDeleteCached rep $ FileSnapshot ()
-      Right _info ->
-        return ()
+    repDeleteCached rep $ FileTimestamp
+    repDeleteCached rep $ FileSnapshot ()
 
 {-------------------------------------------------------------------------------
   Downloading target files
