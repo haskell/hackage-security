@@ -25,7 +25,7 @@ initClient = HttpClient {
   Individual methods
 -------------------------------------------------------------------------------}
 
-get :: URI -> Maybe Int -> (TempPath -> IO a) -> IO a
+get :: URI -> FileSize -> (TempPath -> IO a) -> IO a
 get uri mlen callback = do
     (_uri, response) <- browse $ do
       request (mkRequest GET uri)
