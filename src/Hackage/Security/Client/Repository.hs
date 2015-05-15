@@ -2,6 +2,9 @@ module Hackage.Security.Client.Repository (
     Repository(..)
   , File(..)
   , TempPath
+  , LogMessage(..)
+    -- * Utility
+  , formatLogMessage
   ) where
 
 import Distribution.Package (PackageIdentifier)
@@ -107,4 +110,33 @@ data Repository = Repository {
     -- | Delete a previously downloaded remote file
     -- (probably because the root metadata changed)
   , repDeleteCached :: File () -> IO ()
+
+    -- | Logging
+  , repLog :: LogMessage -> IO ()
   }
+
+data LogMessage =
+    -- | Root information was updated
+    --
+    -- This message is issued when the root information is updated as part of
+    -- the normal check for updates procedure. If the root information is
+    -- updated because of a verification error WarningVerificationError is
+    -- issued instead.
+    LogRootUpdated
+
+    -- | A verification error
+    --
+    -- Verification errors can be temporary, and may be resolved later; hence
+    -- these are just warnings. (Verification errors that cannot be resolved
+    -- are thrown as exceptions.)
+  | LogVerificationError VerificationError
+
+{-------------------------------------------------------------------------------
+  Utility
+-------------------------------------------------------------------------------}
+
+formatLogMessage :: LogMessage -> String
+formatLogMessage LogRootUpdated =
+    "Root info updated"
+formatLogMessage (LogVerificationError err) =
+    "Verification error " ++ formatVerificationError err

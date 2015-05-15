@@ -72,6 +72,9 @@ deriving instance Show Delegation
 instance TUFHeader Targets where
   fileVersion = targetsVersion
   fileExpires = targetsExpires
+  -- TODO: We should be more precise here, this is an insufficient clue as to
+  -- _which_ targets file this is. 
+  describeFile _ = "targets file"
 
 {-------------------------------------------------------------------------------
   Accessing trusted information

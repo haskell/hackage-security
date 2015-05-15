@@ -18,7 +18,12 @@ import System.FilePath
 import Distribution.Package (PackageIdentifier)
 import Distribution.Text
 
-import Hackage.Security.Client.Repository (Repository, TempPath, File(..))
+import Hackage.Security.Client.Repository (
+    Repository
+  , TempPath
+  , File(..)
+  , LogMessage(..)
+  )
 import Hackage.Security.JSON
 import Hackage.Security.Key.Env (KeyEnv)
 import Hackage.Security.Key.ExplicitSharing
@@ -72,11 +77,11 @@ checkForUpdates rep checkExpiry =
             -- This is intentional: if we get verification errors during the
             -- update process, _and_ we cannot update the main root info, then
             -- we cannot do anything.
-            putStrLn $ "Warning: verification error: " ++ show ex
+            repLog rep $ LogVerificationError ex
             updateRoot rep mNow (Left ex)
             limitIterations (n - 1)
         , Handler $ \RootUpdated -> do
-            putStrLn $ "Notice: root updated"
+            repLog rep $ LogRootUpdated
             limitIterations (n - 1)
         ]
 
@@ -315,8 +320,10 @@ downloadPackage rep pkgId callback = evalContT $ do
 
     targetMetaData :: Trusted FileInfo
       <- case trustedTargetsLookup packageFileName targets of
-           Nothing  -> liftIO $ throwIO VerificationErrorUnknownTarget
-           Just nfo -> return nfo
+           Nothing -> liftIO $
+             throwIO $ VerificationErrorUnknownTarget packageFileName
+           Just nfo ->
+             return nfo
 
     -- TODO: should we check if cached package available? (spec says no)
     let expectedPkg = FilePkgTarGz pkgId (trustedFileInfoLength targetMetaData)
@@ -353,6 +360,9 @@ repGetCachedRoot r = liftIO $ Repository.repGetCachedRoot r
 repDeleteCached :: MonadIO m => Repository -> File () -> m ()
 repDeleteCached r file = liftIO $ Repository.repDeleteCached r file
 
+repLog :: MonadIO m => Repository -> LogMessage -> m ()
+repLog r msg = liftIO $ Repository.repLog r msg
+
 {-------------------------------------------------------------------------------
   Auxiliary
 -------------------------------------------------------------------------------}
@@ -373,7 +383,7 @@ verifyFileInfo' :: MonadIO m => Maybe (Trusted FileInfo) -> FilePath -> m FilePa
 verifyFileInfo' Nothing     fp = return fp
 verifyFileInfo' (Just info) fp = liftIO $ do
     verified <- verifyFileInfo fp info
-    unless verified $ throw VerificationErrorFileInfo
+    unless verified $ throw $ VerificationErrorFileInfo fp
     return fp
 
 readJSON :: MonadIO m => FromJSON ReadJSON a => KeyEnv -> FilePath -> m a

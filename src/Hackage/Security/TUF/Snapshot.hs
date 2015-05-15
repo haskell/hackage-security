@@ -9,7 +9,6 @@ module Hackage.Security.TUF.Snapshot (
 import Hackage.Security.JSON
 import Hackage.Security.Key.ExplicitSharing
 import Hackage.Security.Trusted.Unsafe
-import Hackage.Security.TUF.Common
 import Hackage.Security.TUF.Header
 import Hackage.Security.TUF.FileInfo
 import Hackage.Security.TUF.Signed
@@ -42,6 +41,7 @@ data Snapshot = Snapshot {
 instance TUFHeader Snapshot where
   fileVersion = snapshotVersion
   fileExpires = snapshotExpires
+  describeFile _ = "snapshot"
 
 {-------------------------------------------------------------------------------
   Extracting trusted information

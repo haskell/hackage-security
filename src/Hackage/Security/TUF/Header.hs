@@ -20,8 +20,14 @@ import Hackage.Security.JSON
 -------------------------------------------------------------------------------}
 
 class TUFHeader a where
+  -- | File expiry date
   fileExpires :: a -> FileExpires
+
+  -- | File version (monotonically increasing counter)
   fileVersion :: a -> FileVersion
+
+  -- | Describe this file (for use in error messages)
+  describeFile :: a -> String
 
 -- | File version
 --

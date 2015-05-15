@@ -14,6 +14,8 @@ module Hackage.Security.TUF.Root (
   , verifyRoot
   , verifyTimestamp
   , verifySnapshot
+    -- * Utility
+  , formatVerificationError
   ) where
 
 import Control.Exception
@@ -70,6 +72,7 @@ data RoleSpec a = RoleSpec {
 instance TUFHeader Root where
   fileVersion = rootVersion
   fileExpires = rootExpires
+  describeFile _ = "root"
 
 {-------------------------------------------------------------------------------
   Accessing trusted information
@@ -92,22 +95,25 @@ rootRoleTimestamp = DeclareTrusted . rootRolesTimestamp . rootRoles . trusted
 -------------------------------------------------------------------------------}
 
 -- | Errors thrown during role validation
+--
+-- The string arguments to the various constructors are just here to give a
+-- hint about which file caused the error.
 data VerificationError =
      -- | Not enough signatures signed with the appropriate keys
      VerificationErrorSignatures
 
      -- | The file is expired
-   | VerificationErrorExpired
+   | VerificationErrorExpired String
 
      -- | The file version is less than the previous version
-   | VerificationErrorVersion
+   | VerificationErrorVersion String
 
      -- | File information mismatch
-   | VerificationErrorFileInfo
+   | VerificationErrorFileInfo String
 
      -- | We tried to lookup file information about a particular target file,
      -- but the information wasn't in the corresponding @targets.json@ file.
-   | VerificationErrorUnknownTarget
+   | VerificationErrorUnknownTarget String
 
      -- | The spec stipulates that if a verification error occurs during
      -- the check for updates, we must download new root information and
@@ -174,14 +180,14 @@ verifyRole (trusted -> RoleSpec{roleSpecThreshold = KeyThreshold threshold, ..})
         Nothing  -> return ()
         Just now ->
           when (isExpired now (fileExpires signed)) $
-            throwError VerificationErrorExpired
+            throwError $ VerificationErrorExpired (describeFile signed)
 
       -- Verify timestamp
       case mPrev of
         Nothing   -> return ()
         Just prev ->
           when (fileVersion signed < prev) $
-            throwError VerificationErrorVersion
+            throwError $ VerificationErrorVersion (describeFile signed)
 
       -- Verify signatures
       -- NOTE: We only need to verify the keys that were used; if the signature
@@ -194,6 +200,24 @@ verifyRole (trusted -> RoleSpec{roleSpecThreshold = KeyThreshold threshold, ..})
 
     isRoleSpecKey :: Signature -> Bool
     isRoleSpecKey Signature{..} = signatureKey `elem` roleSpecKeys
+
+{-------------------------------------------------------------------------------
+  Utility
+-------------------------------------------------------------------------------}
+
+formatVerificationError :: VerificationError -> String
+formatVerificationError VerificationErrorSignatures =
+    "Not enough signatures signed with the appropriate keys"
+formatVerificationError (VerificationErrorExpired file) =
+    file ++ " is expired"
+formatVerificationError (VerificationErrorVersion file) =
+    "Version of " ++ file ++ " is less than the previous version"
+formatVerificationError (VerificationErrorFileInfo file) =
+    "Invalid hash for " ++ file
+formatVerificationError (VerificationErrorUnknownTarget file) =
+    file ++ " not found in corresponding target metadata"
+formatVerificationError VerificationErrorLoop =
+    "Verification loop"
 
 {-------------------------------------------------------------------------------
   JSON encoding

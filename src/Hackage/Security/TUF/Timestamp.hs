@@ -25,6 +25,7 @@ data Timestamp = Timestamp {
 instance TUFHeader Timestamp where
   fileVersion = timestampVersion
   fileExpires = timestampExpires
+  describeFile _ = "timestamp"
 
 {-------------------------------------------------------------------------------
   Accessing trusted information

@@ -33,6 +33,9 @@ initRepo http auth cache = Repository {
   , repGetCached     = Local.getCached     cache
   , repGetCachedRoot = Local.getCachedRoot cache
   , repDeleteCached  = Local.deleteCached  cache
+  -- TODO: We should allow clients to plugin a proper logging message here
+  -- (probably means accepting a callback to initRepo)
+  , repLog = putStrLn . formatLogMessage
   }
 
 {-------------------------------------------------------------------------------
