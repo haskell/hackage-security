@@ -5,15 +5,12 @@ module Hackage.Security.Client.Repository.HTTP (
   , initRepo
   ) where
 
-import Control.Monad
 import Network.URI
 import System.Directory
 import System.FilePath
 
 import Hackage.Security.Client.Repository
 import Hackage.Security.Client.Repository.Local (Cache)
-import Hackage.Security.Trusted
-import Hackage.Security.TUF
 import qualified Hackage.Security.Client.Repository.Local as Local
 
 {-------------------------------------------------------------------------------
@@ -47,7 +44,7 @@ initRepo http auth cache = Repository {
     repWithRemote    = withRemote http auth cache
   , repGetCached     = Local.getCached     cache
   , repGetCachedRoot = Local.getCachedRoot cache
-  , repDeleteCached  = Local.deleteCached  cache
+  , repClearCache    = Local.clearCache    cache
   -- TODO: We should allow clients to plugin a proper logging message here
   -- (probably means accepting a callback to initRepo)
   , repLog = putStrLn . formatLogMessage
@@ -58,28 +55,26 @@ initRepo http auth cache = Repository {
 -------------------------------------------------------------------------------}
 
 -- | Get a file from the server
-withRemote :: HttpClient
-           -> URIAuth
-           -> Cache
-           -> File (Trusted FileLength)
-           -> (TempPath -> IO a)
-           -> IO a
-withRemote HttpClient{..} auth cache file callback =
+withRemote :: HttpClient -> URIAuth -> Cache
+           -> RemoteFile -> (TempPath -> IO a) -> IO a
+withRemote HttpClient{..} auth cache remoteFile callback =
     httpClientGet url sz $ \tempPath -> do
       result <- callback tempPath
-      when (Local.shouldCache file) $ copyFile tempPath localPath
+      case mustCache remoteFile of
+        Nothing ->
+          return ()
+        Just cachedFile -> do
+          let localPath = cache </> Local.cachedFilePath cachedFile
+          copyFile tempPath localPath
       return result
   where
-    (url, sz) = fileToURL auth file
-    localPath = cache </> Local.fileToPath file
+    (url, sz) = remoteFileURL auth remoteFile
 
 -- TODO: Provide upper bounds
-fileToURL :: URIAuth
-          -> File (Trusted FileLength)
-          -> (URI, FileSize)
-fileToURL auth file =
+remoteFileURL :: URIAuth -> RemoteFile -> (URI, FileSize)
+remoteFileURL auth file =
     case file of
-      FileTimestamp ->
+      RemoteTimestamp ->
         (mkURI "/static/timestamp.json", FileSizeUnknown)
   where
     mkURI :: String -> URI

@@ -1,9 +1,11 @@
 module Hackage.Security.Client.Repository (
     Repository(..)
-  , File(..)
+  , RemoteFile(..)
+  , CachedFile(..)
   , TempPath
   , LogMessage(..)
     -- * Utility
+  , mustCache
   , formatLogMessage
   ) where
 
@@ -12,18 +14,14 @@ import Distribution.Package (PackageIdentifier)
 import Hackage.Security.Trusted
 import Hackage.Security.TUF
 
--- | Abstract definition of a file to be provided by a Repository
---
--- We parametrize 'File' by the information we provide the Repository about
--- this file. In practice, we either instantiate this by a 'FileLength' (to
--- provide against endless data attacks) or '()' (for local files).
-data File a =
-    -- | The timestamp metadata (@timestamp.json@)
+-- | Abstract definition of files we might have to download
+data RemoteFile =
+    -- | Timestamp metadata (@timestamp.json@)
     --
     -- We never have (explicit) file length available for timestamps.
-    FileTimestamp
+    RemoteTimestamp
 
-    -- | The root metadata (@root.json@)
+    -- | Root metadata (@root.json@)
     --
     -- For root information we may or may not have the file length available:
     --
@@ -31,14 +29,14 @@ data File a =
     --   information has changed, we can use the file length from the snapshot.
     -- * If however we need to update the root metadata due to a verification
     --   exception we do not know the file length.
-  | FileRoot (Maybe a)
+  | RemoteRoot (Maybe (Trusted FileLength))
 
-    -- | The snapshot metadata (@snapshot.json@)
+    -- | Snapshot metadata (@snapshot.json@)
     --
     -- We get file length of the snapshot from the timestamp.
-  | FileSnapshot a
+  | RemoteSnapshot (Trusted FileLength)
 
-    -- | The index
+    -- | Index
     --
     -- The index file length comes from the snapshot.
     --
@@ -48,21 +46,29 @@ data File a =
     --
     -- It is not required for repositories to provide the uncompressed tarball,
     -- so the file length for the @.tar@ file is optional.
-  | FileIndex {
-        fileIndexTarGzInfo :: a
-      , fileIndexTarInfo   :: Maybe a
+  | RemoteIndex {
+        fileIndexTarGzInfo :: Trusted FileLength
+      , fileIndexTarInfo   :: Maybe (Trusted FileLength)
       }
 
-    -- | An actual package
+    -- | Actual package
     --
     -- Package file length comes from the corresponding @targets.json@.
-  | FilePkgTarGz PackageIdentifier a
+  | RemotePkgTarGz PackageIdentifier (Trusted FileLength)
 
-    -- | Target file for a specific package
-    --
-    -- This is extracted from the local copy of the index tarball so does not
-    -- a file length.
-  | FilePkgMeta PackageIdentifier
+-- | Files that we might request from the local cache
+data CachedFile =
+    -- | Timestamp metadata (@timestamp.json@)
+    CachedTimestamp
+
+    -- | Root metadata (@root.json@)
+  | CachedRoot
+
+    -- | Snapshot metadata (@snapshot.json@)
+  | CachedSnapshot
+
+    -- | Index (uncompressed)
+  | CachedIndexTar
   deriving Show
 
 -- | Path to temporary file
@@ -93,13 +99,10 @@ data Repository = Repository {
     -- * Not modify or move the temporary file.
     --   (Thus it is safe for local repositories to directly pass the path
     --   into the local repository.)
-    repWithRemote :: forall a.
-                     File (Trusted FileLength)
-                  -> (TempPath -> IO a)
-                  -> IO a
+    repWithRemote :: forall a. RemoteFile -> (TempPath -> IO a) -> IO a
 
     -- | Get a cached file (if available)
-  , repGetCached :: File () -> IO (Maybe FilePath)
+  , repGetCached :: CachedFile -> IO (Maybe FilePath)
 
     -- | Get the cached root
     --
@@ -107,9 +110,11 @@ data Repository = Repository {
     -- information available.
   , repGetCachedRoot :: IO FilePath
 
-    -- | Delete a previously downloaded remote file
-    -- (probably because the root metadata changed)
-  , repDeleteCached :: File () -> IO ()
+    -- | Clear all cached data
+    --
+    -- In particular, this should remove the snapshot and the timestamp.
+    -- It would also be okay, but not required, to delete the index.
+  , repClearCache :: IO ()
 
     -- | Logging
   , repLog :: LogMessage -> IO ()
@@ -134,6 +139,14 @@ data LogMessage =
 {-------------------------------------------------------------------------------
   Utility
 -------------------------------------------------------------------------------}
+
+-- | Which remote files should we cache locally?
+mustCache :: RemoteFile -> Maybe CachedFile
+mustCache RemoteTimestamp      = Just CachedTimestamp
+mustCache (RemoteRoot _)       = Just CachedRoot
+mustCache (RemoteSnapshot _)   = Just CachedSnapshot
+mustCache (RemoteIndex {})     = Just CachedIndexTar
+mustCache (RemotePkgTarGz _ _) = Nothing
 
 formatLogMessage :: LogMessage -> String
 formatLogMessage LogRootUpdated =

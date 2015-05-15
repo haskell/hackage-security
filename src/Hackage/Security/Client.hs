@@ -18,12 +18,8 @@ import System.FilePath
 import Distribution.Package (PackageIdentifier)
 import Distribution.Text
 
-import Hackage.Security.Client.Repository (
-    Repository
-  , TempPath
-  , File(..)
-  , LogMessage(..)
-  )
+import Hackage.Security.Client.Repository (Repository)
+import Hackage.Security.Client.Repository hiding (Repository(..))
 import Hackage.Security.JSON
 import Hackage.Security.Key.Env (KeyEnv)
 import Hackage.Security.Key.ExplicitSharing
@@ -102,13 +98,13 @@ checkForUpdates rep checkExpiry =
 
       -- Get the old timestamp (if any)
       mOldTS :: Maybe (Trusted Timestamp)
-         <- repGetCached rep FileTimestamp
+         <- repGetCached rep CachedTimestamp
         >>= traverse (readJSON keyEnv)
         >>= return . fmap trustLocalFile
 
       -- Get the new timestamp
       newTS :: Trusted Timestamp
-         <- repGetRemote rep FileTimestamp
+         <- repGetRemote rep RemoteTimestamp
         >>= readJSON keyEnv
         >>= throwErrors . verifyTimestamp
               cachedRoot
@@ -124,13 +120,13 @@ checkForUpdates rep checkExpiry =
         else do
           -- Get the old snapshot (if any)
           mOldSS :: Maybe (Trusted Snapshot)
-             <- repGetCached rep (FileSnapshot ())
+             <- repGetCached rep CachedSnapshot
             >>= traverse (readJSON keyEnv)
             >>= return . fmap trustLocalFile
 
           -- Get the new snapshot
           let expectedSnapshot =
-                FileSnapshot (trustedFileInfoLength newSnapshotInfo)
+                RemoteSnapshot (trustedFileInfoLength newSnapshotInfo)
           newSS :: Trusted Snapshot
              <- repGetRemote rep expectedSnapshot
             >>= verifyFileInfo' (Just newSnapshotInfo)
@@ -157,7 +153,7 @@ checkForUpdates rep checkExpiry =
           let mOldTarGzInfo = fmap trustedSnapshotInfoTarGz mOldSS
               newTarGzInfo  = trustedSnapshotInfoTarGz newSS
               mNewTarInfo   = trustedSnapshotInfoTar   newSS
-              expectedIndex = FileIndex {
+              expectedIndex = RemoteIndex {
                   fileIndexTarGzInfo = trustedFileInfoLength newTarGzInfo
                 , fileIndexTarInfo   = fmap trustedFileInfoLength mNewTarInfo
                 }
@@ -270,15 +266,14 @@ updateRoot rep mNow eFileInfo = evalContT $ do
       >>= return . trustLocalFile
 
     let mFileInfo    = eitherToMaybe eFileInfo
-        expectedRoot = FileRoot (fmap trustedFileInfoLength mFileInfo)
+        expectedRoot = RemoteRoot (fmap trustedFileInfoLength mFileInfo)
     _newRoot :: Trusted Root
        <- repGetRemote rep expectedRoot
       >>= verifyFileInfo' mFileInfo
       >>= readJSON KeyEnv.empty
       >>= throwErrors . verifyRoot oldRoot mNow
 
-    repDeleteCached rep $ FileTimestamp
-    repDeleteCached rep $ FileSnapshot ()
+    repClearCache rep
 
 {-------------------------------------------------------------------------------
   Downloading target files
@@ -313,10 +308,13 @@ downloadPackage rep pkgId callback = evalContT $ do
 
     -- Get the metadata (from the previously updated index)
     targets :: Trusted Targets
+       <- error "TODO: get targets from index tarball"
+       {-
        <- repGetCached rep (FilePkgMeta pkgId)
       >>= packageMustExist
       >>= readJSON keyEnv
       >>= return . trustLocalFile
+       -}
 
     targetMetaData :: Trusted FileInfo
       <- case trustedTargetsLookup packageFileName targets of
@@ -326,7 +324,7 @@ downloadPackage rep pkgId callback = evalContT $ do
              return nfo
 
     -- TODO: should we check if cached package available? (spec says no)
-    let expectedPkg = FilePkgTarGz pkgId (trustedFileInfoLength targetMetaData)
+    let expectedPkg = RemotePkgTarGz pkgId (trustedFileInfoLength targetMetaData)
     tarGz <- repGetRemote rep expectedPkg
          >>= verifyFileInfo' (Just targetMetaData)
     lift $ callback tarGz
@@ -348,17 +346,17 @@ instance Exception InvalidPackageException
   Wrapper around the Repository functions (to avoid callback hell)
 -------------------------------------------------------------------------------}
 
-repGetRemote :: Repository -> File (Trusted FileLength) -> ContT r IO TempPath
+repGetRemote :: Repository -> RemoteFile -> ContT r IO TempPath
 repGetRemote r file = ContT $ Repository.repWithRemote r file
 
-repGetCached :: MonadIO m => Repository -> File () -> m (Maybe FilePath)
+repGetCached :: MonadIO m => Repository -> CachedFile -> m (Maybe FilePath)
 repGetCached r file = liftIO $ Repository.repGetCached r file
 
 repGetCachedRoot :: MonadIO m => Repository -> m FilePath
 repGetCachedRoot r = liftIO $ Repository.repGetCachedRoot r
 
-repDeleteCached :: MonadIO m => Repository -> File () -> m ()
-repDeleteCached r file = liftIO $ Repository.repDeleteCached r file
+repClearCache :: MonadIO m => Repository -> m ()
+repClearCache r = liftIO $ Repository.repClearCache r 
 
 repLog :: MonadIO m => Repository -> LogMessage -> m ()
 repLog r msg = liftIO $ Repository.repLog r msg
