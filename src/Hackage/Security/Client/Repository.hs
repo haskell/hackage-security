@@ -99,6 +99,10 @@ data Repository = Repository {
     -- * Not modify or move the temporary file.
     --   (Thus it is safe for local repositories to directly pass the path
     --   into the local repository.)
+    --
+    -- TODO: We should make it clear to the Repository that we are downloading
+    -- files after a verification error. Remote repositories can use this
+    -- information to force proxies to get files upstream. 
     repWithRemote :: forall a. RemoteFile -> (TempPath -> IO a) -> IO a
 
     -- | Get a cached file (if available)
