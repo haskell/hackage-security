@@ -125,3 +125,5 @@ executable example-client
   default-language:    Haskell2010
   default-extensions:  RecordWildCards
   ghc-options:         -Wall
+
+-- TODO: We should have a mirror client as executable as well
