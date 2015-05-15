@@ -141,6 +141,7 @@ checkForUpdates rep checkExpiry =
             Nothing ->
               -- If we didn't have an old snapshot, consider the root info as
               -- unchanged (otherwise this would loop indefinitely.)
+              -- See also <https://github.com/theupdateframework/tuf/issues/286>
               return ()
             Just oldRootInfo ->
               when (infoChanged (Just oldRootInfo) newRootInfo) $ liftIO $ do
@@ -247,6 +248,7 @@ instance Exception RootUpdated
 --    not try to download the root info once again. The only downside of this is
 --    that we will also re-download the index after every root info change.
 --    However, this should be infrequent enough that this isn't an issue.
+--    See also <https://github.com/theupdateframework/tuf/issues/285>.
 --
 -- 2. Additionally, deleting the local timestamp and snapshot protects against
 --    an attack where an attacker has set the file version of the snapshot or
