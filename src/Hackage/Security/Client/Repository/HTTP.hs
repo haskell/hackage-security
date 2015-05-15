@@ -55,6 +55,8 @@ initRepo http auth cache = Repository {
 -------------------------------------------------------------------------------}
 
 -- | Get a file from the server
+--
+-- TODO: We need to deal with the combined timestamp/snapshot thing
 withRemote :: HttpClient -> URIAuth -> Cache
            -> RemoteFile -> (TempPath -> IO a) -> IO a
 withRemote HttpClient{..} auth cache remoteFile callback =
