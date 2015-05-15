@@ -20,6 +20,7 @@ library
                        Hackage.Security.Client
                        Hackage.Security.Client.Repository
                        Hackage.Security.Client.Repository.Local
+                       Hackage.Security.Client.Repository.HTTP
                        Hackage.Security.JSON
                        Hackage.Security.Key
                        Hackage.Security.Key.Env
@@ -31,6 +32,7 @@ library
                        Hackage.Security.TUF.Common
                        Hackage.Security.TUF.FileInfo
                        Hackage.Security.TUF.FileMap
+                       Hackage.Security.TUF.Header
                        Hackage.Security.TUF.Root
                        Hackage.Security.TUF.Signed
                        Hackage.Security.TUF.Snapshot
@@ -49,6 +51,7 @@ library
                        ed25519           >= 0.0,
                        filepath          >= 1.2,
                        mtl               >= 2.2,
+                       network-uri       >= 2.6,
                        parsec            >= 3.1,
                        SHA               >= 1.6,
                        time              >= 1.2,
@@ -113,19 +116,12 @@ executable hackage-secure-local
 executable example-client
   main-is:             Main.hs
   build-depends:       base                 >= 4.4,
---                       bytestring           >= 0.9,
---                       containers           >= 0.4,
---                       directory            >= 1.1,
---                       filepath             >= 1.2,
+                       network-uri          >= 2.6,
                        optparse-applicative >= 0.11,
---                       time                 >= 1.2,
+                       HTTP                 >= 4000.2.19,
+                       temporary            >= 1.2,
                        hackage-security
   hs-source-dirs:      example-client
   default-language:    Haskell2010
   default-extensions:  RecordWildCards
---                       FlexibleContexts
---                       RecordWildCards
---                       ScopedTypeVariables
---  other-extensions:    CPP
---                       QuasiQuotes
   ghc-options:         -Wall

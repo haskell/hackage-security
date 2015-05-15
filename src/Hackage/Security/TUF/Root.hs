@@ -28,6 +28,7 @@ import Hackage.Security.Key.ExplicitSharing
 import Hackage.Security.Some
 import Hackage.Security.Trusted.Unsafe
 import Hackage.Security.TUF.Common
+import Hackage.Security.TUF.Header
 import Hackage.Security.TUF.Signed
 import Hackage.Security.TUF.Snapshot
 import Hackage.Security.TUF.Targets

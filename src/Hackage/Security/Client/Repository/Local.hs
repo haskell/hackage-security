@@ -1,7 +1,13 @@
 module Hackage.Security.Client.Repository.Local (
     LocalRepo
   , Cache
-  , localRepository
+  , initRepo
+    -- * Low-level API (for the benefit of other Repository implementations)
+  , getCached
+  , getCachedRoot
+  , deleteCached
+  , fileToPath
+  , shouldCache
   ) where
 
 import Control.Exception
@@ -24,12 +30,12 @@ type LocalRepo = FilePath
 type Cache     = FilePath
 
 -- | Initialy a local repository
-localRepository :: LocalRepo -> Cache -> Repository
-localRepository repo cache = Repository {
+initRepo :: LocalRepo -> Cache -> Repository
+initRepo repo cache = Repository {
     repWithRemote    = withRemote repo cache
-  , repGetCached     = getCached cache
+  , repGetCached     = getCached     cache
   , repGetCachedRoot = getCachedRoot cache
-  , repDeleteCached  = deleteCached cache
+  , repDeleteCached  = deleteCached  cache
   }
 
 {-------------------------------------------------------------------------------
@@ -37,10 +43,6 @@ localRepository repo cache = Repository {
 -------------------------------------------------------------------------------}
 
 -- | Get a file from the server
---
--- It is the responsibility of the callback to verify the downloaded file.
--- Only when the callback returns without throwing an exception should be
--- the file be trusted and moved to a permanent location.
 withRemote :: LocalRepo
            -> Cache
            -> File (Trusted FileLength)
@@ -64,9 +66,6 @@ getCached cache file = do
     localPath = cache </> fileToPath file
 
 -- | Get the cached root
---
--- This is a separate method only because clients must ALWAYS have root
--- information available.
 getCachedRoot :: Cache -> IO FilePath
 getCachedRoot cache = do
     mPath <- getCached cache $ FileRoot Nothing
@@ -75,7 +74,6 @@ getCachedRoot cache = do
       Nothing   -> throwIO $ userError "Client missing root info"
 
 -- | Delete a previously downloaded remote file
--- (probably because the root metadata changed)
 deleteCached :: Cache -> File () -> IO ()
 deleteCached cache file = removeFile localPath
   where

@@ -1,43 +1,19 @@
--- | Properties and simple type wrappers common to all top-level TUF types
+-- | Simple type wrappers
 module Hackage.Security.TUF.Common (
-    -- * Classes
-    TUFHeader(..)
     -- * Types
-  , FileVersion -- opaque
-  , FileExpires -- opaque
-  , FileLength(..)
+    FileLength(..)
   , Hash(..)
   , KeyThreshold(..)
-    -- ** Utility
-  , expiresNever
-  , expiresInDays
-  , isExpired
-  , versionInitial
-  , versionIncrement
+    -- ** Trusted info
+  , trustedFileLength
   ) where
 
-import Data.Time
-
 import Hackage.Security.JSON
-
-{-------------------------------------------------------------------------------
-  Type classes
--------------------------------------------------------------------------------}
-
-class TUFHeader a where
-  fileExpires :: a -> FileExpires
-  fileVersion :: a -> FileVersion
+import Hackage.Security.Trusted
 
 {-------------------------------------------------------------------------------
   Simple types
 -------------------------------------------------------------------------------}
-
--- | File version
---
--- The file version is a flat integer which must monotonically increase on
--- every file update.
-newtype FileVersion = FileVersion Int
-  deriving (Eq, Ord, Show)
 
 -- | File length
 --
@@ -57,35 +33,16 @@ newtype KeyThreshold = KeyThreshold Int
 newtype Hash = Hash String
   deriving (Eq, Ord, Show)
 
--- | File expiry date
-newtype FileExpires = FileExpires UTCTime
-  deriving (Eq, Ord, Show)
-
 {-------------------------------------------------------------------------------
-  Utility
+  Extracting trusted information
 -------------------------------------------------------------------------------}
 
-expiresNever :: FileExpires
-expiresNever = FileExpires $ UTCTime (toEnum maxBound) 0
-
-expiresInDays :: UTCTime -> Integer -> FileExpires
-expiresInDays now n = FileExpires $ addUTCTime (fromInteger n * oneDay) now
-
-isExpired :: UTCTime -> FileExpires -> Bool
-isExpired now (FileExpires e) = e < now
-
-versionInitial :: FileVersion
-versionInitial = FileVersion 1
-
-versionIncrement :: FileVersion -> FileVersion
-versionIncrement (FileVersion i) = FileVersion (i + 1)
+trustedFileLength :: Trusted FileLength -> Int
+trustedFileLength (trusted -> FileLength n) = n
 
 {-------------------------------------------------------------------------------
   JSON
 -------------------------------------------------------------------------------}
-
-instance ToJSON FileVersion where
-  toJSON (FileVersion i) = toJSON i
 
 instance ToJSON KeyThreshold where
   toJSON (KeyThreshold i) = toJSON i
@@ -96,12 +53,6 @@ instance ToJSON FileLength where
 instance ToJSON Hash where
   toJSON (Hash str) = toJSON str
 
-instance ToJSON FileExpires where
-  toJSON (FileExpires str) = toJSON str
-
-instance ReportSchemaErrors m => FromJSON m FileVersion where
-  fromJSON enc = FileVersion <$> fromJSON enc
-
 instance ReportSchemaErrors m => FromJSON m KeyThreshold where
   fromJSON enc = KeyThreshold <$> fromJSON enc
 
@@ -110,13 +61,3 @@ instance ReportSchemaErrors m => FromJSON m FileLength where
 
 instance ReportSchemaErrors m => FromJSON m Hash where
   fromJSON enc = Hash <$> fromJSON enc
-
-instance ReportSchemaErrors m => FromJSON m FileExpires where
-  fromJSON enc = FileExpires <$> fromJSON enc
-
-{-------------------------------------------------------------------------------
-  Auxiliary
--------------------------------------------------------------------------------}
-
-oneDay :: NominalDiffTime
-oneDay = 24 * 60 * 60

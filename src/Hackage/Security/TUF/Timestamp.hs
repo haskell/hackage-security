@@ -6,8 +6,8 @@ module Hackage.Security.TUF.Timestamp (
 
 import Hackage.Security.JSON
 import Hackage.Security.Key.ExplicitSharing
-import Hackage.Security.TUF.Common
 import Hackage.Security.TUF.FileInfo
+import Hackage.Security.TUF.Header
 import Hackage.Security.TUF.Signed
 import Hackage.Security.Trusted.Unsafe
 import qualified Hackage.Security.TUF.FileMap as FileMap

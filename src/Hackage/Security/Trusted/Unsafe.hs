@@ -2,7 +2,7 @@ module Hackage.Security.Trusted.Unsafe (
     Trusted(DeclareTrusted, trusted)
   ) where
 
-import Hackage.Security.TUF.Common
+import Hackage.Security.TUF.Header
 
 -- | A trusted value
 --

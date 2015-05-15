@@ -1,9 +1,15 @@
 module Main where
 
+import Data.List (isPrefixOf)
+import Network.URI
+
 import Hackage.Security.Client
-import Hackage.Security.Client.Repository.Local
+import Hackage.Security.Client.Repository
+import qualified Hackage.Security.Client.Repository.Local as Local
+import qualified Hackage.Security.Client.Repository.HTTP  as Remote
 
 import ExampleClient.Options
+import qualified ExampleClient.HTTP as HTTP
 
 main :: IO ()
 main = do
@@ -16,9 +22,26 @@ main = do
 -------------------------------------------------------------------------------}
 
 check :: GlobalOpts -> IO ()
-check GlobalOpts{..} = do
-    let rep = localRepository globalRepo globalCache
+check opts = do
+    let rep = initRepo opts
     print =<< checkForUpdates rep CheckExpiry
+
+initRepo :: GlobalOpts -> Repository
+initRepo GlobalOpts{..}
+    | "http://" `isPrefixOf` globalRepo = initRemoteRepo
+    | otherwise                         = initLocalRepo
+  where
+    initLocalRepo :: Repository
+    initLocalRepo = Local.initRepo globalRepo globalCache
+
+    initRemoteRepo :: Repository
+    initRemoteRepo = Remote.initRepo HTTP.initClient auth globalCache
+      where
+        auth = URIAuth {
+            uriUserInfo = ""
+          , uriRegName  = drop 7 globalRepo
+          , uriPort     = "80"
+          }
 
 {-
 import Control.Exception

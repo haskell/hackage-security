@@ -3,6 +3,7 @@ module Hackage.Security.TUF (
     module Hackage.Security.TUF.Common
   , module Hackage.Security.TUF.FileInfo
   , module Hackage.Security.TUF.FileMap
+  , module Hackage.Security.TUF.Header
   , module Hackage.Security.TUF.Root
   , module Hackage.Security.TUF.Signed
   , module Hackage.Security.TUF.Snapshot
@@ -13,6 +14,7 @@ module Hackage.Security.TUF (
 import Hackage.Security.TUF.Common
 import Hackage.Security.TUF.FileInfo
 import Hackage.Security.TUF.FileMap (FileMap, FileChange(..), fileMapChanges)
+import Hackage.Security.TUF.Header
 import Hackage.Security.TUF.Root
 import Hackage.Security.TUF.Signed
 import Hackage.Security.TUF.Snapshot
