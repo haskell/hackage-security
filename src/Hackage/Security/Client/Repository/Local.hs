@@ -51,6 +51,7 @@ withRemote repo cache remoteFile callback = do
         return ()
       Just cachedFile -> do
         let localPath = cache </> cachedFilePath cachedFile
+        -- TODO: (here and elsewhere): use atomic file operation instead
         copyFile remotePath localPath
     return result
   where
