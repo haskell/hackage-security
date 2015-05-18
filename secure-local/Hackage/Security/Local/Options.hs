@@ -51,6 +51,9 @@ data Command =
 
     -- | Create initial secure files
   | Bootstrap
+
+    -- | Update a previously bootstrapped repo
+  | Update
   deriving Show
 
 {-------------------------------------------------------------------------------
@@ -78,8 +81,10 @@ parseGlobalOptions = GlobalOpts
         , help "Path to key store"
         ])
   <*> (subparser $ mconcat [
-          command "bootstrap" (info (pure Bootstrap)
+          command "create-keys" (info (pure CreateKeys)
+              (progDesc "Create keys"))
+        , command "bootstrap" (info (pure Bootstrap)
             (progDesc "Bootstrap a local repository"))
-        , command "create-keys" (info (pure CreateKeys)
-            (progDesc "Create keys"))
+        , command "update" (info (pure Update)
+            (progDesc "Update a (previously bootstrapped) local repository"))
         ])

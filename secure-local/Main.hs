@@ -36,7 +36,8 @@ main = do
     opts@GlobalOpts{..} <- getOptions
     case globalCommand of
       CreateKeys -> createKeys opts
-      Bootstrap  -> bootstrap opts
+      Bootstrap  -> bootstrapOrUpdate opts True
+      Update     -> bootstrapOrUpdate opts False
 
 {-------------------------------------------------------------------------------
   Creating keys
@@ -101,77 +102,78 @@ writeKey GlobalOpts{..} prefix key = do
     path = globalKeys </> prefix </> kId <.> "private"
 
 {-------------------------------------------------------------------------------
-  Bootstrapping
+  Bootstrapping / updating
 
-  TODO: Some of this functionality should be moved to Hackage.Security.Server.*,
-  but I'm not sure precisely in what form yet.
+  TODO: Some of this functionality should be moved to
+  @Hackage.Security.Server.*@ (to be shared by both, say, Hackage, and
+  secure-local),  but I'm not sure precisely in what form yet.
 -------------------------------------------------------------------------------}
 
-bootstrap :: GlobalOpts -> IO ()
-bootstrap opts@GlobalOpts{..} = do
-    -- Read keys
+bootstrapOrUpdate :: GlobalOpts -> Bool -> IO ()
+bootstrapOrUpdate opts@GlobalOpts{..} isBootstrap = do
     keys <- readKeys opts
+    now  <- getCurrentTime
 
-    -- Create root metadata
-    logInfo $ "Creating " ++ globalRepo </> "root.json"
-    now <- getCurrentTime
-    let root = Root {
-            rootVersion = versionInitial
-          , rootExpires = expiresInDays now 365
-          , rootKeys    = KeyEnv.fromKeys $ concat [
-                              privateRoot      keys
-                            , privateTarget    keys
-                            , privateSnapshot  keys
-                            , privateTimestamp keys
-                            ]
-          , rootRoles   = RootRoles {
-                rootRolesRoot = RoleSpec {
-                    roleSpecKeys      = map somePublicKey (privateRoot keys)
-                  , roleSpecThreshold = KeyThreshold 2
+    when isBootstrap $ do
+      -- Create root metadata
+      logInfo $ "Creating " ++ globalRepo </> "root.json"
+      let root = Root {
+              rootVersion = versionInitial
+            , rootExpires = expiresInDays now 365
+            , rootKeys    = KeyEnv.fromKeys $ concat [
+                                privateRoot      keys
+                              , privateTarget    keys
+                              , privateSnapshot  keys
+                              , privateTimestamp keys
+                              ]
+            , rootRoles   = RootRoles {
+                  rootRolesRoot = RoleSpec {
+                      roleSpecKeys      = map somePublicKey (privateRoot keys)
+                    , roleSpecThreshold = KeyThreshold 2
+                    }
+                , rootRolesTargets = RoleSpec {
+                      roleSpecKeys      = map somePublicKey (privateTarget keys)
+                    , roleSpecThreshold = KeyThreshold 1
+                    }
+                , rootRolesSnapshot = RoleSpec {
+                      roleSpecKeys      = map somePublicKey (privateSnapshot keys)
+                    , roleSpecThreshold = KeyThreshold 1
+                    }
+                , rootRolesTimestamp = RoleSpec {
+                      roleSpecKeys      = map somePublicKey (privateTimestamp keys)
+                    , roleSpecThreshold = KeyThreshold 1
+                    }
+                }
+            }
+          signedRoot = withSignatures (privateRoot keys) root
+      writeCanonical (globalRepo </> "root.json") signedRoot
+
+      -- Create global package metadata
+      --
+      -- NOTE: Until we introduce author signing, this file is entirely static
+      -- (and in fact ignored)
+      logInfo $ "Creating " ++ globalRepo </> "targets.json"
+      let globalTargets = Targets {
+                targetsVersion     = versionInitial
+              , targetsExpires     = Nothing
+              , targets            = FileMap.empty
+              , targetsDelegations = Just $ Delegations {
+                    delegationsKeys  = KeyEnv.empty
+                  , delegationsRoles = [
+                        DelegationSpec {
+                            delegationSpecKeys      = []
+                          , delegationSpecThreshold = KeyThreshold 0
+                          , delegation = $(qqd "*/*/*" "*/*/targets.json")
+                          }
+                      ]
                   }
-              , rootRolesTargets = RoleSpec {
-                    roleSpecKeys      = map somePublicKey (privateTarget keys)
-                  , roleSpecThreshold = KeyThreshold 1
-                  }
-              , rootRolesSnapshot = RoleSpec {
-                    roleSpecKeys      = map somePublicKey (privateSnapshot keys)
-                  , roleSpecThreshold = KeyThreshold 1
-                  }
-              , rootRolesTimestamp = RoleSpec {
-                    roleSpecKeys      = map somePublicKey (privateTimestamp keys)
-                  , roleSpecThreshold = KeyThreshold 1
-                  }
-              }
-          }
-        signedRoot = withSignatures (privateRoot keys) root
-    writeCanonical (globalRepo </> "root.json") signedRoot
+            }
+          signedGlobalTargets = withSignatures (privateTarget keys) globalTargets
+      writeCanonical (globalRepo </> "targets.json") signedGlobalTargets
 
     -- Create targets.json for each package version
     pkgs <- findPackages opts
     forM_ pkgs $ createPackageMetadata opts
-
-    -- Create global package metadata
-    --
-    -- NOTE: Until we introduce author signing, this file is entirely static
-    -- (and in fact ignored)
-    logInfo $ "Creating " ++ globalRepo </> "targets.json"
-    let globalTargets = Targets {
-              targetsVersion     = versionInitial
-            , targetsExpires     = Nothing
-            , targets            = FileMap.empty
-            , targetsDelegations = Just $ Delegations {
-                  delegationsKeys  = KeyEnv.empty
-                , delegationsRoles = [
-                      DelegationSpec {
-                          delegationSpecKeys      = []
-                        , delegationSpecThreshold = KeyThreshold 0
-                        , delegation = $(qqd "*/*/*" "*/*/targets.json")
-                        }
-                    ]
-                }
-          }
-        signedGlobalTargets = withSignatures (privateTarget keys) globalTargets
-    writeCanonical (globalRepo </> "targets.json") signedGlobalTargets
 
     -- Recreate index tarball
     -- TODO: This currently does not allow for .cabal file revisions
