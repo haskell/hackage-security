@@ -24,7 +24,7 @@ data Timestamp = Timestamp {
 
 instance TUFHeader Timestamp where
   fileVersion = timestampVersion
-  fileExpires = timestampExpires
+  fileExpires = Just . timestampExpires
   describeFile _ = "timestamp"
 
 {-------------------------------------------------------------------------------

@@ -36,9 +36,13 @@ import qualified Hackage.Security.TUF.FileMap as FileMap
   TUF types
 -------------------------------------------------------------------------------}
 
+-- | Target metadata
+--
+-- Most target files do not need expiry dates because they are not subject to
+-- change (and hence attacks like freeze attacks are not a concern).
 data Targets = Targets {
     targetsVersion     :: FileVersion
-  , targetsExpires     :: FileExpires
+  , targetsExpires     :: Maybe FileExpires
   , targets            :: FileMap
   , targetsDelegations :: Maybe Delegations
   }
@@ -73,7 +77,7 @@ instance TUFHeader Targets where
   fileVersion = targetsVersion
   fileExpires = targetsExpires
   -- TODO: We should be more precise here, this is an insufficient clue as to
-  -- _which_ targets file this is. 
+  -- _which_ targets file this is.
   describeFile _ = "targets file"
 
 {-------------------------------------------------------------------------------
@@ -336,7 +340,7 @@ instance FromJSON ReadJSON DelegationSpec where
     delegationSpecThreshold <- fromJSField enc "threshold"
     delegationPath          <- fromJSField enc "path"
     case parseDelegation delegationName delegationPath of
-      Left  err        -> expected $ "valid name/path combination: " ++ err
+      Left  err        -> expected ("valid name/path combination: " ++ err) Nothing
       Right delegation -> return DelegationSpec{..}
 
 -- NOTE: Unlike the Root object, the keys that are used to sign the delegations
@@ -355,19 +359,20 @@ instance FromJSON ReadJSON Delegations where
     return Delegations{..}
 
 instance ToJSON Targets where
-  toJSON Targets{..} = JSObject $ [
-        ("_type"       , JSString "Targets")
+  toJSON Targets{..} = JSObject $ mconcat [
+      [ ("_type"       , JSString "Targets")
       , ("version"     , toJSON targetsVersion)
-      , ("expires"     , toJSON targetsExpires)
       , ("targets"     , toJSON targets)
-      ] ++
-      [ ("delegations" , toJSON d) | Just d <- [ targetsDelegations ] ]
+      ]
+    , [ ("delegations" , toJSON d) | Just d <- [ targetsDelegations ] ]
+    , [ ("expires"     , toJSON e) | Just e <- [ targetsExpires     ] ]
+    ]
 
 instance FromJSON ReadJSON Targets where
   fromJSON enc = do
     -- TODO: verify _type
     targetsVersion     <- fromJSField    enc "version"
-    targetsExpires     <- fromJSField    enc "expires"
+    targetsExpires     <- fromJSOptField enc "expires"
     targets            <- fromJSField    enc "targets"
     targetsDelegations <- fromJSOptField enc "delegations"
     return Targets{..}

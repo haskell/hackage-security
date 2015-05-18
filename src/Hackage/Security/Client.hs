@@ -18,6 +18,7 @@ import System.FilePath
 import Distribution.Package (PackageIdentifier)
 import Distribution.Text
 
+import Hackage.Security.Client.IndexTarball
 import Hackage.Security.Client.Repository (Repository)
 import Hackage.Security.Client.Repository hiding (Repository(..))
 import Hackage.Security.JSON
@@ -180,28 +181,6 @@ checkForUpdates rep checkExpiry =
               _otherwise ->
                 liftIO $ throwIO unexpectedIndexFormat
 
-          -- Since we regard all local files as trusted, strictly speaking we
-          -- should now verify the contents of the index tarball.
-          -- This means check two things:
-          --
-          -- 1. The index tarball contains delegated target.json files for
-          --    both unsigned and signed packages. We need to the signatures of
-          --    all signed metadata (that is: the metadata for signed packages).
-          --
-          -- 2. Since the tarball also contains the .cabal files, we should also
-          --    verify the hashes of those .cabal files against the hashes
-          --    recorded in signed metadata (there is no point comparing against
-          --    hashes recorded in unsigned metadata because attackers could
-          --    just change those).
-          --
-          -- Since we don't have author signing yet, we don't have any
-          -- additional signed metadata and therefore we currently don't have
-          -- to do anything here.
-          --
-          -- TODO: One question is whether we should regard the checkForUpdates
-          -- to have failed if one specific package metadata fails to verify.
-          -- See also <https://github.com/theupdateframework/tuf/issues/282>.
-
           return HasUpdates
 
     infoChanged :: Maybe (Trusted FileInfo) -> Trusted FileInfo -> Bool
@@ -306,15 +285,39 @@ downloadPackage rep pkgId callback = evalContT $ do
       >>= return . trustLocalFile
     let keyEnv = rootKeys (trusted cachedRoot)
 
+    -- Get the index tarball
+    indexTarball :: FilePath
+       <- repGetCached rep CachedIndexTar
+      >>= indexMustExist
+
+    -- NOTE: The files inside the index as evaluated lazily.
+    -- See also <https://github.com/theupdateframework/tuf/issues/282>.
+    --
+    -- 1. The index tarball contains delegated target.json files for both
+    --    unsigned and signed packages. We need to verify the signatures of all
+    --    signed metadata (that is: the metadata for signed packages).
+    --
+    -- 2. Since the tarball also contains the .cabal files, we should also
+    --    verify the hashes of those .cabal files against the hashes recorded in
+    --    signed metadata (there is no point comparing against hashes recorded
+    --    in unsigned metadata because attackers could just change those).
+    --
+    -- Since we don't have author signing yet, we don't have any additional
+    -- signed metadata and therefore we currently don't have to do anything
+    -- here:
+    let trustIndex = trustLocalFile
+
     -- Get the metadata (from the previously updated index)
+    --
+    -- NOTE: Currently we hardcode the location of the package specific
+    -- @targets.json@. By rights we should read the global targets file and
+    -- apply the delegation rules. Until we have author signing however this
+    -- is unnecessary.
     targets :: Trusted Targets
-       <- error "TODO: get targets from index tarball"
-       {-
-       <- repGetCached rep (FilePkgMeta pkgId)
+       <- liftIO (extractFile indexTarball (pathPkgMetaData pkgId))
       >>= packageMustExist
-      >>= readJSON keyEnv
-      >>= return . trustLocalFile
-       -}
+      >>= throwErrors . parseJSON keyEnv
+      >>= return . trustIndex
 
     targetMetaData :: Trusted FileInfo
       <- case trustedTargetsLookup packageFileName targets of
@@ -333,14 +336,22 @@ downloadPackage rep pkgId callback = evalContT $ do
     packageFileName :: FilePath
     packageFileName = display pkgId <.> "tar.gz"
 
-    packageMustExist :: MonadIO m => Maybe FilePath -> m FilePath
+    packageMustExist :: MonadIO m => Maybe a -> m a
     packageMustExist (Just fp) = return fp
     packageMustExist Nothing   = liftIO $ throwIO $ InvalidPackageException pkgId
+
+    indexMustExist :: MonadIO m => Maybe a -> m a
+    indexMustExist (Just fp) = return fp
+    indexMustExist Nothing   = liftIO $ throwIO $ IndexUnavailable
 
 data InvalidPackageException = InvalidPackageException PackageIdentifier
   deriving (Show, Typeable)
 
+data IndexUnavailable = IndexUnavailable
+  deriving (Show, Typeable)
+
 instance Exception InvalidPackageException
+instance Exception IndexUnavailable
 
 {-------------------------------------------------------------------------------
   Wrapper around the Repository functions (to avoid callback hell)
@@ -384,14 +395,14 @@ verifyFileInfo' (Just info) fp = liftIO $ do
     unless verified $ throw $ VerificationErrorFileInfo fp
     return fp
 
-readJSON :: MonadIO m => FromJSON ReadJSON a => KeyEnv -> FilePath -> m a
+readJSON :: (MonadIO m, FromJSON ReadJSON a) => KeyEnv -> FilePath -> m a
 readJSON keyEnv fpath = liftIO $ do
     result <- readCanonical keyEnv fpath
     case result of
       Left err -> throwIO err
       Right a  -> return a
 
-throwErrors :: MonadIO m => Exception e => Either e a -> m a
+throwErrors :: (MonadIO m, Exception e) => Either e a -> m a
 throwErrors (Left err) = liftIO $ throwIO err
 throwErrors (Right a)  = return a
 

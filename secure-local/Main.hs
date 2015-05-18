@@ -157,7 +157,7 @@ bootstrap opts@GlobalOpts{..} = do
     logInfo $ "Creating " ++ globalRepo </> "targets.json"
     let globalTargets = Targets {
               targetsVersion     = versionInitial
-            , targetsExpires     = expiresNever
+            , targetsExpires     = Nothing
             , targets            = FileMap.empty
             , targetsDelegations = Just $ Delegations {
                   delegationsKeys  = KeyEnv.empty
@@ -230,7 +230,7 @@ createPackageMetadata GlobalOpts{..} pkgId = do
     fileMapEntries <- computeFileMapEntries
     let targets = Targets {
             targetsVersion     = versionInitial
-          , targetsExpires     = expiresNever
+          , targetsExpires     = Nothing
           , targets            = FileMap.fromList fileMapEntries
           , targetsDelegations = Nothing
           }

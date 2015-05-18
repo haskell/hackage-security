@@ -40,7 +40,7 @@ data Snapshot = Snapshot {
 
 instance TUFHeader Snapshot where
   fileVersion = snapshotVersion
-  fileExpires = snapshotExpires
+  fileExpires = Just . snapshotExpires
   describeFile _ = "snapshot"
 
 {-------------------------------------------------------------------------------

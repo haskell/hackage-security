@@ -8,6 +8,7 @@ module Hackage.Security.Client.Repository (
   , remoteFilePath
   , cachedFilePath
     -- * Names of package files
+  , pkgLoc
   , pkgTarGz
     -- * Utility
   , mustCache

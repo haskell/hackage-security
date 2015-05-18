@@ -83,8 +83,8 @@ instance ToObjectKey HashFn where
   toObjectKey HashFnSHA256 = "sha256"
 
 instance ReportSchemaErrors m => FromObjectKey m HashFn where
-  fromObjectKey "sha256"   = return HashFnSHA256
-  fromObjectKey _otherwise = expected "valid hash function"
+  fromObjectKey "sha256" = return HashFnSHA256
+  fromObjectKey str      = expected "valid hash function" (Just str)
 
 instance ToJSON FileInfo where
   toJSON FileInfo{..} = JSObject [

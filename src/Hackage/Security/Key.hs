@@ -191,7 +191,7 @@ instance ReportSchemaErrors m => FromJSON m (Some Key) where
         "ed25519" -> return . Some $
           KeyEd25519 (Ed25519.PublicKey pub) (Ed25519.SecretKey pri)
         _otherwise ->
-          expected "valid key type"
+          expected "valid key type" (Just tag)
     where
       dec :: JSValue -> m (String, BS.ByteString, BS.ByteString)
       dec obj = do
@@ -225,7 +225,7 @@ instance ReportSchemaErrors m => FromJSON m (Some PublicKey) where
         "ed25519" -> return . Some $
           PublicKeyEd25519 (Ed25519.PublicKey pub)
         _otherwise ->
-          expected "valid key type"
+          expected "valid key type" (Just tag)
     where
       dec :: JSValue -> m (String, BS.ByteString)
       dec obj = do
@@ -242,4 +242,4 @@ instance ReportSchemaErrors m => FromJSON m (Some KeyType) where
     tag <- fromJSON enc
     case tag of
       "ed25519"  -> return . Some $ KeyTypeEd25519
-      _otherwise -> expected "valid key type"
+      _otherwise -> expected "valid key type" (Just tag)

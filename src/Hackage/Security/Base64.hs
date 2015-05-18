@@ -27,5 +27,5 @@ instance ReportSchemaErrors m => FromJSON m Base64 where
   fromJSON val = do
     str <- fromJSON val
     case B64.decode (C8.pack str) of
-      Left _err -> expected "base-64 encoded string"
+      Left _err -> expected "base-64 encoded string" Nothing
       Right bs  -> return $ Base64 bs

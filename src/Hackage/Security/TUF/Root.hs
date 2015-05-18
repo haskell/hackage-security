@@ -71,7 +71,7 @@ data RoleSpec a = RoleSpec {
 
 instance TUFHeader Root where
   fileVersion = rootVersion
-  fileExpires = rootExpires
+  fileExpires = Just . rootExpires
   describeFile _ = "root"
 
 {-------------------------------------------------------------------------------
@@ -176,11 +176,12 @@ verifyRole (trusted -> RoleSpec{roleSpecThreshold = KeyThreshold threshold, ..})
     go :: Except VerificationError (Trusted a)
     go = do
       -- Verify expiry date
-      case mNow of
-        Nothing  -> return ()
-        Just now ->
-          when (isExpired now (fileExpires signed)) $
+      case (mNow, fileExpires signed) of
+        (Just now, Just expiry) ->
+          when (isExpired now expiry) $
             throwError $ VerificationErrorExpired (describeFile signed)
+        _otherwise -> 
+          return ()
 
       -- Verify timestamp
       case mPrev of

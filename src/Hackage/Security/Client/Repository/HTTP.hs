@@ -8,6 +8,8 @@ module Hackage.Security.Client.Repository.HTTP (
 import Network.URI
 import System.Directory
 import System.FilePath
+import qualified Codec.Compression.GZip as GZip
+import qualified Data.ByteString.Lazy   as BS.L
 
 import Hackage.Security.Client.Repository
 import Hackage.Security.Client.Repository.Local (Cache)
@@ -61,6 +63,7 @@ initRepo http auth cache = Repository {
 -- | Get a file from the server
 --
 -- TODO: We need to deal with the combined timestamp/snapshot thing
+-- TODO: There is code duplication in @HTTP.withRemote@ and @Local.withRemote@.
 withRemote :: HttpClient -> URI -> Cache
            -> RemoteFile -> (TempPath -> IO a) -> IO a
 withRemote HttpClient{..} baseURI cache remoteFile callback =
@@ -71,7 +74,12 @@ withRemote HttpClient{..} baseURI cache remoteFile callback =
           return ()
         Just cachedFile -> do
           let localPath = cache </> Local.cachedFilePath cachedFile
-          copyFile tempPath localPath
+          case cachedFile of
+            CachedIndexTar -> do
+              compressed <- BS.L.readFile tempPath
+              BS.L.writeFile localPath $ GZip.decompress compressed
+            _otherwise ->
+              copyFile tempPath localPath
       return result
   where
     url = remoteFileURI baseURI remoteFile

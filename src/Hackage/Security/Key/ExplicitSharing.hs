@@ -60,7 +60,11 @@ newtype ReadJSON a = ReadJSON {
   deriving (Functor, Applicative, Monad, MonadError DeserializationError)
 
 instance ReportSchemaErrors ReadJSON where
-  expected str = throwError $ DeserializationErrorSchema $ "Expected " ++ str
+  expected str mgot = throwError $ DeserializationErrorSchema msg
+    where
+      msg = case mgot of
+              Nothing  -> "Expected " ++ str
+              Just got -> "Expected " ++ str ++ " but got " ++ got
 
 runReadJSON :: KeyEnv -> ReadJSON a -> Either DeserializationError a
 runReadJSON env act = runReader (runExceptT (unReadJSON act)) env
@@ -81,7 +85,7 @@ withKeys keys (ReadJSON act) = ReadJSON $ local (const keys) act
 
 readKeyAsId :: JSValue -> ReadJSON (Some PublicKey)
 readKeyAsId (JSString kId) = lookupKey (KeyId kId)
-readKeyAsId _ = expected "key ID"
+readKeyAsId val = expected' "key ID" val
 
 lookupKey :: KeyId -> ReadJSON (Some PublicKey)
 lookupKey kId = do

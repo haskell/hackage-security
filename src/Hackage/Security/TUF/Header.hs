@@ -4,7 +4,6 @@ module Hackage.Security.TUF.Header (
   , FileVersion  -- opaque
   , FileExpires  -- opaque
     -- ** Utility
-  , expiresNever
   , expiresInDays
   , isExpired
   , versionInitial
@@ -21,7 +20,7 @@ import Hackage.Security.JSON
 
 class TUFHeader a where
   -- | File expiry date
-  fileExpires :: a -> FileExpires
+  fileExpires :: a -> Maybe FileExpires
 
   -- | File version (monotonically increasing counter)
   fileVersion :: a -> FileVersion
@@ -43,9 +42,6 @@ newtype FileExpires = FileExpires UTCTime
 {-------------------------------------------------------------------------------
   Utility
 -------------------------------------------------------------------------------}
-
-expiresNever :: FileExpires
-expiresNever = FileExpires $ UTCTime (toEnum maxBound) 0
 
 expiresInDays :: UTCTime -> Integer -> FileExpires
 expiresInDays now n = FileExpires $ addUTCTime (fromInteger n * oneDay) now

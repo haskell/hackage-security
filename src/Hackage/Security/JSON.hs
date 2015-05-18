@@ -7,6 +7,7 @@ module Hackage.Security.JSON (
   , ToObjectKey(..)
   , FromObjectKey(..)
   , ReportSchemaErrors(..)
+  , expected'
     -- * Utility
   , fromJSObject
   , fromJSField
@@ -46,7 +47,24 @@ class FromObjectKey m a where
 
 -- | Monads in which we can report schema errors
 class (Applicative m, Monad m) => ReportSchemaErrors m where
-  expected :: String -> m a
+  expected :: Expected -> Maybe Got -> m a
+
+type Expected = String
+type Got      = String
+
+expected' :: ReportSchemaErrors m => Expected -> JSValue -> m a
+expected' descr val = expected descr (Just (describeValue val))
+  where
+    describeValue :: JSValue -> String
+    describeValue (JSNull    ) = "null"
+    describeValue (JSBool   _) = "bool"
+    describeValue (JSNum    _) = "num"
+    describeValue (JSString _) = "string"
+    describeValue (JSArray  _) = "array"
+    describeValue (JSObject _) = "object"
+
+unknownField :: ReportSchemaErrors m => String -> m a
+unknownField field = expected ("field " ++ show field) Nothing
 
 {-------------------------------------------------------------------------------
   ToObjectKey and FromObjectKey instances
@@ -73,21 +91,21 @@ instance ToJSON String where
 
 instance ReportSchemaErrors m => FromJSON m String where
   fromJSON (JSString str) = return str
-  fromJSON _              = expected "string"
+  fromJSON val            = expected' "string" val
 
 instance ToJSON Int where
   toJSON = JSNum
 
 instance ReportSchemaErrors m => FromJSON m Int where
   fromJSON (JSNum i) = return i
-  fromJSON _         = expected "int"
+  fromJSON val       = expected' "int" val
 
 instance ToJSON a => ToJSON [a] where
   toJSON = JSArray . map toJSON
 
 instance (ReportSchemaErrors m, FromJSON m a) => FromJSON m [a] where
   fromJSON (JSArray as) = mapM fromJSON as
-  fromJSON _            = expected "array"
+  fromJSON val          = expected' "array" val
 
 instance ToJSON UTCTime where
   toJSON = JSString . formatTime defaultTimeLocale "%FT%TZ"
@@ -97,7 +115,7 @@ instance ReportSchemaErrors m => FromJSON m UTCTime where
     str <- fromJSON enc
     case parseTimeM False defaultTimeLocale "%FT%TZ" str of
       Just time -> return time
-      Nothing   -> expected "valid date-time string"
+      Nothing   -> expected "valid date-time string" (Just str)
 #if !MIN_VERSION_base(4,6,0)
     where
       parseTimeM _trim = parseTime
@@ -129,7 +147,7 @@ instance ( ReportSchemaErrors m
 
 fromJSObject :: ReportSchemaErrors m => JSValue -> m [(String, JSValue)]
 fromJSObject (JSObject obj) = return obj
-fromJSObject _              = expected "object"
+fromJSObject val            = expected' "object" val
 
 -- | Extract a field from a JSON object
 fromJSField :: (ReportSchemaErrors m, FromJSON m a)
@@ -138,7 +156,7 @@ fromJSField val nm = do
     obj <- fromJSObject val
     case lookup nm obj of
       Just fld -> fromJSON fld
-      Nothing  -> expected $ "field " ++ show nm
+      Nothing  -> unknownField nm
 
 fromJSOptField :: (ReportSchemaErrors m, FromJSON m a)
                => JSValue -> String -> m (Maybe a)

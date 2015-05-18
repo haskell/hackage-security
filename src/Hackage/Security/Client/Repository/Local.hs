@@ -13,6 +13,8 @@ import Control.Exception
 import System.Directory
 import System.FilePath
 import System.IO.Error
+import qualified Codec.Compression.GZip as GZip
+import qualified Data.ByteString.Lazy   as BS.L
 
 import Hackage.Security.Client.Repository
 
@@ -50,7 +52,12 @@ withRemote repo cache remoteFile callback = do
       Just cachedFile -> do
         let localPath = cache </> cachedFilePath cachedFile
         -- TODO: (here and elsewhere): use atomic file operation instead
-        copyFile remotePath localPath
+        case cachedFile of
+          CachedIndexTar -> do
+            compressed <- BS.L.readFile remotePath
+            BS.L.writeFile localPath $ GZip.decompress compressed
+          _otherwise ->
+            copyFile remotePath localPath
     return result
   where
     remotePath = repo </> remoteFilePath remoteFile
