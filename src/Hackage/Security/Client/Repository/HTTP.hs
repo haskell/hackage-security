@@ -11,6 +11,7 @@ import System.FilePath
 
 import Hackage.Security.Client.Repository
 import Hackage.Security.Client.Repository.Local (Cache)
+import Hackage.Security.TUF
 import qualified Hackage.Security.Client.Repository.Local as Local
 
 {-------------------------------------------------------------------------------
@@ -39,7 +40,10 @@ data HttpClient = HttpClient {
     httpClientGet :: forall a. URI -> FileSize -> (TempPath -> IO a) -> IO a
   }
 
-initRepo :: HttpClient -> URIAuth -> Cache -> Repository
+initRepo :: HttpClient  -- ^ Implementation of the HTTP protocol
+         -> URI         -- ^ Base URI
+         -> Cache       -- ^ Location of local cache
+         -> Repository
 initRepo http auth cache = Repository {
     repWithRemote    = withRemote http auth cache
   , repGetCached     = Local.getCached     cache
@@ -57,9 +61,9 @@ initRepo http auth cache = Repository {
 -- | Get a file from the server
 --
 -- TODO: We need to deal with the combined timestamp/snapshot thing
-withRemote :: HttpClient -> URIAuth -> Cache
+withRemote :: HttpClient -> URI -> Cache
            -> RemoteFile -> (TempPath -> IO a) -> IO a
-withRemote HttpClient{..} auth cache remoteFile callback =
+withRemote HttpClient{..} baseURI cache remoteFile callback =
     httpClientGet url sz $ \tempPath -> do
       result <- callback tempPath
       case mustCache remoteFile of
@@ -70,20 +74,26 @@ withRemote HttpClient{..} auth cache remoteFile callback =
           copyFile tempPath localPath
       return result
   where
-    (url, sz) = remoteFileURL auth remoteFile
+    url = remoteFileURI baseURI remoteFile
+    sz  = remoteFileSize remoteFile
 
 -- TODO: Provide upper bounds
-remoteFileURL :: URIAuth -> RemoteFile -> (URI, FileSize)
-remoteFileURL auth file =
-    case file of
-      RemoteTimestamp ->
-        (mkURI "/static/timestamp.json", FileSizeUnknown)
-  where
-    mkURI :: String -> URI
-    mkURI p = URI {
-        uriScheme = "http:"
-      , uriAuthority = Just auth
-      , uriPath      = p
-      , uriQuery     = ""
-      , uriFragment  = ""
-      }
+remoteFileURI :: URI -> RemoteFile -> URI
+remoteFileURI baseURI file = baseURI {
+      uriPath = uriPath baseURI </> remoteFilePath file
+    }
+
+-- | Extracting or estimating file sizes
+--
+-- TODO: Put in estimates
+remoteFileSize :: RemoteFile -> FileSize
+remoteFileSize (RemoteTimestamp) =
+    FileSizeUnknown
+remoteFileSize (RemoteRoot mLen) =
+    maybe FileSizeUnknown (FileSizeExact . trustedFileLength) mLen
+remoteFileSize (RemoteSnapshot len) =
+    FileSizeExact (trustedFileLength len)
+remoteFileSize (RemoteIndex{..}) =
+    FileSizeExact (trustedFileLength fileIndexLenTarGz)
+remoteFileSize (RemotePkgTarGz _pkgId len) =
+    FileSizeExact (trustedFileLength len)

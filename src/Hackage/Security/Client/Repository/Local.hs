@@ -12,9 +12,7 @@ module Hackage.Security.Client.Repository.Local (
 import Control.Exception
 import System.Directory
 import System.FilePath
-
-import Distribution.Package
-import Distribution.Text
+import System.IO.Error
 
 import Hackage.Security.Client.Repository
 
@@ -76,35 +74,11 @@ getCachedRoot cache = do
 
 -- | Delete a previously downloaded remote file
 clearCache :: Cache -> IO ()
-clearCache cache = do
+clearCache cache = handle ignoreDoesNotExist $ do
     removeFile $ cache </> cachedFilePath CachedTimestamp
     removeFile $ cache </> cachedFilePath CachedSnapshot
-
-{-------------------------------------------------------------------------------
-  Auxiliary
--------------------------------------------------------------------------------}
-
-remoteFilePath :: RemoteFile -> FilePath
-remoteFilePath RemoteTimestamp          = "timestamp.json"
-remoteFilePath (RemoteRoot _)           = "root.json"
-remoteFilePath (RemoteSnapshot _)       = "snapshot.json"
-remoteFilePath (RemoteIndex {})         = "00-index.tar.gz"
-remoteFilePath (RemotePkgTarGz pkgId _) = pkgLoc pkgId </> pkgTarGz pkgId
-
-cachedFilePath :: CachedFile -> FilePath
-cachedFilePath CachedTimestamp = "timestamp.json"
-cachedFilePath CachedRoot      = "root.json"
-cachedFilePath CachedSnapshot  = "snapshot.json"
-cachedFilePath CachedIndexTar  = "00-index.tar"
-
-pkgLoc :: PackageIdentifier -> FilePath
-pkgLoc pkgId = display (packageName pkgId) </> display (packageVersion pkgId)
-
--- TODO: Are we hardcoding information here that's available from Cabal somewhere?
-pkgTarGz :: PackageIdentifier -> FilePath
-pkgTarGz pkgId = concat [
-      display (packageName pkgId)
-    , "-"
-    , display (packageVersion pkgId)
-    , ".tar.gz"
-    ]
+  where
+    ignoreDoesNotExist e =
+      if isDoesNotExistError e
+        then return ()
+        else throwIO e

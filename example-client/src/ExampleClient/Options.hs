@@ -6,6 +6,9 @@ module ExampleClient.Options (
 
 import Options.Applicative
 
+import Distribution.Package
+import Distribution.Text
+
 {-------------------------------------------------------------------------------
   Datatypes
 -------------------------------------------------------------------------------}
@@ -17,6 +20,9 @@ data GlobalOpts = GlobalOpts {
     -- | Directory to store the client cache
   , globalCache :: FilePath
 
+    -- | HTTP client to use
+  , globalHttpClient :: String
+
     -- | Command to execute
   , globalCommand :: Command
   }
@@ -25,6 +31,9 @@ data GlobalOpts = GlobalOpts {
 data Command =
     -- | Check for updates on the server
     Check
+
+    -- | Download a specific package
+  | Get PackageIdentifier
   deriving Show
 
 {-------------------------------------------------------------------------------
@@ -51,8 +60,23 @@ parseGlobalOptions = GlobalOpts
         , metavar "PATH"
         , help "Path to client cache"
         ])
+  <*> (strOption $ mconcat [
+         long "http-client"
+       , metavar "CLIENT"
+       , help "HTTP client to use (currently supported: HTTP and http-conduit)"
+       ])
   <*> (subparser $ mconcat [
           command "check" $
             info (pure Check)
                  (progDesc "Check for updates")
+        , command "get" $
+            info (Get <$> argument readPackageIdentifier (metavar "PKG"))
+                 (progDesc "Download a package")
         ])
+
+readPackageIdentifier :: ReadM PackageIdentifier
+readPackageIdentifier = do
+    raw <- str
+    case simpleParse raw of
+      Just pkgId -> return pkgId
+      Nothing    -> fail $ "Invalid package ID " ++ show raw

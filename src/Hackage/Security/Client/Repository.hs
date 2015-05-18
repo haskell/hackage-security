@@ -4,12 +4,20 @@ module Hackage.Security.Client.Repository (
   , CachedFile(..)
   , TempPath
   , LogMessage(..)
+    -- * Paths
+  , remoteFilePath
+  , cachedFilePath
+    -- * Names of package files
+  , pkgTarGz
     -- * Utility
   , mustCache
   , formatLogMessage
   ) where
 
-import Distribution.Package (PackageIdentifier)
+import System.FilePath
+
+import Distribution.Package
+import Distribution.Text
 
 import Hackage.Security.Trusted
 import Hackage.Security.TUF
@@ -47,8 +55,8 @@ data RemoteFile =
     -- It is not required for repositories to provide the uncompressed tarball,
     -- so the file length for the @.tar@ file is optional.
   | RemoteIndex {
-        fileIndexTarGzInfo :: Trusted FileLength
-      , fileIndexTarInfo   :: Maybe (Trusted FileLength)
+        fileIndexLenTarGz :: Trusted FileLength
+      , fileIndexLenTar   :: Maybe (Trusted FileLength)
       }
 
     -- | Actual package
@@ -102,7 +110,7 @@ data Repository = Repository {
     --
     -- TODO: We should make it clear to the Repository that we are downloading
     -- files after a verification error. Remote repositories can use this
-    -- information to force proxies to get files upstream. 
+    -- information to force proxies to get files upstream.
     repWithRemote :: forall a. RemoteFile -> (TempPath -> IO a) -> IO a
 
     -- | Get a cached file (if available)
@@ -141,6 +149,35 @@ data LogMessage =
   | LogVerificationError VerificationError
 
 {-------------------------------------------------------------------------------
+  Paths
+-------------------------------------------------------------------------------}
+
+remoteFilePath :: RemoteFile -> FilePath
+remoteFilePath RemoteTimestamp          = "timestamp.json"
+remoteFilePath (RemoteRoot _)           = "root.json"
+remoteFilePath (RemoteSnapshot _)       = "snapshot.json"
+remoteFilePath (RemoteIndex {})         = "00-index.tar.gz"
+remoteFilePath (RemotePkgTarGz pkgId _) = pkgLoc pkgId </> pkgTarGz pkgId
+
+cachedFilePath :: CachedFile -> FilePath
+cachedFilePath CachedTimestamp = "timestamp.json"
+cachedFilePath CachedRoot      = "root.json"
+cachedFilePath CachedSnapshot  = "snapshot.json"
+cachedFilePath CachedIndexTar  = "00-index.tar"
+
+pkgLoc :: PackageIdentifier -> FilePath
+pkgLoc pkgId = display (packageName pkgId) </> display (packageVersion pkgId)
+
+-- TODO: Are we hardcoding information here that's available from Cabal somewhere?
+pkgTarGz :: PackageIdentifier -> FilePath
+pkgTarGz pkgId = concat [
+      display (packageName pkgId)
+    , "-"
+    , display (packageVersion pkgId)
+    , ".tar.gz"
+    ]
+
+{-------------------------------------------------------------------------------
   Utility
 -------------------------------------------------------------------------------}
 
@@ -156,4 +193,4 @@ formatLogMessage :: LogMessage -> String
 formatLogMessage LogRootUpdated =
     "Root info updated"
 formatLogMessage (LogVerificationError err) =
-    "Verification error " ++ formatVerificationError err
+    "Verification error: " ++ formatVerificationError err

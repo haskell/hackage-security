@@ -154,8 +154,8 @@ checkForUpdates rep checkExpiry =
               newTarGzInfo  = trustedSnapshotInfoTarGz newSS
               mNewTarInfo   = trustedSnapshotInfoTar   newSS
               expectedIndex = RemoteIndex {
-                  fileIndexTarGzInfo = trustedFileInfoLength newTarGzInfo
-                , fileIndexTarInfo   = fmap trustedFileInfoLength mNewTarInfo
+                  fileIndexLenTarGz = trustedFileInfoLength newTarGzInfo
+                , fileIndexLenTar   = fmap trustedFileInfoLength mNewTarInfo
                 }
           when (infoChanged mOldTarGzInfo newTarGzInfo) $ do
             indexPath <- repGetRemote rep expectedIndex
@@ -356,7 +356,7 @@ repGetCachedRoot :: MonadIO m => Repository -> m FilePath
 repGetCachedRoot r = liftIO $ Repository.repGetCachedRoot r
 
 repClearCache :: MonadIO m => Repository -> m ()
-repClearCache r = liftIO $ Repository.repClearCache r 
+repClearCache r = liftIO $ Repository.repClearCache r
 
 repLog :: MonadIO m => Repository -> LogMessage -> m ()
 repLog r msg = liftIO $ Repository.repLog r msg
