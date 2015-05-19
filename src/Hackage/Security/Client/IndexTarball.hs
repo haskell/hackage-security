@@ -28,8 +28,9 @@ extractFile tarball entryPath = do
       Left  err     -> throwIO err
       Right entries -> return $ findEntry entryPath entries
 
+-- It's important that we pick the _last_ entry
 findEntry :: FilePath -> [Tar.Entry] -> Maybe BS.L.ByteString
-findEntry entryPath = listToMaybe . mapMaybe match
+findEntry entryPath = listToMaybe . reverse . mapMaybe match
   where
     match :: Tar.Entry -> Maybe BS.L.ByteString
     match entry = do

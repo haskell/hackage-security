@@ -1,14 +1,15 @@
 {-# LANGUAGE TemplateHaskell #-}
 module Main (main) where
 
+import Control.Exception
 import Control.Monad
 import Data.Maybe (catMaybes)
 import Data.Time
 import System.Directory
 import System.FilePath
 import System.IO
+import System.IO.Error
 import System.IO.Temp
-import qualified Codec.Archive.Tar      as Tar
 import qualified Codec.Compression.GZip as GZip
 import qualified Data.ByteString.Lazy   as BS.L
 
@@ -17,12 +18,14 @@ import Distribution.Package
 import Distribution.Text
 
 -- hackage-security
+import Hackage.Security.JSON
 import Hackage.Security.Key
 import Hackage.Security.Key.ExplicitSharing
 import Hackage.Security.Some
 import Hackage.Security.TUF
-import qualified Hackage.Security.TUF.FileMap as FileMap
-import qualified Hackage.Security.Key.Env     as KeyEnv
+import qualified Hackage.Security.TUF.FileMap         as FileMap
+import qualified Hackage.Security.Key.Env             as KeyEnv
+import qualified Hackage.Security.Server.IndexTarball as Index
 
 -- hackage-secure-local
 import Hackage.Security.Local.Options
@@ -114,66 +117,78 @@ bootstrapOrUpdate opts@GlobalOpts{..} isBootstrap = do
     keys <- readKeys opts
     now  <- getCurrentTime
 
-    when isBootstrap $ do
-      -- Create root metadata
-      logInfo $ "Creating " ++ globalRepo </> "root.json"
-      let root = Root {
-              rootVersion = versionInitial
-            , rootExpires = expiresInDays now 365
-            , rootKeys    = KeyEnv.fromKeys $ concat [
-                                privateRoot      keys
-                              , privateTarget    keys
-                              , privateSnapshot  keys
-                              , privateTimestamp keys
-                              ]
-            , rootRoles   = RootRoles {
-                  rootRolesRoot = RoleSpec {
-                      roleSpecKeys      = map somePublicKey (privateRoot keys)
-                    , roleSpecThreshold = KeyThreshold 2
-                    }
-                , rootRolesTargets = RoleSpec {
-                      roleSpecKeys      = map somePublicKey (privateTarget keys)
-                    , roleSpecThreshold = KeyThreshold 1
-                    }
-                , rootRolesSnapshot = RoleSpec {
-                      roleSpecKeys      = map somePublicKey (privateSnapshot keys)
-                    , roleSpecThreshold = KeyThreshold 1
-                    }
-                , rootRolesTimestamp = RoleSpec {
-                      roleSpecKeys      = map somePublicKey (privateTimestamp keys)
-                    , roleSpecThreshold = KeyThreshold 1
+    newBootstrapped <-
+      if not isBootstrap
+        then return []
+        else do
+          -- Create root metadata
+          logInfo $ "Creating " ++ globalRepo </> "root.json"
+          let root = Root {
+                  rootVersion = versionInitial
+                , rootExpires = expiresInDays now 365
+                , rootKeys    = KeyEnv.fromKeys $ concat [
+                                    privateRoot      keys
+                                  , privateTarget    keys
+                                  , privateSnapshot  keys
+                                  , privateTimestamp keys
+                                  ]
+                , rootRoles   = RootRoles {
+                      rootRolesRoot = RoleSpec {
+                          roleSpecKeys      = map somePublicKey (privateRoot keys)
+                        , roleSpecThreshold = KeyThreshold 2
+                        }
+                    , rootRolesTargets = RoleSpec {
+                          roleSpecKeys      = map somePublicKey (privateTarget keys)
+                        , roleSpecThreshold = KeyThreshold 1
+                        }
+                    , rootRolesSnapshot = RoleSpec {
+                          roleSpecKeys      = map somePublicKey (privateSnapshot keys)
+                        , roleSpecThreshold = KeyThreshold 1
+                        }
+                    , rootRolesTimestamp = RoleSpec {
+                          roleSpecKeys      = map somePublicKey (privateTimestamp keys)
+                        , roleSpecThreshold = KeyThreshold 1
+                        }
                     }
                 }
-            }
-          signedRoot = withSignatures (privateRoot keys) root
-      writeCanonical (globalRepo </> "root.json") signedRoot
+              signedRoot = withSignatures (privateRoot keys) root
+          void $ writeCanonical' globalRepo "root.json" signedRoot
 
-      -- Create global package metadata
-      --
-      -- NOTE: Until we introduce author signing, this file is entirely static
-      -- (and in fact ignored)
-      logInfo $ "Creating " ++ globalRepo </> "targets.json"
-      let globalTargets = Targets {
-                targetsVersion     = versionInitial
-              , targetsExpires     = Nothing
-              , targets            = FileMap.empty
-              , targetsDelegations = Just $ Delegations {
-                    delegationsKeys  = KeyEnv.empty
-                  , delegationsRoles = [
-                        DelegationSpec {
-                            delegationSpecKeys      = []
-                          , delegationSpecThreshold = KeyThreshold 0
-                          , delegation = $(qqd "*/*/*" "*/*/targets.json")
-                          }
-                      ]
-                  }
-            }
-          signedGlobalTargets = withSignatures (privateTarget keys) globalTargets
-      writeCanonical (globalRepo </> "targets.json") signedGlobalTargets
+          -- Create global package metadata
+          --
+          -- NOTE: Until we introduce author signing, this file is entirely static
+          -- (and in fact ignored)
+          logInfo $ "Creating " ++ globalRepo </> "targets.json"
+          let globalTargets = Targets {
+                  targetsVersion     = versionInitial
+                , targetsExpires     = Nothing
+                , targets            = FileMap.empty
+                , targetsDelegations = Just $ Delegations {
+                      delegationsKeys  = KeyEnv.empty
+                    , delegationsRoles = [
+                          DelegationSpec {
+                              delegationSpecKeys      = []
+                            , delegationSpecThreshold = KeyThreshold 0
+                            , delegation = $(qqd "*/*/*" "*/*/targets.json")
+                            }
+                        ]
+                    }
+                }
+              signedGlobalTargets = withSignatures (privateTarget keys) globalTargets
+          newGlobalTargets <- writeCanonical' globalRepo "targets.json" signedGlobalTargets
+
+          return [newGlobalTargets]
 
     -- Create targets.json for each package version
     pkgs <- findPackages opts
-    forM_ pkgs $ createPackageMetadata opts
+    newPackageMetadata <- forM pkgs $ createPackageMetadata opts
+
+    -- New files to be added to the index
+    let newFiles :: [FilePath]
+        newFiles = concat [
+            catMaybes newBootstrapped
+          , concat newPackageMetadata
+          ]
 
     -- Recreate index tarball
     -- TODO: This currently does not allow for .cabal file revisions
@@ -181,25 +196,17 @@ bootstrapOrUpdate opts@GlobalOpts{..} isBootstrap = do
     -- NOTE: This cannot contain snapshot.json (because snapshot has the
     -- hash of the index) or timestamp.json (because that in turn has the
     -- hash of the snapshot).
-    logInfo $ "Creating " ++ globalRepo </> "00-index.tar.gz"
+    logInfo $ "Creating " ++ globalRepo </> "00-index.tar"
     extraFiles <- findExtraIndexFiles opts
-    let pkgCabalFiles = [ pathPkgCabal    pkg | pkg <- pkgs ]
-        pkgMetadata   = [ pathPkgMetadata pkg | pkg <- pkgs ]
-        rootMetadata  = [ "root.json"
-                        , "targets.json"
-                        ]
-        indexContents = concat [
-                            extraFiles
-                          , rootMetadata
-                          , pkgCabalFiles
-                          , pkgMetadata
-                          ]
-
-    withSystemTempFile "00-index.tar.gz" $ \tmpPath handle -> do
-      tarEntries <- Tar.pack globalRepo indexContents
-      BS.L.hPut handle . GZip.compress . Tar.write $ tarEntries
-      hClose handle
-      copyFile tmpPath (globalRepo </> "00-index.tar.gz")
+    -- TODO: Currently this means that we add the extra files a-new to the index
+    -- on every iteration
+    let addToIndex = newFiles ++ extraFiles
+    Index.appendToTarball
+      (globalRepo </> "00-index.tar")
+      globalRepo
+      addToIndex
+    BS.L.writeFile (globalRepo </> "00-index.tar.gz") =<<
+      GZip.compress <$> BS.L.readFile (globalRepo </> "00-index.tar")
 
     -- Create snapshot
     logInfo $ "Creating " ++ globalRepo </> "snapshot.json"
@@ -226,7 +233,12 @@ bootstrapOrUpdate opts@GlobalOpts{..} isBootstrap = do
         signedTimestamp = withSignatures (privateTimestamp keys) timestamp
     writeCanonical (globalRepo </> "timestamp.json") signedTimestamp
 
-createPackageMetadata :: GlobalOpts -> PackageIdentifier -> IO ()
+-- | Create package metadata
+--
+-- If we find that the package metadata has changed, we return the path of the
+-- new @target.json@ as well as the path of the @.cabal@ file so that we know
+-- to include it in the index. If nothing changed, we return the empty list.
+createPackageMetadata :: GlobalOpts -> PackageIdentifier -> IO [FilePath]
 createPackageMetadata GlobalOpts{..} pkgId = do
     logInfo $ "Creating " ++ fullPkgPath </> "targets.json"
     fileMapEntries <- computeFileMapEntries
@@ -238,7 +250,10 @@ createPackageMetadata GlobalOpts{..} pkgId = do
           }
         -- Currently we "sign" with no keys
         signedTargets = withSignatures [] targets
-    writeCanonical (globalRepo </> pathPkgMetadata pkgId) signedTargets
+    mUpdated <- writeCanonical' globalRepo (pathPkgMetadata pkgId) signedTargets
+    case mUpdated of
+      Nothing      -> return []
+      Just updated -> return [updated, pathPkgCabal pkgId]
   where
     computeFileMapEntries :: IO [(FilePath, FileInfo)]
     computeFileMapEntries = catMaybes <$> do
@@ -313,6 +328,7 @@ findPackages GlobalOpts{..} = do
     skipPkg :: FilePath -> Bool
     skipPkg "."                  = True
     skipPkg ".."                 = True
+    skipPkg "00-index.tar"       = True
     skipPkg "00-index.tar.gz"    = True
     skipPkg "preferred-versions" = True
     skipPkg "targets.json"       = True
@@ -363,3 +379,39 @@ logInfo str = putStrLn $ "Info: " ++ str
 
 logWarn :: String -> IO ()
 logWarn str = putStrLn $ "Warning: " ++ str
+
+{-------------------------------------------------------------------------------
+  Auxiliary
+-------------------------------------------------------------------------------}
+
+-- | Write canonical JSON
+--
+-- We write the file to a temporary location and compare file info with the
+-- file that was already in the target location (if any). If it's the same
+-- we don't overwrite it and return Nothing; otherwise we return the path to
+-- the file that we wrote (not including the baseDir).
+--
+-- TODO: This currently uses withSystemTempFile, which means that 'renameFile'
+-- might not work. Instead we should (here and elsewhere) have a temporary
+-- directory on the same file system. A worry for later.
+writeCanonical' :: ToJSON a => FilePath -> FilePath -> a -> IO (Maybe FilePath)
+writeCanonical' baseDir file a = do
+    withSystemTempFile (takeFileName file) $ \tempPath h -> do
+      BS.L.hPut h $ renderJSON a
+      hClose h
+      oldFileInfo <- computeFileInfo' fp
+      newFileInfo <- computeFileInfo tempPath
+      if oldFileInfo == Just newFileInfo
+        then return $ Nothing
+        else do renameFile tempPath fp
+                return $ Just file
+  where
+    fp = baseDir </> file
+
+computeFileInfo' :: FilePath -> IO (Maybe FileInfo)
+computeFileInfo' fp =
+    handle doesNotExist $ Just <$> computeFileInfo fp
+  where
+    doesNotExist e = if isDoesNotExistError e
+                       then return Nothing
+                       else throwIO e
