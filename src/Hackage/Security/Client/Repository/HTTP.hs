@@ -6,10 +6,7 @@ module Hackage.Security.Client.Repository.HTTP (
   ) where
 
 import Network.URI
-import System.Directory
 import System.FilePath
-import qualified Codec.Compression.GZip as GZip
-import qualified Data.ByteString.Lazy   as BS.L
 
 import Hackage.Security.Client.Repository
 import Hackage.Security.Client.Repository.Local (Cache)
@@ -51,6 +48,7 @@ initRepo http auth cache = Repository {
   , repGetCached     = Local.getCached     cache
   , repGetCachedRoot = Local.getCachedRoot cache
   , repClearCache    = Local.clearCache    cache
+  , repGetFromIndex  = Local.getFromIndex  cache
   -- TODO: We should allow clients to plugin a proper logging message here
   -- (probably means accepting a callback to initRepo)
   , repLog = putStrLn . formatLogMessage
@@ -63,23 +61,12 @@ initRepo http auth cache = Repository {
 -- | Get a file from the server
 --
 -- TODO: We need to deal with the combined timestamp/snapshot thing
--- TODO: There is code duplication in @HTTP.withRemote@ and @Local.withRemote@.
 withRemote :: HttpClient -> URI -> Cache
            -> RemoteFile -> (TempPath -> IO a) -> IO a
 withRemote HttpClient{..} baseURI cache remoteFile callback =
     httpClientGet url sz $ \tempPath -> do
       result <- callback tempPath
-      case mustCache remoteFile of
-        Nothing ->
-          return ()
-        Just cachedFile -> do
-          let localPath = cache </> Local.cachedFilePath cachedFile
-          case cachedFile of
-            CachedIndexTar -> do
-              compressed <- BS.L.readFile tempPath
-              BS.L.writeFile localPath $ GZip.decompress compressed
-            _otherwise ->
-              copyFile tempPath localPath
+      Local.cacheRemoteFile cache tempPath (mustCache remoteFile)
       return result
   where
     url = remoteFileURI baseURI remoteFile

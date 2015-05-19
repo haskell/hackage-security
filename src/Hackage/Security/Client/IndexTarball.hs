@@ -2,20 +2,13 @@
 module Hackage.Security.Client.IndexTarball (
     -- * Low-level tar utilites
     extractFile
-    -- * Paths
-  , pathPkgMetaData
   ) where
 
 import Control.Exception
 import Control.Monad.Except
 import Data.Maybe
-import System.FilePath
 import qualified Codec.Archive.Tar    as Tar
 import qualified Data.ByteString.Lazy as BS.L
-
-import Distribution.Package
-
-import Hackage.Security.Client.Repository
 
 {-------------------------------------------------------------------------------
   Tar utilities
@@ -45,12 +38,7 @@ findEntry entryPath = listToMaybe . mapMaybe match
         Tar.NormalFile bs _size -> Just bs
         _otherwise              -> Nothing
 
+-- TODO: This means we need to load the entire tar file into memory
+-- Entries is designed precisely so that we don't need to do that
 entriesToList :: forall e. Tar.Entries e -> Either e [Tar.Entry]
 entriesToList = runExcept . Tar.foldEntries (liftM . (:)) (return []) throwError
-
-{-------------------------------------------------------------------------------
-  Paths
--------------------------------------------------------------------------------}
-
-pathPkgMetaData :: PackageIdentifier -> FilePath
-pathPkgMetaData pkgId = pkgLoc pkgId </> "targets.json"

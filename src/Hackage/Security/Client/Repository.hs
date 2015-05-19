@@ -2,20 +2,23 @@ module Hackage.Security.Client.Repository (
     Repository(..)
   , RemoteFile(..)
   , CachedFile(..)
+  , IndexFile(..)
   , TempPath
   , LogMessage(..)
     -- * Paths
   , remoteFilePath
   , cachedFilePath
+  , indexFilePath
     -- * Names of package files
-  , pkgLoc
   , pkgTarGz
     -- * Utility
+  , IsCached(..)
   , mustCache
   , formatLogMessage
   ) where
 
 import System.FilePath
+import qualified Data.ByteString as BS
 
 import Distribution.Package
 import Distribution.Text
@@ -75,9 +78,12 @@ data CachedFile =
 
     -- | Snapshot metadata (@snapshot.json@)
   | CachedSnapshot
+  deriving Show
 
-    -- | Index (uncompressed)
-  | CachedIndexTar
+-- | Files that we might request from the index
+data IndexFile =
+    -- | Package-specific metadata (@targets.json@)
+    IndexPkgMetadata PackageIdentifier
   deriving Show
 
 -- | Path to temporary file
@@ -129,6 +135,14 @@ data Repository = Repository {
     -- It would also be okay, but not required, to delete the index.
   , repClearCache :: IO ()
 
+    -- | Get a file from the index
+    --
+    -- The use of a strict bytestring here is intentional: it means the
+    -- Repository is free to keep the index open and just seek the handle
+    -- for different files. Since we only extract small files, having the
+    -- entire extracted file in memory is not an issue.
+  , repGetFromIndex :: IndexFile -> IO (Maybe BS.ByteString)
+
     -- | Logging
   , repLog :: LogMessage -> IO ()
   }
@@ -161,10 +175,12 @@ remoteFilePath (RemoteIndex {})         = "00-index.tar.gz"
 remoteFilePath (RemotePkgTarGz pkgId _) = pkgLoc pkgId </> pkgTarGz pkgId
 
 cachedFilePath :: CachedFile -> FilePath
-cachedFilePath CachedTimestamp = "timestamp.json"
-cachedFilePath CachedRoot      = "root.json"
-cachedFilePath CachedSnapshot  = "snapshot.json"
-cachedFilePath CachedIndexTar  = "00-index.tar"
+cachedFilePath CachedTimestamp    = "timestamp.json"
+cachedFilePath CachedRoot         = "root.json"
+cachedFilePath CachedSnapshot     = "snapshot.json"
+
+indexFilePath :: IndexFile -> FilePath
+indexFilePath (IndexPkgMetadata pkgId) = pkgLoc pkgId </> "targets.json"
 
 pkgLoc :: PackageIdentifier -> FilePath
 pkgLoc pkgId = display (packageName pkgId) </> display (packageVersion pkgId)
@@ -182,13 +198,35 @@ pkgTarGz pkgId = concat [
   Utility
 -------------------------------------------------------------------------------}
 
+-- | Is a particular remote file cached?
+data IsCached =
+    -- | This remote file should be cached, and we ask for it by name
+    CacheAs CachedFile
+
+    -- | We don't cache this remote file
+    --
+    -- This doesn't mean a Repository should not feel free to cache the file
+    -- if desired, but it does mean the generic algorithms will never ask for
+    -- this file from the cache.
+  | DontCache
+
+    -- | The index is somewhat special: it should be cached, but we never
+    -- ask for it directly.
+    --
+    -- Instead, we will ask the Repository for files _from_ the index, which it
+    -- can serve however it likes. For instance, some repositories might keep
+    -- the index in uncompressed form, others in compressed form; some might
+    -- keep an index tarball index for quick access, others may scan the tarball
+    -- linearly, etc.
+  | CacheIndex
+
 -- | Which remote files should we cache locally?
-mustCache :: RemoteFile -> Maybe CachedFile
-mustCache RemoteTimestamp      = Just CachedTimestamp
-mustCache (RemoteRoot _)       = Just CachedRoot
-mustCache (RemoteSnapshot _)   = Just CachedSnapshot
-mustCache (RemoteIndex {})     = Just CachedIndexTar
-mustCache (RemotePkgTarGz _ _) = Nothing
+mustCache :: RemoteFile -> IsCached
+mustCache RemoteTimestamp      = CacheAs CachedTimestamp
+mustCache (RemoteRoot _)       = CacheAs CachedRoot
+mustCache (RemoteSnapshot _)   = CacheAs CachedSnapshot
+mustCache (RemoteIndex {})     = CacheIndex
+mustCache (RemotePkgTarGz _ _) = DontCache
 
 formatLogMessage :: LogMessage -> String
 formatLogMessage LogRootUpdated =

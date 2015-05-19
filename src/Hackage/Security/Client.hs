@@ -14,11 +14,12 @@ import Control.Monad.Trans.Cont
 import Data.Time
 import Data.Typeable (Typeable)
 import System.FilePath
+import qualified Data.ByteString      as BS
+import qualified Data.ByteString.Lazy as BS.L
 
 import Distribution.Package (PackageIdentifier)
 import Distribution.Text
 
-import Hackage.Security.Client.IndexTarball
 import Hackage.Security.Client.Repository (Repository)
 import Hackage.Security.Client.Repository hiding (Repository(..))
 import Hackage.Security.JSON
@@ -285,11 +286,6 @@ downloadPackage rep pkgId callback = evalContT $ do
       >>= return . trustLocalFile
     let keyEnv = rootKeys (trusted cachedRoot)
 
-    -- Get the index tarball
-    indexTarball :: FilePath
-       <- repGetCached rep CachedIndexTar
-      >>= indexMustExist
-
     -- NOTE: The files inside the index as evaluated lazily.
     -- See also <https://github.com/theupdateframework/tuf/issues/282>.
     --
@@ -314,7 +310,7 @@ downloadPackage rep pkgId callback = evalContT $ do
     -- apply the delegation rules. Until we have author signing however this
     -- is unnecessary.
     targets :: Trusted Targets
-       <- liftIO (extractFile indexTarball (pathPkgMetaData pkgId))
+       <- repGetFromIndex rep (IndexPkgMetadata pkgId)
       >>= packageMustExist
       >>= throwErrors . parseJSON keyEnv
       >>= return . trustIndex
@@ -339,10 +335,6 @@ downloadPackage rep pkgId callback = evalContT $ do
     packageMustExist :: MonadIO m => Maybe a -> m a
     packageMustExist (Just fp) = return fp
     packageMustExist Nothing   = liftIO $ throwIO $ InvalidPackageException pkgId
-
-    indexMustExist :: MonadIO m => Maybe a -> m a
-    indexMustExist (Just fp) = return fp
-    indexMustExist Nothing   = liftIO $ throwIO $ IndexUnavailable
 
 data InvalidPackageException = InvalidPackageException PackageIdentifier
   deriving (Show, Typeable)
@@ -371,6 +363,18 @@ repClearCache r = liftIO $ Repository.repClearCache r
 
 repLog :: MonadIO m => Repository -> LogMessage -> m ()
 repLog r msg = liftIO $ Repository.repLog r msg
+
+-- We translate to a lazy bytestring here for convenience
+repGetFromIndex :: MonadIO m
+                => Repository
+                -> IndexFile
+                -> m (Maybe BS.L.ByteString)
+repGetFromIndex r file = liftIO $
+    fmap tr <$> Repository.repGetFromIndex r file
+  where
+    tr :: BS.ByteString -> BS.L.ByteString
+    tr = BS.L.fromChunks . (:[])
+
 
 {-------------------------------------------------------------------------------
   Auxiliary
