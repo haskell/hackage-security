@@ -10,6 +10,7 @@ import Network.URI
 import System.FilePath
 import System.IO
 import System.IO.Temp
+import qualified Data.ByteString.Lazy as BS.L
 
 import Hackage.Security.Client.Repository
 import Hackage.Security.Client.Repository.HTTP
@@ -36,7 +37,7 @@ get uri mlen callback = do
       request (mkRequest GET uri)
     if rspCode response == (2, 0, 0)
       then withSystemTempFile (takeFileName (uriPath uri)) $ \tempPath h -> do
-             hPutStr h (rspBody response)
+             BS.L.hPutStr h (rspBody response)
              hClose h
              callback tempPath
       else throwIO $ userError $ "Expected 200 OK, got " ++ show (rspCode response)
