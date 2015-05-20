@@ -19,6 +19,8 @@ import qualified Data.ByteString        as BS
 import qualified Data.ByteString.Lazy   as BS.L
 
 import Hackage.Security.Client.Repository
+import Hackage.Security.Client.Formats
+import Hackage.Security.Util.Some
 import qualified Hackage.Security.Client.IndexTarball as Index
 
 {-------------------------------------------------------------------------------
@@ -47,26 +49,29 @@ initRepo repo cache = Repository {
 
 -- | Get a file from the server
 withRemote :: LocalRepo -> Cache
-           -> RemoteFile -> (Format -> TempPath -> IO a) -> IO a
+           -> RemoteFile fs -> (FormatSum fs -> TempPath -> IO a) -> IO a
 withRemote repo cache remoteFile callback = do
     result <- callback format remotePath
-    cacheRemoteFile cache remotePath format (mustCache remoteFile)
+    cacheRemoteFile cache remotePath (formatSumSome format) (mustCache remoteFile)
     return result
   where
-    (format, remotePath') = preferFormat FormatUncompressed $
-                              remoteFilePath remoteFile
+    (format, remotePath') = formatProdPrefer
+                              (remoteFileNonEmpty remoteFile)
+                              FormatUncompressed
+                              (remoteFilePath remoteFile)
     remotePath = repo </> remotePath'
 
 -- | Cache a previously downloaded remote file
-cacheRemoteFile :: Cache -> TempPath -> Format -> IsCached -> IO ()
-cacheRemoteFile cache tempPath = go
+cacheRemoteFile :: Cache -> TempPath -> Some Format -> IsCached -> IO ()
+cacheRemoteFile cache tempPath (Some f) = go f
   where
-    go :: Format -> IsCached -> IO ()
-    go _format (CacheAs cachedFile) = do
-      evaluate $ assert (_format == FormatUncompressed) ()
+    go :: Format f -> IsCached -> IO ()
+    go FormatUncompressed (CacheAs cachedFile) = do
       let localPath = cache </> cachedFilePath cachedFile
       -- TODO: (here and elsewhere): use atomic file operation instead
       copyFile tempPath localPath
+    go _ (CacheAs _) =
+      error "the impossible happened: unexpected compressed file"
     go FormatUncompressed CacheIndex = do
       let localPath = cache </> "00-index.tar"
       copyFile tempPath localPath

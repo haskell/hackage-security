@@ -19,6 +19,7 @@ library
   exposed-modules:     Hackage.Security.Base64
                        Hackage.Security.Client
                        Hackage.Security.Client.IndexTarball
+                       Hackage.Security.Client.Formats
                        Hackage.Security.Client.Repository
                        Hackage.Security.Client.Repository.Local
                        Hackage.Security.Client.Repository.HTTP
@@ -27,7 +28,6 @@ library
                        Hackage.Security.Key.Env
                        Hackage.Security.Key.ExplicitSharing
                        Hackage.Security.Server.IndexTarball
-                       Hackage.Security.Some
                        Hackage.Security.Trusted
                        Hackage.Security.Trusted.Unsafe
                        Hackage.Security.TUF
@@ -40,6 +40,9 @@ library
                        Hackage.Security.TUF.Snapshot
                        Hackage.Security.TUF.Targets
                        Hackage.Security.TUF.Timestamp
+                       Hackage.Security.Util.Some
+                       Hackage.Security.Util.Stack
+                       Hackage.Security.Util.TypedEmbedded
   other-modules:       Prelude
                        Text.JSON.Canonical
   -- We support ghc 7.2 (bundled with Cabal 1.12) and up

@@ -23,7 +23,7 @@ import qualified Data.ByteString.Lazy as BS.L
 import Hackage.Security.JSON
 import Hackage.Security.Key
 import Hackage.Security.Key.ExplicitSharing
-import Hackage.Security.Some
+import Hackage.Security.Util.Some
 import Text.JSON.Canonical
 import qualified Hackage.Security.Base64 as B64
 

@@ -26,7 +26,7 @@ import qualified Data.ByteString.Lazy as BS.L
 import Hackage.Security.Key
 import Hackage.Security.Key.Env (KeyEnv)
 import Hackage.Security.JSON
-import Hackage.Security.Some
+import Hackage.Security.Util.Some
 import Text.JSON.Canonical
 import qualified Hackage.Security.Key.Env as KeyEnv
 

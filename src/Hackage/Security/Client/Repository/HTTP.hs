@@ -8,6 +8,7 @@ module Hackage.Security.Client.Repository.HTTP (
 import Network.URI
 import System.FilePath
 
+import Hackage.Security.Client.Formats
 import Hackage.Security.Client.Repository
 import Hackage.Security.Client.Repository.Local (Cache)
 import Hackage.Security.TUF
@@ -62,19 +63,21 @@ initRepo http auth cache = Repository {
 --
 -- TODO: We need to deal with the combined timestamp/snapshot thing
 withRemote :: HttpClient -> URI -> Cache
-           -> RemoteFile -> (Format -> TempPath -> IO a) -> IO a
+           -> RemoteFile fs -> (FormatSum fs -> TempPath -> IO a) -> IO a
 withRemote HttpClient{..} baseURI cache remoteFile callback =
     httpClientGet uri sz $ \tempPath -> do
       result <- callback format tempPath
-      Local.cacheRemoteFile cache tempPath format (mustCache remoteFile)
+      Local.cacheRemoteFile cache tempPath (formatSumSome format) (mustCache remoteFile)
       return result
   where
-    (format, (uri, sz)) = preferFormat FormatCompressedGz $
-                            mergeMultipleFormats
+    (format, (uri, sz)) = formatProdPrefer
+                            (remoteFileNonEmpty remoteFile)
+                            FormatCompressedGz
+                            (formatProdZip
                               (remoteFileURI baseURI remoteFile)
-                              (remoteFileSize remoteFile)
+                              (remoteFileSize remoteFile))
 
-remoteFileURI :: URI -> RemoteFile -> MultipleFormats URI
+remoteFileURI :: URI -> RemoteFile fs -> FormatProd fs URI
 remoteFileURI baseURI = fmap aux . remoteFilePath
   where
     aux :: FilePath -> URI
@@ -83,16 +86,16 @@ remoteFileURI baseURI = fmap aux . remoteFilePath
 -- | Extracting or estimating file sizes
 --
 -- TODO: Put in estimates
-remoteFileSize :: RemoteFile -> MultipleFormats FileSize
-remoteFileSize (RemoteTimestamp) = multipleFormats $
-    [ (FormatUncompressed, FileSizeUnknown) ]
-remoteFileSize (RemoteRoot mLen) = multipleFormats $
-    [ (FormatUncompressed, sz) ]
+remoteFileSize :: RemoteFile fs -> FormatProd fs FileSize
+remoteFileSize (RemoteTimestamp) =
+    FC FormatUncompressed FileSizeUnknown FN
+remoteFileSize (RemoteRoot mLen) =
+    FC FormatUncompressed sz FN
   where
     sz = maybe FileSizeUnknown (FileSizeExact . trustedFileLength) mLen
-remoteFileSize (RemoteSnapshot len) = multipleFormats $
-    [ (FormatUncompressed, FileSizeExact (trustedFileLength len)) ]
-remoteFileSize (RemoteIndex lens) =
+remoteFileSize (RemoteSnapshot len) =
+    FC FormatUncompressed (FileSizeExact (trustedFileLength len)) FN
+remoteFileSize (RemoteIndex _ lens) =
     fmap (FileSizeExact . trustedFileLength) lens
-remoteFileSize (RemotePkgTarGz _pkgId len) = multipleFormats $
-    [ (FormatCompressedGz, FileSizeExact (trustedFileLength len)) ]
+remoteFileSize (RemotePkgTarGz _pkgId len) =
+    FC FormatCompressedGz (FileSizeExact (trustedFileLength len)) FN

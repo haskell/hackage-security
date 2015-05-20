@@ -23,13 +23,15 @@ import Hackage.Security.JSON
 import Hackage.Security.Key
 import Hackage.Security.Key.Env (KeyEnv)
 import Hackage.Security.Key.ExplicitSharing
-import Hackage.Security.Some
 import Hackage.Security.Trusted.Unsafe
 import Hackage.Security.TUF.Common
 import Hackage.Security.TUF.FileInfo
 import Hackage.Security.TUF.FileMap (FileMap)
 import Hackage.Security.TUF.Header
 import Hackage.Security.TUF.Signed
+import Hackage.Security.Util.Some
+import Hackage.Security.Util.Stack
+import Hackage.Security.Util.TypedEmbedded
 import qualified Hackage.Security.TUF.FileMap as FileMap
 
 {-------------------------------------------------------------------------------
@@ -91,10 +93,6 @@ trustedTargetsLookup fp (trusted -> Targets{..}) =
 {-------------------------------------------------------------------------------
   Patterns and replacements
 -------------------------------------------------------------------------------}
-
-data h :- t = h :- t
-  deriving (Eq, Show)
-infixr 5 :-
 
 type FileName  = String
 type Directory = String

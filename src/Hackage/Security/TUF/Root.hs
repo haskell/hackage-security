@@ -27,7 +27,6 @@ import Hackage.Security.JSON
 import Hackage.Security.Key
 import Hackage.Security.Key.Env (KeyEnv)
 import Hackage.Security.Key.ExplicitSharing
-import Hackage.Security.Some
 import Hackage.Security.Trusted.Unsafe
 import Hackage.Security.TUF.Common
 import Hackage.Security.TUF.Header
@@ -35,6 +34,7 @@ import Hackage.Security.TUF.Signed
 import Hackage.Security.TUF.Snapshot
 import Hackage.Security.TUF.Targets
 import Hackage.Security.TUF.Timestamp
+import Hackage.Security.Util.Some
 
 {-------------------------------------------------------------------------------
   Datatypes
@@ -180,7 +180,7 @@ verifyRole (trusted -> RoleSpec{roleSpecThreshold = KeyThreshold threshold, ..})
         (Just now, Just expiry) ->
           when (isExpired now expiry) $
             throwError $ VerificationErrorExpired (describeFile signed)
-        _otherwise -> 
+        _otherwise ->
           return ()
 
       -- Verify timestamp

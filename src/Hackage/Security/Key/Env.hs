@@ -18,7 +18,7 @@ import qualified Data.Map as Map
 
 import Hackage.Security.JSON
 import Hackage.Security.Key
-import Hackage.Security.Some
+import Hackage.Security.Util.Some
 
 newtype KeyEnv = KeyEnv {
     keyEnvMap :: Map KeyId (Some PublicKey)

@@ -21,8 +21,8 @@ import Distribution.Text
 import Hackage.Security.JSON
 import Hackage.Security.Key
 import Hackage.Security.Key.ExplicitSharing
-import Hackage.Security.Some
 import Hackage.Security.TUF
+import Hackage.Security.Util.Some
 import qualified Hackage.Security.TUF.FileMap         as FileMap
 import qualified Hackage.Security.Key.Env             as KeyEnv
 import qualified Hackage.Security.Server.IndexTarball as Index

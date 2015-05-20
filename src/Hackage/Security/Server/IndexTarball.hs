@@ -11,9 +11,14 @@ import qualified Codec.Archive.Tar       as Tar
 import qualified Codec.Archive.Tar.Index as Tar
 import qualified Data.ByteString.Lazy    as BS.L
 
--- | Append (or create) asome files to tarball
+-- | Append (or create) some files to tarball
+--
+-- TODO: Exceptions are masked inside the before and after arguments to
+-- bracket, so we should change this to do less in those arguments.
+-- TODO: Get rid of doesFileExist and instead use hFileSize
+-- TODO: Use withFile rather than BS.L.readFile (but still use evaluate)
 appendToTarball :: FilePath -> FilePath -> [FilePath] -> IO ()
-appendToTarball tar baseDir newFiles = 
+appendToTarball tar baseDir newFiles =
     bracket openOrCreate hClose $ \h -> do
       newEntries <- Tar.pack baseDir newFiles
       BS.L.hPut h $ Tar.write newEntries

@@ -22,11 +22,14 @@ import Distribution.Text
 
 import Hackage.Security.Client.Repository (Repository)
 import Hackage.Security.Client.Repository hiding (Repository(..))
+import Hackage.Security.Client.Formats
 import Hackage.Security.JSON
 import Hackage.Security.Key.Env (KeyEnv)
 import Hackage.Security.Key.ExplicitSharing
 import Hackage.Security.Trusted.Unsafe
 import Hackage.Security.TUF
+import Hackage.Security.Util.Stack
+import Hackage.Security.Util.Some
 import qualified Hackage.Security.Key.Env as KeyEnv
 import qualified Hackage.Security.Client.Repository as Repository
 
@@ -155,12 +158,16 @@ checkForUpdates rep checkExpiry =
           let mOldTarGzInfo = fmap trustedSnapshotInfoTarGz mOldSS
               newTarGzInfo  = trustedSnapshotInfoTarGz newSS
               mNewTarInfo   = trustedSnapshotInfoTar   newSS
-              expectedIndex = RemoteIndex . multipleFormats . concat $ [
-                  [ (FormatCompressedGz, trustedFileInfoLength newTarGzInfo) ]
-                , [ (FormatUncompressed, trustedFileInfoLength len)
-                  | Just len <- [mNewTarInfo]
-                  ]
-                ]
+              expectedIndex =
+                  -- This definition is a bit ugly, not sure how to improve it
+                  case mNewTarInfo of
+                    Nothing -> Some $ RemoteIndex NonEmpty
+                      $ FC FormatCompressedGz (trustedFileInfoLength newTarGzInfo)
+                      $ FN
+                    Just newTarInfo -> Some $ RemoteIndex NonEmpty
+                      $ FC FormatCompressedGz (trustedFileInfoLength newTarGzInfo)
+                      $ FC FormatUncompressed (trustedFileInfoLength newTarInfo)
+                      $ FN
           when (infoChanged mOldTarGzInfo newTarGzInfo) $ do
             (indexFormat, indexPath) <- repGetRemote rep expectedIndex
 
@@ -171,14 +178,14 @@ checkForUpdates rep checkExpiry =
             -- don't want to require the 'Repository' to decompress an
             -- unverified file (because a clever attacker could then exploit,
             -- say, buffer overrun in the decompression algorithm).
-            void $ case indexFormat of
-              FormatCompressedGz ->
-                verifyFileInfo' (Just newTarGzInfo) indexPath
-              FormatUncompressed ->
+            case indexFormat of
+              Some FormatCompressedGz ->
+                void $ verifyFileInfo' (Just newTarGzInfo) indexPath
+              Some FormatUncompressed ->
                 -- If the repository returns an uncompressed index but does
                 -- not list a corresponding hash we throw an exception
                 case mNewTarInfo of
-                  Just info -> verifyFileInfo' (Just info) indexPath
+                  Just info -> void $ verifyFileInfo' (Just info) indexPath
                   Nothing   -> liftIO $ throwIO unexpectedUncompressedTar
 
           return HasUpdates
@@ -343,13 +350,26 @@ instance Exception InvalidPackageException
   Wrapper around the Repository functions (to avoid callback hell)
 -------------------------------------------------------------------------------}
 
-repGetRemote :: Repository -> RemoteFile -> ContT r IO (Format, TempPath)
-repGetRemote r file = ContT (Repository.repWithRemote r file . curry)
+repGetRemote :: Repository -> Some RemoteFile -> ContT r IO (Some Format, TempPath)
+repGetRemote r (Some file) = ContT aux
+  where
+    aux :: ((Some Format, TempPath) -> IO r) -> IO r
+    aux k = Repository.repWithRemote r file (wrapK k)
 
--- | Variation on repGetRemote when we don't need to know the format of
--- the result (in cases where we only expect one format anyway)
-repGetRemote' :: Repository -> RemoteFile -> ContT r IO TempPath
-repGetRemote' r file = snd <$> repGetRemote r file
+    wrapK :: ((Some Format, TempPath) -> IO r)
+          -> (FormatSum fs -> TempPath -> IO r)
+    wrapK k format tempPath = k (formatSumSome format, tempPath)
+
+-- | Variation on repGetRemote where we only expect one type of result
+repGetRemote' :: Repository -> RemoteFile (f :- ()) -> ContT r IO TempPath
+repGetRemote' r file = ContT aux
+  where
+    aux :: (TempPath -> IO r) -> IO r
+    aux k = Repository.repWithRemote r file (wrapK k)
+
+    wrapK :: (TempPath -> IO r)
+          -> (FormatSum fs -> TempPath -> IO r)
+    wrapK k _format tempPath = k tempPath
 
 repGetCached :: MonadIO m => Repository -> CachedFile -> m (Maybe FilePath)
 repGetCached r file = liftIO $ Repository.repGetCached r file

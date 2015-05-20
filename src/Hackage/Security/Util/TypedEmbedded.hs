@@ -1,18 +1,11 @@
-module Hackage.Security.Some (
-    -- * Typed embedded languages
+-- | Embedded languages with meta level types
+module Hackage.Security.Util.TypedEmbedded (
     (:=:)(Refl)
   , TypeOf
   , Unify(..)
   , Typed(..)
   , AsType(..)
-    -- * Hiding existentials
-  , Some(..)
-  , typecheckSome
   ) where
-
-{-------------------------------------------------------------------------------
-  Embedded languages with meta level types
--------------------------------------------------------------------------------}
 
 -- | Type equality proofs
 --
@@ -43,30 +36,3 @@ class AsType f where
   asType x typ = case unify (typeOf x) typ of
                    Just Refl -> Just x
                    Nothing   -> Nothing
-
-{-------------------------------------------------------------------------------
-  Hiding existentials
--------------------------------------------------------------------------------}
-
-data Some f where
-    Some :: (Eq (f a), Ord (f a), Show (f a)) => f a -> Some f
-
-deriving instance Show (Some f)
-
-instance Typed f => Eq (Some f) where
-    Some a == Some b =
-      case unify (typeOf a) (typeOf b) of
-        Just Refl -> a == b
-        Nothing   -> False
-
-instance Typed f => Ord (Some f) where
-    Some a <= Some b =
-      case unify (typeOf a) (typeOf b) of
-        Just Refl -> a <= b
-        Nothing   -> False
-
-typecheckSome :: Typed f => Some f -> Some (TypeOf f) -> Bool
-typecheckSome (Some x) (Some typ) =
-    case unify (typeOf x) typ of
-      Just Refl -> True
-      Nothing   -> False
