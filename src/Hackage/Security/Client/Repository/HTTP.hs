@@ -62,33 +62,37 @@ initRepo http auth cache = Repository {
 --
 -- TODO: We need to deal with the combined timestamp/snapshot thing
 withRemote :: HttpClient -> URI -> Cache
-           -> RemoteFile -> (TempPath -> IO a) -> IO a
+           -> RemoteFile -> (Format -> TempPath -> IO a) -> IO a
 withRemote HttpClient{..} baseURI cache remoteFile callback =
-    httpClientGet url sz $ \tempPath -> do
-      result <- callback tempPath
-      Local.cacheRemoteFile cache tempPath (mustCache remoteFile)
+    httpClientGet uri sz $ \tempPath -> do
+      result <- callback format tempPath
+      Local.cacheRemoteFile cache tempPath format (mustCache remoteFile)
       return result
   where
-    url = remoteFileURI baseURI remoteFile
-    sz  = remoteFileSize remoteFile
+    (format, (uri, sz)) = preferFormat FormatCompressedGz $
+                            mergeMultipleFormats
+                              (remoteFileURI baseURI remoteFile)
+                              (remoteFileSize remoteFile)
 
--- TODO: Provide upper bounds
-remoteFileURI :: URI -> RemoteFile -> URI
-remoteFileURI baseURI file = baseURI {
-      uriPath = uriPath baseURI </> remoteFilePath file
-    }
+remoteFileURI :: URI -> RemoteFile -> MultipleFormats URI
+remoteFileURI baseURI = fmap aux . remoteFilePath
+  where
+    aux :: FilePath -> URI
+    aux remotePath = baseURI { uriPath = uriPath baseURI </> remotePath }
 
 -- | Extracting or estimating file sizes
 --
 -- TODO: Put in estimates
-remoteFileSize :: RemoteFile -> FileSize
-remoteFileSize (RemoteTimestamp) =
-    FileSizeUnknown
-remoteFileSize (RemoteRoot mLen) =
-    maybe FileSizeUnknown (FileSizeExact . trustedFileLength) mLen
-remoteFileSize (RemoteSnapshot len) =
-    FileSizeExact (trustedFileLength len)
-remoteFileSize (RemoteIndex{..}) =
-    FileSizeExact (trustedFileLength fileIndexLenTarGz)
-remoteFileSize (RemotePkgTarGz _pkgId len) =
-    FileSizeExact (trustedFileLength len)
+remoteFileSize :: RemoteFile -> MultipleFormats FileSize
+remoteFileSize (RemoteTimestamp) = multipleFormats $
+    [ (FormatUncompressed, FileSizeUnknown) ]
+remoteFileSize (RemoteRoot mLen) = multipleFormats $
+    [ (FormatUncompressed, sz) ]
+  where
+    sz = maybe FileSizeUnknown (FileSizeExact . trustedFileLength) mLen
+remoteFileSize (RemoteSnapshot len) = multipleFormats $
+    [ (FormatUncompressed, FileSizeExact (trustedFileLength len)) ]
+remoteFileSize (RemoteIndex lens) =
+    fmap (FileSizeExact . trustedFileLength) lens
+remoteFileSize (RemotePkgTarGz _pkgId len) = multipleFormats $
+    [ (FormatCompressedGz, FileSizeExact (trustedFileLength len)) ]

@@ -106,7 +106,7 @@ checkForUpdates rep checkExpiry =
 
       -- Get the new timestamp
       newTS :: Trusted Timestamp
-         <- repGetRemote rep RemoteTimestamp
+         <- repGetRemote' rep RemoteTimestamp
         >>= readJSON keyEnv
         >>= throwErrors . verifyTimestamp
               cachedRoot
@@ -130,7 +130,7 @@ checkForUpdates rep checkExpiry =
           let expectedSnapshot =
                 RemoteSnapshot (trustedFileInfoLength newSnapshotInfo)
           newSS :: Trusted Snapshot
-             <- repGetRemote rep expectedSnapshot
+             <- repGetRemote' rep expectedSnapshot
             >>= verifyFileInfo' (Just newSnapshotInfo)
             >>= readJSON keyEnv
             >>= throwErrors . verifySnapshot
@@ -155,12 +155,14 @@ checkForUpdates rep checkExpiry =
           let mOldTarGzInfo = fmap trustedSnapshotInfoTarGz mOldSS
               newTarGzInfo  = trustedSnapshotInfoTarGz newSS
               mNewTarInfo   = trustedSnapshotInfoTar   newSS
-              expectedIndex = RemoteIndex {
-                  fileIndexLenTarGz = trustedFileInfoLength newTarGzInfo
-                , fileIndexLenTar   = fmap trustedFileInfoLength mNewTarInfo
-                }
+              expectedIndex = RemoteIndex . multipleFormats . concat $ [
+                  [ (FormatCompressedGz, trustedFileInfoLength newTarGzInfo) ]
+                , [ (FormatUncompressed, trustedFileInfoLength len)
+                  | Just len <- [mNewTarInfo]
+                  ]
+                ]
           when (infoChanged mOldTarGzInfo newTarGzInfo) $ do
-            indexPath <- repGetRemote rep expectedIndex
+            (indexFormat, indexPath) <- repGetRemote rep expectedIndex
 
             -- Check against the appropriate hash, depending on which file the
             -- 'Repository' decided to download. Note that we cannot ask the
@@ -169,18 +171,15 @@ checkForUpdates rep checkExpiry =
             -- don't want to require the 'Repository' to decompress an
             -- unverified file (because a clever attacker could then exploit,
             -- say, buffer overrun in the decompression algorithm).
-            let (_, indexExt) = splitExtension indexPath
-            void $ case indexExt of
-              ".gz" ->
+            void $ case indexFormat of
+              FormatCompressedGz ->
                 verifyFileInfo' (Just newTarGzInfo) indexPath
-              ".tar" ->
+              FormatUncompressed ->
                 -- If the repository returns an uncompressed index but does
                 -- not list a corresponding hash we throw an exception
                 case mNewTarInfo of
                   Just info -> verifyFileInfo' (Just info) indexPath
                   Nothing   -> liftIO $ throwIO unexpectedUncompressedTar
-              _otherwise ->
-                liftIO $ throwIO unexpectedIndexFormat
 
           return HasUpdates
 
@@ -189,7 +188,6 @@ checkForUpdates rep checkExpiry =
     infoChanged (Just old) new = old /= new
 
     -- TODO: Should these be structured types?
-    unexpectedIndexFormat     = userError "Unexpected index format"
     unexpectedUncompressedTar = userError "Unexpected uncompressed tarball"
 
 -- | Root metadata updated
@@ -248,7 +246,7 @@ updateRoot rep mNow eFileInfo = evalContT $ do
     let mFileInfo    = eitherToMaybe eFileInfo
         expectedRoot = RemoteRoot (fmap trustedFileInfoLength mFileInfo)
     _newRoot :: Trusted Root
-       <- repGetRemote rep expectedRoot
+       <- repGetRemote' rep expectedRoot
       >>= verifyFileInfo' mFileInfo
       >>= readJSON KeyEnv.empty
       >>= throwErrors . verifyRoot oldRoot mNow
@@ -324,7 +322,7 @@ downloadPackage rep pkgId callback = evalContT $ do
 
     -- TODO: should we check if cached package available? (spec says no)
     let expectedPkg = RemotePkgTarGz pkgId (trustedFileInfoLength targetMetaData)
-    tarGz <- repGetRemote rep expectedPkg
+    tarGz <- repGetRemote' rep expectedPkg
          >>= verifyFileInfo' (Just targetMetaData)
     lift $ callback tarGz
   where
@@ -339,18 +337,19 @@ downloadPackage rep pkgId callback = evalContT $ do
 data InvalidPackageException = InvalidPackageException PackageIdentifier
   deriving (Show, Typeable)
 
-data IndexUnavailable = IndexUnavailable
-  deriving (Show, Typeable)
-
 instance Exception InvalidPackageException
-instance Exception IndexUnavailable
 
 {-------------------------------------------------------------------------------
   Wrapper around the Repository functions (to avoid callback hell)
 -------------------------------------------------------------------------------}
 
-repGetRemote :: Repository -> RemoteFile -> ContT r IO TempPath
-repGetRemote r file = ContT $ Repository.repWithRemote r file
+repGetRemote :: Repository -> RemoteFile -> ContT r IO (Format, TempPath)
+repGetRemote r file = ContT (Repository.repWithRemote r file . curry)
+
+-- | Variation on repGetRemote when we don't need to know the format of
+-- the result (in cases where we only expect one format anyway)
+repGetRemote' :: Repository -> RemoteFile -> ContT r IO TempPath
+repGetRemote' r file = snd <$> repGetRemote r file
 
 repGetCached :: MonadIO m => Repository -> CachedFile -> m (Maybe FilePath)
 repGetCached r file = liftIO $ Repository.repGetCached r file

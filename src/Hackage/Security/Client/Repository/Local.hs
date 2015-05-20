@@ -47,28 +47,35 @@ initRepo repo cache = Repository {
 
 -- | Get a file from the server
 withRemote :: LocalRepo -> Cache
-           -> RemoteFile -> (TempPath -> IO a) -> IO a
+           -> RemoteFile -> (Format -> TempPath -> IO a) -> IO a
 withRemote repo cache remoteFile callback = do
-    result <- callback remotePath
-    cacheRemoteFile cache remotePath (mustCache remoteFile)
+    result <- callback format remotePath
+    cacheRemoteFile cache remotePath format (mustCache remoteFile)
     return result
   where
-    remotePath = repo </> remoteFilePath remoteFile
+    (format, remotePath') = preferFormat FormatUncompressed $
+                              remoteFilePath remoteFile
+    remotePath = repo </> remotePath'
 
 -- | Cache a previously downloaded remote file
-cacheRemoteFile :: Cache -> TempPath -> IsCached -> IO ()
+cacheRemoteFile :: Cache -> TempPath -> Format -> IsCached -> IO ()
 cacheRemoteFile cache tempPath = go
   where
-    go :: IsCached -> IO ()
-    go (CacheAs cachedFile) = do
+    go :: Format -> IsCached -> IO ()
+    go _format (CacheAs cachedFile) = do
+      evaluate $ assert (_format == FormatUncompressed) ()
       let localPath = cache </> cachedFilePath cachedFile
       -- TODO: (here and elsewhere): use atomic file operation instead
       copyFile tempPath localPath
-    go CacheIndex = do
+    go FormatUncompressed CacheIndex = do
+      let localPath = cache </> "00-index.tar"
+      copyFile tempPath localPath
+    go FormatCompressedGz CacheIndex = do
+      -- We always store the index uncompressed locally
       let localPath = cache </> "00-index.tar"
       compressed <- BS.L.readFile tempPath
       BS.L.writeFile localPath $ GZip.decompress compressed
-    go DontCache =
+    go _format DontCache =
       return ()
 
 -- | Get a cached file (if available)

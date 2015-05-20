@@ -1,8 +1,17 @@
 module Hackage.Security.Client.Repository (
-    Repository(..)
+    -- * File formats
+    MultipleFormats -- opaque
+  , Format(..)
+  , multipleFormats
+  , multipleFormatsList
+  , preferFormat
+  , mergeMultipleFormats
+    -- * Files
   , RemoteFile(..)
   , CachedFile(..)
   , IndexFile(..)
+    -- * Repository proper
+  , Repository(..)
   , TempPath
   , LogMessage(..)
     -- * Paths
@@ -17,6 +26,8 @@ module Hackage.Security.Client.Repository (
   , formatLogMessage
   ) where
 
+import Data.List (sortBy)
+import Data.Ord (comparing)
 import System.FilePath
 import qualified Data.ByteString as BS
 
@@ -25,6 +36,58 @@ import Distribution.Text
 
 import Hackage.Security.Trusted
 import Hackage.Security.TUF
+
+{-------------------------------------------------------------------------------
+  Multiple formats
+-------------------------------------------------------------------------------}
+
+-- | Some files might be available in mutual inter-derivable formats
+--
+-- INVARIANT: This list must be non-empty.
+newtype MultipleFormats a = MultipleFormats {
+    multipleFormatsList :: [(Format, a)]
+  }
+  deriving (Functor, Show)
+
+-- | Contruct 'MultipleFormats'
+--
+-- Enforces the invariant that the list is non-empty.
+multipleFormats :: [(Format, a)] -> MultipleFormats a
+multipleFormats [] = error "MultipleFormats must be non-empty"
+multipleFormats fs = MultipleFormats fs
+
+-- | Used to index 'MultipleFormats'
+data Format =
+    FormatUncompressed
+  | FormatCompressedGz
+  deriving (Eq, Ord, Show)
+
+preferFormat :: Format -> MultipleFormats a -> (Format, a)
+preferFormat preferred (MultipleFormats fs) =
+    case lookup preferred fs of
+      Just a  -> (preferred, a)
+      Nothing -> head fs
+
+-- | Merge two 'MultipleFormats'
+--
+-- This should only be used when we are sure that the two 'MultipleFormats'
+-- record the _same_ formats.
+--
+-- TODO: Ideally we'd express this in the types, but it gets a bit messy.
+-- See also note for 'remoteFilePath'.
+mergeMultipleFormats :: MultipleFormats a
+                     -> MultipleFormats b
+                     -> MultipleFormats (a, b)
+mergeMultipleFormats (MultipleFormats xs) (MultipleFormats ys) =
+    MultipleFormats $ zipWith aux (sortBy (comparing fst) xs)
+                                  (sortBy (comparing fst) ys)
+  where
+    aux :: (Format, a) -> (Format, b) -> (Format, (a, b))
+    aux (format, a) (_format, b) = (format, (a, b))
+
+{-------------------------------------------------------------------------------
+  Files
+-------------------------------------------------------------------------------}
 
 -- | Abstract definition of files we might have to download
 data RemoteFile =
@@ -53,15 +116,12 @@ data RemoteFile =
     -- The index file length comes from the snapshot.
     --
     -- When we request that the index is downloaded, it is up to the repository
-    -- to decide whether to download @00-index.tar@ or @00-index.tar.gz@. We
-    -- can see from the returned filename which file we are given.
+    -- to decide whether to download @00-index.tar@ or @00-index.tar.gz@.
+    -- The callback is told which format was requested.
     --
-    -- It is not required for repositories to provide the uncompressed tarball,
-    -- so the file length for the @.tar@ file is optional.
-  | RemoteIndex {
-        fileIndexLenTarGz :: Trusted FileLength
-      , fileIndexLenTar   :: Maybe (Trusted FileLength)
-      }
+    -- It is a bug to request a file that the repository does not provide
+    -- (the snapshot should make it clear which files are available).
+  | RemoteIndex (MultipleFormats (Trusted FileLength))
 
     -- | Actual package
     --
@@ -88,6 +148,10 @@ data IndexFile =
 
 -- | Path to temporary file
 type TempPath = FilePath
+
+{-------------------------------------------------------------------------------
+  Repository proper
+-------------------------------------------------------------------------------}
 
 -- | Repository
 --
@@ -118,7 +182,7 @@ data Repository = Repository {
     -- TODO: We should make it clear to the Repository that we are downloading
     -- files after a verification error. Remote repositories can use this
     -- information to force proxies to get files upstream.
-    repWithRemote :: forall a. RemoteFile -> (TempPath -> IO a) -> IO a
+    repWithRemote :: forall a. RemoteFile -> (Format -> TempPath -> IO a) -> IO a
 
     -- | Get a cached file (if available)
   , repGetCached :: CachedFile -> IO (Maybe FilePath)
@@ -167,12 +231,24 @@ data LogMessage =
   Paths
 -------------------------------------------------------------------------------}
 
-remoteFilePath :: RemoteFile -> FilePath
-remoteFilePath RemoteTimestamp          = "timestamp.json"
-remoteFilePath (RemoteRoot _)           = "root.json"
-remoteFilePath (RemoteSnapshot _)       = "snapshot.json"
-remoteFilePath (RemoteIndex {})         = "00-index.tar.gz"
-remoteFilePath (RemotePkgTarGz pkgId _) = pkgLoc pkgId </> pkgTarGz pkgId
+-- TODO: Ideally we'd use a GADT to connect the multiple formats of the result
+-- with the particular kind of remote file. However, the details are a bit
+-- messy so for now we don't.
+remoteFilePath :: RemoteFile -> MultipleFormats FilePath
+remoteFilePath RemoteTimestamp = MultipleFormats $
+    [ (FormatUncompressed, "timestamp.json") ]
+remoteFilePath (RemoteRoot _) = MultipleFormats $
+    [ (FormatUncompressed, "root.json") ]
+remoteFilePath (RemoteSnapshot _) = MultipleFormats $
+    [ (FormatUncompressed, "snapshot.json") ]
+remoteFilePath (RemoteIndex (MultipleFormats lens)) = MultipleFormats $
+    map aux lens
+  where
+    aux :: (Format, a) -> (Format, FilePath)
+    aux (FormatUncompressed, _) = (FormatUncompressed, "00-index.tar")
+    aux (FormatCompressedGz, _) = (FormatCompressedGz, "00-index.tar.gz")
+remoteFilePath (RemotePkgTarGz pkgId _) = MultipleFormats $
+    [ (FormatCompressedGz, pkgLoc pkgId </> pkgTarGz pkgId) ]
 
 cachedFilePath :: CachedFile -> FilePath
 cachedFilePath CachedTimestamp    = "timestamp.json"
