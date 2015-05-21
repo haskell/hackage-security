@@ -36,7 +36,6 @@ data Format :: * -> * where
     FormatCompressedGz :: Format FormatCompressedGz
 
 deriving instance Eq   (Format f)
-deriving instance Ord  (Format f)
 deriving instance Show (Format f)
 
 instance Unify Format where
@@ -53,7 +52,6 @@ data FormatProd :: * -> * -> * where
     FC :: Format f -> a -> FormatProd fs a -> FormatProd (f :- fs) a
 
 deriving instance Eq   a => Eq   (FormatProd fs a)
-deriving instance Ord  a => Ord  (FormatProd fs a)
 deriving instance Show a => Show (FormatProd fs a)
 
 instance Functor (FormatProd fs) where

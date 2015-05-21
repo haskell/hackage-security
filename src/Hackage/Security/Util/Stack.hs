@@ -13,5 +13,4 @@ data NonEmpty :: * -> * where
   NonEmpty :: NonEmpty (f :- fs)
 
 deriving instance Eq   (NonEmpty fs)
-deriving instance Ord  (NonEmpty fs)
 deriving instance Show (NonEmpty fs)

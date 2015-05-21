@@ -84,7 +84,6 @@ data RemoteFile :: * -> * where
                    -> RemoteFile (FormatCompressedGz :- ())
 
 deriving instance Eq   (RemoteFile fs)
-deriving instance Ord  (RemoteFile fs)
 deriving instance Show (RemoteFile fs)
 
 -- | Files that we might request from the local cache

@@ -138,36 +138,7 @@ deriving instance Eq   (Pattern typ)
 deriving instance Show (Pattern typ)
 
 deriving instance Eq   (Replacement typ)
-deriving instance Ord  (Replacement typ)
 deriving instance Show (Replacement typ)
-
--- Somewhat tricky to define (must either skip inaccessible patterns, but then
--- add an error case, or else use wildcards to cover these cases)
-instance Ord (Pattern typ) where
-    a `compare` b =
-      case (a, b) of
-        (PatFileConst f   , PatFileConst f'   ) -> f `compare` f'
-        (PatFileConst _   , _                 ) -> LT
-
-        (PatFileExt   e   , PatFileExt   e'   ) -> e `compare` e'
-        (PatFileExt   _   , PatFileAny        ) -> LT
-        (PatFileExt   _   , PatDirConst  _ _  ) -> LT
-        (PatFileExt   _   , PatDirAny      _  ) -> LT
-        (PatFileExt   _   , _                 ) -> GT -- case for PatFileConst
-
-        (PatFileAny       , PatFileExt   _    ) -> GT
-        (PatFileAny       , PatFileAny        ) -> EQ
-        (PatFileAny       , PatDirConst  _ _  ) -> LT
-        (PatFileAny       , PatDirAny      _  ) -> LT
-        (PatFileAny       , _                 ) -> GT -- case for PatFileConst
-
-        (PatDirConst  _ _ , PatFileConst _    ) -> GT
-        (PatDirConst  _ _ , PatFileExt   _    ) -> GT
-        (PatDirConst  c p , PatDirConst  c' p') -> (c, p) `compare` (c', p')
-        (PatDirConst  _ _ , _                 ) -> LT
-
-        (PatDirAny      p , PatDirAny       p') -> compare p p'
-        (PatDirAny      _ , _                 ) -> GT
 
 -- | The identity replacement replaces a matched pattern with itself
 identityReplacement :: Pattern typ -> Replacement typ

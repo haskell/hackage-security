@@ -59,10 +59,6 @@ deriving instance Eq (Key        typ)
 deriving instance Eq (PublicKey  typ)
 deriving instance Eq (PrivateKey typ)
 
-deriving instance Ord (Key        typ)
-deriving instance Ord (PublicKey  typ)
-deriving instance Ord (PrivateKey typ)
-
 publicKey :: Key a -> PublicKey a
 publicKey (KeyEd25519 pub _pri) = PublicKeyEd25519 pub
 
@@ -78,7 +74,6 @@ data KeyType typ where
 
 deriving instance Show (KeyType typ)
 deriving instance Eq   (KeyType typ)
-deriving instance Ord  (KeyType typ)
 
 instance Unify KeyType where
   unify KeyTypeEd25519 KeyTypeEd25519 = Just Refl
