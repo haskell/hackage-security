@@ -5,48 +5,49 @@ module Hackage.Security.Server.IndexTarball (
   ) where
 
 import Control.Exception
-import System.Directory
+import Control.Monad
 import System.IO
 import qualified Codec.Archive.Tar       as Tar
 import qualified Codec.Archive.Tar.Index as Tar
 import qualified Data.ByteString.Lazy    as BS.L
 
 -- | Append (or create) some files to tarball
---
--- TODO: Exceptions are masked inside the before and after arguments to
--- bracket, so we should change this to do less in those arguments.
--- TODO: Get rid of doesFileExist and instead use hFileSize
--- TODO: Use withFile rather than BS.L.readFile (but still use evaluate)
 appendToTarball :: FilePath -> FilePath -> [FilePath] -> IO ()
 appendToTarball tar baseDir newFiles =
-    bracket openOrCreate hClose $ \h -> do
+    seekTarball tar $ \h -> do
       newEntries <- Tar.pack baseDir newFiles
       BS.L.hPut h $ Tar.write newEntries
-  where
-    openOrCreate :: IO Handle
-    openOrCreate = do
-      tarExists <- doesFileExist tar
-      if not tarExists
-        then openFile tar WriteMode
-        else do
-          entries <- Tar.read <$> BS.L.readFile tar
-          moffset <- evaluate $ findLastEntry entries
-          case moffset of
-            Left err -> throwIO err
-            Right offset -> do
-              h <- openFile tar ReadWriteMode -- necessary to be able to seek
-              hSeek h AbsoluteSeek (tarEntryOffsetToByteOffset offset)
-              return h
 
--- | Convert a TarEntryOffset to an absolute offset into the file
+-- | Open (or create) a tarball and seek it to the end so we can start
+-- writing new entries.
+seekTarball :: FilePath -> (Handle -> IO a) -> IO a
+seekTarball tar callback = do
+    withFile tar ReadWriteMode $ \h -> do
+      isEmpty <- (== 0) <$> hFileSize h
+      unless isEmpty $ seekToEnd h
+      callback h
+
+-- | Seek a tarball to the end
+seekToEnd :: Handle -> IO ()
+seekToEnd h = go Tar.emptyIndex
+  where
+    go :: Tar.IndexBuilder -> IO ()
+    go ib = do
+      let nextOffset = Tar.nextEntryOffset ib
+      mEntry <- hReadEntryHeader h nextOffset
+      case mEntry of
+        Nothing -> Tar.hSeekEntryOffset h nextOffset
+        Just e  -> go (Tar.skipNextEntry e ib)
+
+-- | Variation on `hReadEntryHeader` that returns `Nothing` if we have reached
+-- the end of the tar file
 --
--- TODO: This should really live in the tar package
-tarEntryOffsetToByteOffset :: Tar.TarEntryOffset -> Integer
-tarEntryOffsetToByteOffset offset = 512 * fromIntegral offset
-
-findLastEntry :: Tar.Entries e -> Either e Tar.TarEntryOffset
-findLastEntry = go Tar.emptyIndex
-  where
-    go !builder (Tar.Next e es) = go (Tar.skipNextEntry e builder) es
-    go !builder Tar.Done        = Right $ Tar.nextEntryOffset builder
-    go !_       (Tar.Fail err)  = Left err
+-- TODO: This should move to the `tar` package.
+hReadEntryHeader :: Handle -> Tar.TarEntryOffset -> IO (Maybe Tar.Entry)
+hReadEntryHeader hnd blockOff = do
+    Tar.hSeekEntryOffset hnd blockOff
+    header <- BS.L.hGet hnd 1024
+    case Tar.read header of
+      Tar.Next entry _ -> return $ Just entry
+      Tar.Done         -> return $ Nothing
+      Tar.Fail e       -> throwIO e
