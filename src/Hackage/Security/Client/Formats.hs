@@ -6,16 +6,23 @@ module Hackage.Security.Client.Formats (
     -- ** Term level
   , Format(..)
     -- * Products
-  , FormatProd(..)
+  , Formats(..)
     -- ** Utility
-  , formatProdZip
-  , formatProdMap
-  , formatProdPrefer
+  , formatsZip
+  , formatsMap
+  , formatsList
+  , formatsLookup
+  , formatsHead
+  , formatsPrefer
+  , formatsCompressed
+  , formatsUncompressed
     -- * Sums
-  , FormatSum(..)
+  , SelectedFormat(..)
     -- ** Utility
-  , formatSumSome
+  , selectedFormatSome
   ) where
+
+import Data.Maybe (fromMaybe)
 
 import Hackage.Security.Util.Some
 import Hackage.Security.Util.Stack
@@ -28,85 +35,107 @@ import Hackage.Security.Util.TypedEmbedded
 data FormatUncompressed
 data FormatCompressedGz
 
--- | Format is a singleton type (reflection between type and term level)
+-- | Format is a singleton type (reflection type to term level)
 --
 -- NOTE: In the future we might add further compression formats.
 data Format :: * -> * where
-    FormatUncompressed :: Format FormatUncompressed
-    FormatCompressedGz :: Format FormatCompressedGz
+    FUn :: Format FormatUncompressed
+    FGz :: Format FormatCompressedGz
 
-deriving instance Eq   (Format f)
 deriving instance Show (Format f)
+deriving instance Eq   (Format f)
 
 instance Unify Format where
-    unify FormatUncompressed FormatUncompressed = Just Refl
-    unify FormatCompressedGz FormatCompressedGz = Just Refl
-    unify _                  _                  = Nothing
+    unify FUn FUn = Just Refl
+    unify FGz FGz = Just Refl
+    unify _   _   = Nothing
 
 {-------------------------------------------------------------------------------
   Products
 -------------------------------------------------------------------------------}
 
-data FormatProd :: * -> * -> * where
-    FN :: FormatProd () a
-    FC :: Format f -> a -> FormatProd fs a -> FormatProd (f :- fs) a
+-- | Available formats
+--
+-- Rather than having a general list here, we enumerate all possibilities.
+-- This means we are very precise about what we expect, and we avoid any runtime
+-- errors about unexpect format definitions.
+--
+-- NOTE: If we add additional cases here (for dealing with additional formats)
+-- all calls to @error "inaccessible"@ need to be reevaluated.
+data Formats :: * -> * -> * where
+  FsNone :: Formats () a
+  FsUn   :: a -> Formats (FormatUncompressed :- ()) a
+  FsGz   :: a -> Formats (FormatCompressedGz :- ()) a
+  FsUnGz :: a -> a -> Formats (FormatUncompressed :- FormatCompressedGz :- ()) a
 
-deriving instance Eq   a => Eq   (FormatProd fs a)
-deriving instance Show a => Show (FormatProd fs a)
+deriving instance Eq   a => Eq   (Formats fs a)
+deriving instance Show a => Show (Formats fs a)
 
-instance Functor (FormatProd fs) where
-  fmap g = formatProdMap (\_format -> g)
+instance Functor (Formats fs) where
+  fmap g = formatsMap (\_format -> g)
 
 {-------------------------------------------------------------------------------
-  Products: Utility
+  Utility
 -------------------------------------------------------------------------------}
 
-formatProdZip :: FormatProd fs a -> FormatProd fs b -> FormatProd fs (a, b)
-formatProdZip FN          FN           = FN
-formatProdZip (FC f a as) (FC _f b bs) = FC f (a, b) (formatProdZip as bs)
-formatProdZip _           _            = error "inaccessible"
+formatsZip :: Formats fs a -> Formats fs b -> Formats fs (a, b)
+formatsZip FsNone        FsNone        = FsNone
+formatsZip (FsUn   a)    (FsUn   b)    = FsUn (a, b)
+formatsZip (FsGz   a)    (FsGz   b)    = FsGz (a, b)
+formatsZip (FsUnGz a a') (FsUnGz b b') = FsUnGz (a, b) (a', b')
+formatsZip _            _              = error "inaccessible"
 
-formatProdMap :: forall a b fs.
-                 (forall f. Format f -> a -> b)
-              -> FormatProd fs a -> FormatProd fs b
-formatProdMap g = go
-  where
-    -- Type annotation required: polymorphic recursion
-    go :: forall fs'. FormatProd fs' a -> FormatProd fs' b
-    go FN          = FN
-    go (FC f a as) = FC f (g f a) (go as)
+formatsMap :: (forall f. Format f -> a -> b) -> Formats fs a -> Formats fs b
+formatsMap _ FsNone        = FsNone
+formatsMap f (FsUn   a)    = FsUn   (f FUn a)
+formatsMap f (FsGz   a)    = FsGz   (f FGz a)
+formatsMap f (FsUnGz a a') = FsUnGz (f FUn a) (f FGz a')
 
--- | Select a preferred format from a list if available, or default to any
--- other format otherwise.
-formatProdPrefer :: NonEmpty fs -> Format f -> FormatProd fs a -> (FormatSum fs, a)
-formatProdPrefer NonEmpty f = go
+formatsList :: Formats fs a -> [(SelectedFormat fs, a)]
+formatsList FsNone        = []
+formatsList (FsUn   a)    = [(SZ FUn, a)]
+formatsList (FsGz   a)    = [(SZ FGz, a)]
+formatsList (FsUnGz a a') = [(SZ FUn, a), (SS (SZ FGz), a')]
+
+formatsLookup :: Format f -> Formats fs a -> Maybe (SelectedFormat fs, a)
+formatsLookup f = go . formatsList
   where
-    go :: forall f' fs a. FormatProd (f' :- fs) a -> (FormatSum (f' :- fs), a)
-    go (FC f' a pd) =
-      case pd of
-        FN       -> (FZ f', a) -- default
-        FC _ _ _ -> case unify f f' of
-                      Just Refl -> (FZ f, a)
-                      Nothing   -> let (sm, a') = go pd in (FS sm, a')
+    go :: [(SelectedFormat fs, a)] -> Maybe (SelectedFormat fs, a)
+    go []           = Nothing
+    go ((sf, a):as) = case selectedFormatSome sf of
+                        Some f' -> case unify f f' of
+                                     Just Refl -> Just (sf, a)
+                                     Nothing   -> go as
+
+formatsHead :: NonEmpty fs -> Formats fs a -> (SelectedFormat fs, a)
+formatsHead NonEmpty (FsUn   a)   = (SZ FUn, a)
+formatsHead NonEmpty (FsGz   a)   = (SZ FGz, a)
+formatsHead NonEmpty (FsUnGz a _) = (SZ FUn, a)
+formatsHead _ _ = error "inaccessible"
+
+formatsPrefer :: NonEmpty fs -> Format f -> Formats fs a -> (SelectedFormat fs, a)
+formatsPrefer pne f fs = fromMaybe (formatsHead pne fs) (formatsLookup f fs)
+
+-- | Find (any) compressed format
+formatsCompressed :: Formats fs a -> Maybe (SelectedFormat fs, a)
+formatsCompressed = formatsLookup FGz
+
+-- | Find uncompressed format
+formatsUncompressed :: Formats fs a -> Maybe a
+formatsUncompressed = fmap snd . formatsLookup FUn
 
 {-------------------------------------------------------------------------------
   Sums
 -------------------------------------------------------------------------------}
 
--- | Dual to FormatSum
---
--- The idea is that if we request, say, @FormatProd fs Foo@ the server will
--- pick one of the formats and respond with @FormatSum fs@, indicating which
--- format it picked.
---
--- NOTE: Unlike `FormatProd`, `FormatSum` does not carry a payload; there is
--- little point, since this is just a single format, and the type the payload
--- does not vary with the format chosen (for instance, see type of
--- 'formatProdPrefer').
-data FormatSum :: * -> * where
-    FZ :: Format f     -> FormatSum (f :- fs)
-    FS :: FormatSum fs -> FormatSum (f :- fs)
+data SelectedFormat :: * -> * where
+    SZ :: Format f -> SelectedFormat (f :- fs)
+    SS :: SelectedFormat fs -> SelectedFormat (f :- fs)
 
-formatSumSome :: FormatSum fs -> Some Format
-formatSumSome (FZ f)  = Some f
-formatSumSome (FS fs) = formatSumSome fs
+{-------------------------------------------------------------------------------
+  Sums: Utility
+-------------------------------------------------------------------------------}
+
+selectedFormatSome :: SelectedFormat fs -> Some Format
+selectedFormatSome (SZ f)  = Some f
+selectedFormatSome (SS fs) = selectedFormatSome fs

@@ -11,7 +11,9 @@ import System.FilePath
 import Hackage.Security.Client.Formats
 import Hackage.Security.Client.Repository
 import Hackage.Security.Client.Repository.Local (Cache)
+import Hackage.Security.Trusted
 import Hackage.Security.TUF
+import Hackage.Security.Util.Stack
 import qualified Hackage.Security.Client.Repository.Local as Local
 
 {-------------------------------------------------------------------------------
@@ -30,6 +32,8 @@ data FileSize =
     -- | If we don't want to guess, we can also just indicate we have no idea
     -- what size file we are expecting. This means we cannot protect against
     -- endless data attacks however.
+    --
+    -- TODO: Once we put in estimates we should get rid of this.
   | FileSizeUnknown
 
 -- | Abstraction over HTTP clients
@@ -63,21 +67,32 @@ initRepo http auth cache = Repository {
 --
 -- TODO: We need to deal with the combined timestamp/snapshot thing
 withRemote :: HttpClient -> URI -> Cache
-           -> RemoteFile fs -> (FormatSum fs -> TempPath -> IO a) -> IO a
+           -> RemoteFile fs
+           -> (SelectedFormat fs -> TempPath -> IO a) -> IO a
+-- withRemote httpClient baseURI cache (RemoteIndex pf lens) callback =
+--     withRemoteIndex httpClient baseURI cache pf lens callback
 withRemote HttpClient{..} baseURI cache remoteFile callback =
     httpClientGet uri sz $ \tempPath -> do
       result <- callback format tempPath
-      Local.cacheRemoteFile cache tempPath (formatSumSome format) (mustCache remoteFile)
+      Local.cacheRemoteFile cache tempPath (selectedFormatSome format) (mustCache remoteFile)
       return result
   where
-    (format, (uri, sz)) = formatProdPrefer
+    (format, (uri, sz)) = formatsPrefer
                             (remoteFileNonEmpty remoteFile)
-                            FormatCompressedGz
-                            (formatProdZip
+                            FGz
+                            (formatsZip
                               (remoteFileURI baseURI remoteFile)
                               (remoteFileSize remoteFile))
 
-remoteFileURI :: URI -> RemoteFile fs -> FormatProd fs URI
+-- | Get the index from the server
+--
+-- We isolate this case because we need to deal with incremental updates.
+withRemoteIndex :: HttpClient -> URI -> Cache
+                -> NonEmpty fs -> Formats fs (Trusted FileLength)
+                -> (SelectedFormat fs -> TempPath -> IO a) -> IO a
+withRemoteIndex = undefined
+
+remoteFileURI :: URI -> RemoteFile fs -> Formats fs URI
 remoteFileURI baseURI = fmap aux . remoteFilePath
   where
     aux :: FilePath -> URI
@@ -86,16 +101,14 @@ remoteFileURI baseURI = fmap aux . remoteFilePath
 -- | Extracting or estimating file sizes
 --
 -- TODO: Put in estimates
-remoteFileSize :: RemoteFile fs -> FormatProd fs FileSize
+remoteFileSize :: RemoteFile fs -> Formats fs FileSize
 remoteFileSize (RemoteTimestamp) =
-    FC FormatUncompressed FileSizeUnknown FN
+    FsUn FileSizeUnknown
 remoteFileSize (RemoteRoot mLen) =
-    FC FormatUncompressed sz FN
-  where
-    sz = maybe FileSizeUnknown (FileSizeExact . trustedFileLength) mLen
+    FsUn $ maybe FileSizeUnknown (FileSizeExact . trustedFileLength) mLen
 remoteFileSize (RemoteSnapshot len) =
-    FC FormatUncompressed (FileSizeExact (trustedFileLength len)) FN
+    FsUn $ FileSizeExact (trustedFileLength len)
 remoteFileSize (RemoteIndex _ lens) =
     fmap (FileSizeExact . trustedFileLength) lens
 remoteFileSize (RemotePkgTarGz _pkgId len) =
-    FC FormatCompressedGz (FileSizeExact (trustedFileLength len)) FN
+    FsGz $ FileSizeExact (trustedFileLength len)

@@ -161,13 +161,11 @@ checkForUpdates rep checkExpiry =
               expectedIndex =
                   -- This definition is a bit ugly, not sure how to improve it
                   case mNewTarInfo of
-                    Nothing -> Some $ RemoteIndex NonEmpty
-                      $ FC FormatCompressedGz (trustedFileInfoLength newTarGzInfo)
-                      $ FN
-                    Just newTarInfo -> Some $ RemoteIndex NonEmpty
-                      $ FC FormatCompressedGz (trustedFileInfoLength newTarGzInfo)
-                      $ FC FormatUncompressed (trustedFileInfoLength newTarInfo)
-                      $ FN
+                    Nothing -> Some $ RemoteIndex NonEmpty $
+                      FsGz (trustedFileInfoLength newTarGzInfo)
+                    Just newTarInfo -> Some $ RemoteIndex NonEmpty $
+                      FsUnGz (trustedFileInfoLength newTarInfo)
+                             (trustedFileInfoLength newTarGzInfo)
           when (infoChanged mOldTarGzInfo newTarGzInfo) $ do
             (indexFormat, indexPath) <- repGetRemote rep expectedIndex
 
@@ -179,9 +177,9 @@ checkForUpdates rep checkExpiry =
             -- unverified file (because a clever attacker could then exploit,
             -- say, buffer overrun in the decompression algorithm).
             case indexFormat of
-              Some FormatCompressedGz ->
+              Some FGz ->
                 void $ verifyFileInfo' (Just newTarGzInfo) indexPath
-              Some FormatUncompressed ->
+              Some FUn ->
                 -- If the repository returns an uncompressed index but does
                 -- not list a corresponding hash we throw an exception
                 case mNewTarInfo of
@@ -357,8 +355,8 @@ repGetRemote r (Some file) = ContT aux
     aux k = Repository.repWithRemote r file (wrapK k)
 
     wrapK :: ((Some Format, TempPath) -> IO r)
-          -> (FormatSum fs -> TempPath -> IO r)
-    wrapK k format tempPath = k (formatSumSome format, tempPath)
+          -> (SelectedFormat fs -> TempPath -> IO r)
+    wrapK k format tempPath = k (selectedFormatSome format, tempPath)
 
 -- | Variation on repGetRemote where we only expect one type of result
 repGetRemote' :: Repository -> RemoteFile (f :- ()) -> ContT r IO TempPath
@@ -368,7 +366,7 @@ repGetRemote' r file = ContT aux
     aux k = Repository.repWithRemote r file (wrapK k)
 
     wrapK :: (TempPath -> IO r)
-          -> (FormatSum fs -> TempPath -> IO r)
+          -> (SelectedFormat fs -> TempPath -> IO r)
     wrapK k _format tempPath = k tempPath
 
 repGetCached :: MonadIO m => Repository -> CachedFile -> m (Maybe FilePath)

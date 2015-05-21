@@ -73,7 +73,7 @@ data RemoteFile :: * -> * where
     -- It is a bug to request a file that the repository does not provide
     -- (the snapshot should make it clear which files are available).
     RemoteIndex :: NonEmpty fs
-                -> FormatProd fs (Trusted FileLength)
+                -> Formats fs (Trusted FileLength)
                 -> RemoteFile fs
 
     -- | Actual package
@@ -149,7 +149,7 @@ data Repository = Repository {
     -- files after a verification error. Remote repositories can use this
     -- information to force proxies to get files upstream.
     repWithRemote :: forall a fs. RemoteFile fs
-                  -> (FormatSum fs -> TempPath -> IO a)
+                  -> (SelectedFormat fs -> TempPath -> IO a)
                   -> IO a
 
     -- | Get a cached file (if available)
@@ -199,20 +199,16 @@ data LogMessage =
   Paths
 -------------------------------------------------------------------------------}
 
-remoteFilePath :: RemoteFile fs -> FormatProd fs FilePath
-remoteFilePath RemoteTimestamp =
-    FC FormatUncompressed "timestamp.json" FN
-remoteFilePath (RemoteRoot _) =
-    FC FormatUncompressed "root.json" FN
-remoteFilePath (RemoteSnapshot _) =
-    FC FormatUncompressed "snapshot.json" FN
-remoteFilePath (RemotePkgTarGz pkgId _) =
-    FC FormatCompressedGz (pkgLoc pkgId </> pkgTarGz pkgId) FN
-remoteFilePath (RemoteIndex _ lens) = formatProdMap aux lens
+remoteFilePath :: RemoteFile fs -> Formats fs FilePath
+remoteFilePath RemoteTimestamp        = FsUn "timestamp.json"
+remoteFilePath (RemoteRoot _)         = FsUn "root.json"
+remoteFilePath (RemoteSnapshot _)     = FsUn "snapshot.json"
+remoteFilePath (RemotePkgTarGz pId _) = FsGz (pkgLoc pId </> pkgTarGz pId)
+remoteFilePath (RemoteIndex _ lens)   = formatsMap aux lens
   where
     aux :: Format f -> a -> FilePath
-    aux FormatUncompressed _ = "00-index.tar"
-    aux FormatCompressedGz _ = "00-index.tar.gz"
+    aux FUn _ = "00-index.tar"
+    aux FGz _ = "00-index.tar.gz"
 
 cachedFilePath :: CachedFile -> FilePath
 cachedFilePath CachedTimestamp    = "timestamp.json"

@@ -49,39 +49,44 @@ initRepo repo cache = Repository {
 
 -- | Get a file from the server
 withRemote :: LocalRepo -> Cache
-           -> RemoteFile fs -> (FormatSum fs -> TempPath -> IO a) -> IO a
+           -> RemoteFile fs -> (SelectedFormat fs -> TempPath -> IO a) -> IO a
 withRemote repo cache remoteFile callback = do
     result <- callback format remotePath
-    cacheRemoteFile cache remotePath (formatSumSome format) (mustCache remoteFile)
+    cacheRemoteFile cache remotePath (selectedFormatSome format) (mustCache remoteFile)
     return result
   where
-    (format, remotePath') = formatProdPrefer
+    (format, remotePath') = formatsPrefer
                               (remoteFileNonEmpty remoteFile)
-                              FormatUncompressed
+                              FUn
                               (remoteFilePath remoteFile)
     remotePath = repo </> remotePath'
 
 -- | Cache a previously downloaded remote file
 cacheRemoteFile :: Cache -> TempPath -> Some Format -> IsCached -> IO ()
-cacheRemoteFile cache tempPath (Some f) = go f
+cacheRemoteFile cache tempPath (Some f) isCached =
+    go f (cachedFileName isCached)
   where
-    go :: Format f -> IsCached -> IO ()
-    go FormatUncompressed (CacheAs cachedFile) = do
-      let localPath = cache </> cachedFilePath cachedFile
+    go :: Format f -> Maybe FilePath -> IO ()
+    go _ Nothing =
+      return () -- Don't cache
+    go FUn (Just localName) = do
       -- TODO: (here and elsewhere): use atomic file operation instead
-      copyFile tempPath localPath
-    go _ (CacheAs _) =
-      error "the impossible happened: unexpected compressed file"
-    go FormatUncompressed CacheIndex = do
-      let localPath = cache </> "00-index.tar"
-      copyFile tempPath localPath
-    go FormatCompressedGz CacheIndex = do
-      -- We always store the index uncompressed locally
-      let localPath = cache </> "00-index.tar"
+      copyFile tempPath (cache </> localName)
+    go FGz (Just localName) = do
       compressed <- BS.L.readFile tempPath
-      BS.L.writeFile localPath $ GZip.decompress compressed
-    go _format DontCache =
-      return ()
+      BS.L.writeFile (cache </> localName) $ GZip.decompress compressed
+
+-- | The name of the file as cached
+--
+-- Returns @Nothing@ if we do not cache this file.
+--
+-- NOTE: We always cache files locally in uncompressed format. This is a
+-- policy of this implementation of 'Repository', however, and other policies
+-- are possible; that's why this lives here rather than in @Client.Repository@.
+cachedFileName :: IsCached -> Maybe FilePath
+cachedFileName (CacheAs cachedFile) = Just $ cachedFilePath cachedFile
+cachedFileName CacheIndex           = Just "00-index.tar"
+cachedFileName DontCache            = Nothing
 
 -- | Get a cached file (if available)
 getCached :: Cache -> CachedFile -> IO (Maybe FilePath)
