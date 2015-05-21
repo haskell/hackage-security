@@ -7,13 +7,16 @@ module Hackage.Security.Client.Repository.HTTP (
 
 import Network.URI
 import System.FilePath
+import System.IO
+import qualified Data.ByteString.Lazy as BS.L
 
 import Hackage.Security.Client.Formats
 import Hackage.Security.Client.Repository
 import Hackage.Security.Client.Repository.Local (Cache)
 import Hackage.Security.Trusted
 import Hackage.Security.TUF
-import Hackage.Security.Util.Stack
+import Hackage.Security.Util.IO
+import Hackage.Security.Util.Some
 import qualified Hackage.Security.Client.Repository.Local as Local
 
 {-------------------------------------------------------------------------------
@@ -41,7 +44,13 @@ data FileSize =
 -- This avoids insisting on a particular implementation (such as the HTTP
 -- package) and allows for other implements (such as a conduit based one)
 data HttpClient = HttpClient {
+    -- | Download a file
     httpClientGet :: forall a. URI -> FileSize -> (TempPath -> IO a) -> IO a
+
+    -- | Download a byte range
+    --
+    -- Range is starting and (exclusive) end offset in bytes.
+  , httpClientGetRange :: forall a. URI -> (Int, Int) -> (TempPath -> IO a) -> IO a
   }
 
 initRepo :: HttpClient  -- ^ Implementation of the HTTP protocol
@@ -69,12 +78,58 @@ initRepo http auth cache = Repository {
 withRemote :: HttpClient -> URI -> Cache
            -> RemoteFile fs
            -> (SelectedFormat fs -> TempPath -> IO a) -> IO a
--- withRemote httpClient baseURI cache (RemoteIndex pf lens) callback =
---     withRemoteIndex httpClient baseURI cache pf lens callback
-withRemote HttpClient{..} baseURI cache remoteFile callback =
+withRemote httpClient baseURI cache remoteFile callback = do
+    -- We can do incremental updates only when the following conditions are met:
+    --
+    -- 1. The server must be able to provide the file in uncompressed format
+    -- 2. We already have a local file to be updated
+    --    (if not we should try to download the initial file in compressed form)
+    -- TODO: Others (HTTP capabilities of the server, etc)
+    mCachedIndex <- Local.getCachedIndex cache
+    case (mCachedIndex, remoteFile) of
+      (Just fp, RemoteIndex _ (FsUn lenUn))     -> incTar' (SZ FUn) lenUn fp
+      (Just fp, RemoteIndex _ (FsUnGz lenUn _)) -> incTar' (SZ FUn) lenUn fp
+      _otherwise -> getFile' remoteFile
+  where
+    incTar' sf = incTar  httpClient baseURI cache (callback sf)
+    getFile'   = getFile httpClient baseURI cache callback
+
+-- | Get a tar file incrementally
+--
+-- Sadly, this has some tar-specific functionality
+incTar :: HttpClient -> URI -> Cache
+       -> (TempPath -> IO a)
+       -> Trusted FileLength -> FilePath -> IO a
+incTar HttpClient{..} baseURI cache callback len cachedFile = do
+    -- TODO: Once we have a local tarball index, this is not necessary
+    currentSize <- getFileSize cachedFile
+    let currentMinusTrailer = currentSize - 1024
+        range = (fromInteger currentMinusTrailer, trustedFileLength len)
+    httpClientGetRange uri range $ \tempRange -> do
+      withSystemTempFile "00-index.tar" $ \tempPath h -> do
+        BS.L.hPut h =<< BS.L.readFile cachedFile
+        hSeek h AbsoluteSeek currentMinusTrailer
+        BS.L.hPut h =<< BS.L.readFile tempRange
+        hClose h
+        result <- callback tempPath
+        Local.cacheRemoteFile cache tempPath (Some FUn) CacheIndex
+        return result
+  where
+    -- TODO: There are hardcoded references to "00-index.tar" and
+    -- "00-index.tar.gz" everwhere. We should probably abstract over that.
+    uri = baseURI { uriPath = uriPath baseURI </> "00-index.tar" }
+
+-- | Get any file from the server, without using incremental updates
+getFile :: HttpClient -> URI -> Cache
+        -> (SelectedFormat fs -> TempPath -> IO a)
+        -> RemoteFile fs -> IO a
+getFile HttpClient{..} baseURI cache callback remoteFile =
     httpClientGet uri sz $ \tempPath -> do
       result <- callback format tempPath
-      Local.cacheRemoteFile cache tempPath (selectedFormatSome format) (mustCache remoteFile)
+      Local.cacheRemoteFile cache
+                            tempPath
+                            (selectedFormatSome format)
+                            (mustCache remoteFile)
       return result
   where
     (format, (uri, sz)) = formatsPrefer
@@ -84,13 +139,6 @@ withRemote HttpClient{..} baseURI cache remoteFile callback =
                               (remoteFileURI baseURI remoteFile)
                               (remoteFileSize remoteFile))
 
--- | Get the index from the server
---
--- We isolate this case because we need to deal with incremental updates.
-withRemoteIndex :: HttpClient -> URI -> Cache
-                -> NonEmpty fs -> Formats fs (Trusted FileLength)
-                -> (SelectedFormat fs -> TempPath -> IO a) -> IO a
-withRemoteIndex = undefined
 
 remoteFileURI :: URI -> RemoteFile fs -> Formats fs URI
 remoteFileURI baseURI = fmap aux . remoteFilePath

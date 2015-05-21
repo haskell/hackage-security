@@ -5,6 +5,7 @@ module Hackage.Security.Client.Repository.Local (
     -- * Low-level API (for the benefit of other Repository implementations)
   , getCached
   , getCachedRoot
+  , getCachedIndex
   , clearCache
   , getFromIndex
   , cacheRemoteFile
@@ -13,13 +14,13 @@ module Hackage.Security.Client.Repository.Local (
 import Control.Exception
 import System.Directory
 import System.FilePath
-import System.IO.Error
 import qualified Codec.Compression.GZip as GZip
 import qualified Data.ByteString        as BS
 import qualified Data.ByteString.Lazy   as BS.L
 
 import Hackage.Security.Client.Repository
 import Hackage.Security.Client.Formats
+import Hackage.Security.Util.IO
 import Hackage.Security.Util.Some
 import qualified Hackage.Security.Client.IndexTarball as Index
 
@@ -52,7 +53,10 @@ withRemote :: LocalRepo -> Cache
            -> RemoteFile fs -> (SelectedFormat fs -> TempPath -> IO a) -> IO a
 withRemote repo cache remoteFile callback = do
     result <- callback format remotePath
-    cacheRemoteFile cache remotePath (selectedFormatSome format) (mustCache remoteFile)
+    cacheRemoteFile cache
+                    remotePath
+                    (selectedFormatSome format)
+                    (mustCache remoteFile)
     return result
   where
     (format, remotePath') = formatsPrefer
@@ -97,6 +101,15 @@ getCached cache cachedFile = do
   where
     localPath = cache </> cachedFilePath cachedFile
 
+-- | Get the cached index (if available)
+getCachedIndex :: Cache -> IO (Maybe FilePath)
+getCachedIndex cache = do
+    exists <- doesFileExist localPath
+    if exists then return $ Just localPath
+              else return $ Nothing
+  where
+    localPath = cache </> "00-index.tar"
+
 -- | Get the cached root
 getCachedRoot :: Cache -> IO FilePath
 getCachedRoot cache = do
@@ -118,11 +131,6 @@ getFromIndex cache indexFile =
 
 -- | Delete a previously downloaded remote file
 clearCache :: Cache -> IO ()
-clearCache cache = handle ignoreDoesNotExist $ do
+clearCache cache = ignoreDoesNotExist $ do
     removeFile $ cache </> cachedFilePath CachedTimestamp
     removeFile $ cache </> cachedFilePath CachedSnapshot
-  where
-    ignoreDoesNotExist e =
-      if isDoesNotExistError e
-        then return ()
-        else throwIO e

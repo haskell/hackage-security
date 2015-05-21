@@ -40,6 +40,7 @@ library
                        Hackage.Security.TUF.Snapshot
                        Hackage.Security.TUF.Targets
                        Hackage.Security.TUF.Timestamp
+                       Hackage.Security.Util.IO
                        Hackage.Security.Util.Some
                        Hackage.Security.Util.Stack
                        Hackage.Security.Util.TypedEmbedded
@@ -114,7 +115,6 @@ executable hackage-secure-local
                        filepath             >= 1.2,
                        optparse-applicative >= 0.11,
                        tar                  >= 0.4,
-                       temporary            >= 1.2,
                        time                 >= 1.2,
                        zlib                 >= 0.6,
                        hackage-security

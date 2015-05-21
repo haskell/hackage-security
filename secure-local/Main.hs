@@ -9,7 +9,6 @@ import System.Directory
 import System.FilePath
 import System.IO
 import System.IO.Error
-import System.IO.Temp
 import qualified Codec.Compression.GZip as GZip
 import qualified Data.ByteString.Lazy   as BS.L
 
@@ -23,6 +22,7 @@ import Hackage.Security.Key
 import Hackage.Security.Key.ExplicitSharing
 import Hackage.Security.TUF
 import Hackage.Security.Util.Some
+import Hackage.Security.Util.IO
 import qualified Hackage.Security.TUF.FileMap         as FileMap
 import qualified Hackage.Security.Key.Env             as KeyEnv
 import qualified Hackage.Security.Server.IndexTarball as Index
@@ -211,12 +211,13 @@ bootstrapOrUpdate opts@GlobalOpts{..} isBootstrap = do
     -- Create snapshot
     logInfo $ "Creating " ++ globalRepo </> "snapshot.json"
     rootInfo  <- computeFileInfo $ globalRepo </> "root.json"
+    tarInfo   <- computeFileInfo $ globalRepo </> "00-index.tar"
     tarGzInfo <- computeFileInfo $ globalRepo </> "00-index.tar.gz"
     let snapshot = Snapshot {
             snapshotVersion   = versionInitial
           , snapshotExpires   = expiresInDays now 3
           , snapshotInfoRoot  = rootInfo
-          , snapshotInfoTar   = Nothing
+          , snapshotInfoTar   = Just tarInfo
           , snapshotInfoTarGz = tarGzInfo
           }
         signedSnapshot = withSignatures (privateSnapshot keys) snapshot
