@@ -29,7 +29,7 @@ main = do
 
 check :: GlobalOpts -> IO ()
 check opts = do
-    let rep = initRepo opts
+    rep <- initRepo opts
     print =<< checkForUpdates rep CheckExpiry
 
 {-------------------------------------------------------------------------------
@@ -38,7 +38,7 @@ check opts = do
 
 get :: GlobalOpts -> PackageIdentifier -> IO ()
 get opts pkgId = do
-    let rep = initRepo opts
+    rep <- initRepo opts
     downloadPackage rep pkgId $ \tempPath ->
       copyFile tempPath localFile
   where
@@ -48,25 +48,30 @@ get opts pkgId = do
   Common functionality
 -------------------------------------------------------------------------------}
 
-initRepo :: GlobalOpts -> Repository
+initRepo :: GlobalOpts -> IO Repository
 initRepo GlobalOpts{..}
     | "http://" `isPrefixOf` globalRepo = initRemoteRepo
     | otherwise                         = initLocalRepo
   where
-    initLocalRepo :: Repository
-    initLocalRepo = Local.initRepo globalRepo globalCache
+    initLocalRepo :: IO Repository
+    initLocalRepo = return $ Local.initRepo globalRepo globalCache logger
 
-    initRemoteRepo :: Repository
-    initRemoteRepo = Remote.initRepo httpClient baseURI globalCache
+    initRemoteRepo :: IO Repository
+    initRemoteRepo = do
+        httpClient <- initClient putStrLn
+        return $ Remote.initRepo httpClient baseURI globalCache logger
       where
         baseURI :: URI
         baseURI = case parseURI globalRepo of
                     Nothing  -> error $ "Invalid URI: " ++ globalRepo
                     Just uri -> uri
 
-    httpClient :: Remote.HttpClient
-    httpClient =
+    initClient :: (String -> IO ()) -> IO Remote.HttpClient
+    initClient =
       case globalHttpClient of
         "HTTP"         -> HttpClient.HTTP.initClient
         "http-conduit" -> HttpClient.Conduit.initClient
         _otherwise     -> error "unsupported HTTP client"
+
+    logger :: LogMessage -> IO ()
+    logger msg = putStrLn $ "# " ++ formatLogMessage msg

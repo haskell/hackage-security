@@ -16,10 +16,12 @@ import Hackage.Security.Client.Repository.HTTP
   Top-level API
 -------------------------------------------------------------------------------}
 
-initClient :: HttpClient
-initClient = HttpClient {
-      httpClientGet = get
-    }
+initClient :: (String -> IO ()) -> IO HttpClient
+initClient logger = do
+    caps <- newServerCapabilities
+    return $ HttpClient {
+        httpClientGet = get
+      }
 
 {-------------------------------------------------------------------------------
   Individual methods

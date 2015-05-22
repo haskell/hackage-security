@@ -1,10 +1,19 @@
 module Hackage.Security.Client.Repository.HTTP (
-    HttpClient(..)
+    -- * Server capabilities
+    ServerCapabilities -- opaque
+  , newServerCapabilities
+  , getServerSupportsAcceptBytes
+  , setServerSupportsAcceptBytes
+    -- * Abstracting over HTTP libraries
+  , HttpClient(..)
   , FileSize(..)
   , Cache
+    -- * Top-level API
   , initRepo
   ) where
 
+import Control.Concurrent
+import Control.Monad.Except
 import Network.URI
 import System.FilePath
 import System.IO
@@ -20,7 +29,39 @@ import Hackage.Security.Util.Some
 import qualified Hackage.Security.Client.Repository.Local as Local
 
 {-------------------------------------------------------------------------------
-  Top-level API
+  Server capabilities
+-------------------------------------------------------------------------------}
+
+-- | Server capabilities
+--
+-- As the library interacts with the server and receives replies, we may
+-- discover more information about the server's capabilities; for instance,
+-- we may discover that it supports incremental downloads.
+newtype ServerCapabilities = SC (MVar ServerCapabilities_)
+
+-- | Internal type recording the various server capabilities we support
+--
+-- This is not exported; we only export functions that work on
+-- 'ServerCapabilities'.
+data ServerCapabilities_ = ServerCapabilities {
+      serverSupportsAcceptBytes :: Bool
+    }
+
+newServerCapabilities :: IO ServerCapabilities
+newServerCapabilities = SC <$> newMVar ServerCapabilities {
+      serverSupportsAcceptBytes = False
+    }
+
+setServerSupportsAcceptBytes :: ServerCapabilities -> Bool -> IO ()
+setServerSupportsAcceptBytes (SC mv) x = modifyMVar_ mv $ \caps ->
+    return $ caps { serverSupportsAcceptBytes = x }
+
+getServerSupportsAcceptBytes :: ServerCapabilities -> IO Bool
+getServerSupportsAcceptBytes (SC mv) = withMVar mv $ \caps ->
+    return $ serverSupportsAcceptBytes caps
+
+{-------------------------------------------------------------------------------
+  Abstraction over HTTP clients (such as HTTP, http-conduit, etc.)
 -------------------------------------------------------------------------------}
 
 data FileSize =
@@ -51,21 +92,29 @@ data HttpClient = HttpClient {
     --
     -- Range is starting and (exclusive) end offset in bytes.
   , httpClientGetRange :: forall a. URI -> (Int, Int) -> (TempPath -> IO a) -> IO a
+
+    -- | Server capabilities
+    --
+    -- HTTP clients should use 'newServerCapabilities' on initialization.
+  , httpClientCapabilities :: ServerCapabilities
   }
 
-initRepo :: HttpClient  -- ^ Implementation of the HTTP protocol
-         -> URI         -- ^ Base URI
-         -> Cache       -- ^ Location of local cache
+{-------------------------------------------------------------------------------
+  Top-level API
+-------------------------------------------------------------------------------}
+
+initRepo :: HttpClient            -- ^ Implementation of the HTTP protocol
+         -> URI                   -- ^ Base URI
+         -> Cache                 -- ^ Location of local cache
+         -> (LogMessage -> IO ()) -- ^ Logger
          -> Repository
-initRepo http auth cache = Repository {
-    repWithRemote    = withRemote http auth cache
+initRepo http auth cache logger = Repository {
+    repWithRemote    = withRemote http auth cache logger
   , repGetCached     = Local.getCached     cache
   , repGetCachedRoot = Local.getCachedRoot cache
   , repClearCache    = Local.clearCache    cache
   , repGetFromIndex  = Local.getFromIndex  cache
-  -- TODO: We should allow clients to plugin a proper logging message here
-  -- (probably means accepting a callback to initRepo)
-  , repLog = putStrLn . formatLogMessage
+  , repLog           = logger
   }
 
 {-------------------------------------------------------------------------------
@@ -76,23 +125,55 @@ initRepo http auth cache = Repository {
 --
 -- TODO: We need to deal with the combined timestamp/snapshot thing
 withRemote :: HttpClient -> URI -> Cache
+           -> (LogMessage -> IO ())
            -> RemoteFile fs
            -> (SelectedFormat fs -> TempPath -> IO a) -> IO a
-withRemote httpClient baseURI cache remoteFile callback = do
-    -- We can do incremental updates only when the following conditions are met:
-    --
-    -- 1. The server must be able to provide the file in uncompressed format
-    -- 2. We already have a local file to be updated
-    --    (if not we should try to download the initial file in compressed form)
-    -- TODO: Others (HTTP capabilities of the server, etc)
-    mCachedIndex <- Local.getCachedIndex cache
-    case (mCachedIndex, remoteFile) of
-      (Just fp, RemoteIndex _ (FsUn lenUn))     -> incTar' (SZ FUn) lenUn fp
-      (Just fp, RemoteIndex _ (FsUnGz lenUn _)) -> incTar' (SZ FUn) lenUn fp
-      _otherwise -> getFile' remoteFile
-  where
-    incTar' sf = incTar  httpClient baseURI cache (callback sf)
-    getFile'   = getFile httpClient baseURI cache callback
+withRemote httpClient baseURI cache logger remoteFile callback = do
+    mIncremental <- shouldDoIncremental httpClient cache remoteFile
+    case mIncremental of
+      Left reason -> do
+        logger $ LogDownloading (Some remoteFile) reason
+        getFile httpClient baseURI cache callback remoteFile
+      Right (sf, len, fp) -> do
+        logger $ LogUpdating (Some remoteFile)
+        incTar httpClient baseURI cache (callback sf) len fp
+
+-- | Should we do an incremental update?
+--
+-- Returns either 'Left' the reason why we cannot do an incremental update,
+-- or else 'Right' the name of the local file that we should update.
+shouldDoIncremental
+  :: forall fs. HttpClient -> Cache -> RemoteFile fs
+  -> IO (Either String (SelectedFormat fs, Trusted FileLength, FilePath))
+shouldDoIncremental HttpClient{..} cache remoteFile = runExceptT $ do
+    -- Currently the only file which we download incrementally is the index
+    formats :: Formats fs (Trusted FileLength) <-
+      case remoteFile of
+        RemoteIndex _ lens -> return lens
+        _ -> throwError "We can only download the index incrementally"
+
+    -- The server must be able to provide the index in uncompressed form
+    -- NOTE: The two @SZ Fun@ expressions here have different types.
+    (selected :: SelectedFormat fs, len :: Trusted FileLength) <-
+      case formats of
+        FsUn   lenUn   -> return (SZ FUn, lenUn)
+        FsUnGz lenUn _ -> return (SZ FUn, lenUn)
+        _ -> throwError "Server does not provide uncompressed index"
+
+    -- Server must support @Range@ with a byte-range
+    supportsAcceptBytes <- lift $ getServerSupportsAcceptBytes httpClientCapabilities
+    unless supportsAcceptBytes $
+      throwError "Server does not support Range header"
+
+    -- We already have a local file to be updated
+    -- (if not we should try to download the initial file in compressed form)
+    cachedIndex <- do
+      mCachedIndex <- lift $ Local.getCachedIndex cache
+      case mCachedIndex of
+        Nothing -> throwError "No previously downloaded index"
+        Just fp -> return fp
+
+    return (selected, len, cachedIndex)
 
 -- | Get a tar file incrementally
 --

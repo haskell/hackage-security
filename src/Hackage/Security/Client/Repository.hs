@@ -18,6 +18,7 @@ module Hackage.Security.Client.Repository (
   , IsCached(..)
   , mustCache
   , formatLogMessage
+  , describeRemoteFile
   ) where
 
 import System.FilePath
@@ -29,6 +30,7 @@ import Distribution.Text
 import Hackage.Security.Client.Formats
 import Hackage.Security.Trusted
 import Hackage.Security.TUF
+import Hackage.Security.Util.Some
 import Hackage.Security.Util.Stack
 
 {-------------------------------------------------------------------------------
@@ -195,6 +197,14 @@ data LogMessage =
     -- are thrown as exceptions.)
   | LogVerificationError VerificationError
 
+    -- | Download a file from a repository
+    --
+    -- We also record the reason why we are downloading rather than updating.
+  | LogDownloading (Some RemoteFile) String
+
+    -- | Incrementally updating a file from a repository
+  | LogUpdating (Some RemoteFile)
+
 {-------------------------------------------------------------------------------
   Paths
 -------------------------------------------------------------------------------}
@@ -269,3 +279,14 @@ formatLogMessage LogRootUpdated =
     "Root info updated"
 formatLogMessage (LogVerificationError err) =
     "Verification error: " ++ formatVerificationError err
+formatLogMessage (LogDownloading (Some file) why) =
+    "Downloading " ++ describeRemoteFile file ++ " (" ++ why ++ ")"
+formatLogMessage (LogUpdating (Some file)) =
+    "Updating " ++ describeRemoteFile file
+
+describeRemoteFile :: RemoteFile fs -> String
+describeRemoteFile RemoteTimestamp          = "timestamp"
+describeRemoteFile (RemoteRoot _)           = "root"
+describeRemoteFile (RemoteSnapshot _)       = "snapshot"
+describeRemoteFile (RemoteIndex _ _)        = "index"
+describeRemoteFile (RemotePkgTarGz pkgId _) = "package " ++ display pkgId

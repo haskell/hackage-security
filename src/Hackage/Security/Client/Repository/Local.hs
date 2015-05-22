@@ -32,16 +32,17 @@ type LocalRepo = FilePath
 type Cache     = FilePath
 
 -- | Initialy a local repository
-initRepo :: LocalRepo -> Cache -> Repository
-initRepo repo cache = Repository {
+initRepo :: LocalRepo             -- ^ Location of local repository
+         -> Cache                 -- ^ Location of local cache
+         -> (LogMessage -> IO ()) -- ^ Logger
+         -> Repository
+initRepo repo cache logger = Repository {
     repWithRemote    = withRemote repo cache
   , repGetCached     = getCached     cache
   , repGetCachedRoot = getCachedRoot cache
   , repClearCache    = clearCache    cache
   , repGetFromIndex  = getFromIndex  cache
-  -- TODO: We should allow clients to plugin a proper logging message here
-  -- (probably means accepting a callback to initRepo)
-  , repLog = putStrLn . formatLogMessage
+  , repLog           = logger
   }
 
 {-------------------------------------------------------------------------------
