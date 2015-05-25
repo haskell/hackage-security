@@ -9,11 +9,14 @@ module Hackage.Security.Client.Repository.HTTP (
   , HttpClient(..)
   , FileSize(..)
   , Cache
+    -- ** Utility
+  , fileSizeWithinBounds
     -- * Top-level API
   , initRepo
   ) where
 
 import Control.Concurrent
+import Control.Exception
 import Control.Monad.Except
 import Network.URI
 import System.FilePath
@@ -82,6 +85,11 @@ data FileSize =
     -- TODO: Once we put in estimates we should get rid of this.
   | FileSizeUnknown
 
+fileSizeWithinBounds :: Int -> FileSize -> Bool
+fileSizeWithinBounds sz (FileSizeExact sz') = sz <= sz'
+fileSizeWithinBounds sz (FileSizeBound sz') = sz <= sz'
+fileSizeWithinBounds _  FileSizeUnknown     = True
+
 -- | Abstraction over HTTP clients
 --
 -- This avoids insisting on a particular implementation (such as the HTTP
@@ -132,17 +140,25 @@ withRemote :: HttpClient -> URI -> Cache
            -> (SelectedFormat fs -> TempPath -> IO a) -> IO a
 withRemote httpClient baseURI cache logger remoteFile callback = do
     mIncremental <- shouldDoIncremental httpClient cache remoteFile
-    case mIncremental of
+
+    -- If we can download incrementally, try. However, if this throws an I/O
+    -- exception or a verification error we try again using a normal download.
+    didDownload <- case mIncremental of
+      Left reason ->
+        return $ Left reason
+      Right (sf, len, fp) -> do
+        logger $ LogUpdating (Some remoteFile)
+        catches (Right <$> incTar httpClient baseURI cache (callback sf) len fp) [
+            Handler $ return . Left . UpdateFailedIO
+          , Handler $ return . Left . UpdateFailedVerification
+          ]
+
+    case didDownload of
       Left reason -> do
         logger $ LogDownloading (Some remoteFile) reason
         getFile httpClient baseURI cache callback remoteFile
-      Right (sf, len, fp) -> do
-        logger $ LogUpdating (Some remoteFile)
-        -- TODO: Catch checksum exceptions, and retry without using incremental
-        -- updates (verify that we don't first re-try with root info)
-        -- Test by bootstrapping the repo, in which case the incremental update
-        -- will fail (provided the index is bigger?)
-        incTar httpClient baseURI cache (callback sf) len fp
+      Right did ->
+        return did
 
 -- | Should we do an incremental update?
 --
@@ -150,13 +166,13 @@ withRemote httpClient baseURI cache logger remoteFile callback = do
 -- or else 'Right' the name of the local file that we should update.
 shouldDoIncremental
   :: forall fs. HttpClient -> Cache -> RemoteFile fs
-  -> IO (Either String (SelectedFormat fs, Trusted FileLength, FilePath))
+  -> IO (Either UpdateFailure (SelectedFormat fs, Trusted FileLength, FilePath))
 shouldDoIncremental HttpClient{..} cache remoteFile = runExceptT $ do
     -- Currently the only file which we download incrementally is the index
     formats :: Formats fs (Trusted FileLength) <-
       case remoteFile of
         RemoteIndex _ lens -> return lens
-        _ -> throwError "We can only download the index incrementally"
+        _ -> throwError UpdateNotAttempted
 
     -- The server must be able to provide the index in uncompressed form
     -- NOTE: The two @SZ Fun@ expressions here have different types.
@@ -164,19 +180,19 @@ shouldDoIncremental HttpClient{..} cache remoteFile = runExceptT $ do
       case formats of
         FsUn   lenUn   -> return (SZ FUn, lenUn)
         FsUnGz lenUn _ -> return (SZ FUn, lenUn)
-        _ -> throwError "Server does not provide uncompressed index"
+        _ -> throwError UpdateImpossibleOnlyCompressed
 
     -- Server must support @Range@ with a byte-range
     supportsAcceptBytes <- lift $ getServerSupportsAcceptBytes httpClientCapabilities
     unless supportsAcceptBytes $
-      throwError "Server does not support Range header"
+      throwError UpdateImpossibleUnsupported
 
     -- We already have a local file to be updated
     -- (if not we should try to download the initial file in compressed form)
     cachedIndex <- do
       mCachedIndex <- lift $ Local.getCachedIndex cache
       case mCachedIndex of
-        Nothing -> throwError "No previously downloaded index"
+        Nothing -> throwError UpdateImpossibleNoLocalCopy
         Just fp -> return fp
 
     -- TODO: Other factors to decide whether or not we want to do incremental updates
@@ -194,7 +210,7 @@ getFile HttpClient{..} baseURI cache callback remoteFile =
     withSystemTempFile (takeFileName (uriPath uri)) $ \tempPath h -> do
       -- We are careful NOT to scope the remainder of the computation underneath
       -- the httpClientGet
-      httpClientGet uri $ execBodyReader sz h
+      httpClientGet uri $ execBodyReader (describeRemoteFile remoteFile) sz h
       hClose h
       result <- callback format tempPath
       Local.cacheRemoteFile cache
@@ -227,7 +243,7 @@ incTar HttpClient{..} baseURI cache callback len cachedFile = do
       hSeek h AbsoluteSeek currentMinusTrailer
       -- As in 'getFile', make sure we don't scope the remainder of the
       -- computation underneath the httpClientGetRange
-      httpClientGetRange uri range $ execBodyReader rangeSz h
+      httpClientGetRange uri range $ execBodyReader "index" rangeSz h
       hClose h
       result <- callback tempPath
       Local.cacheRemoteFile cache tempPath (Some FUn) CacheIndex
@@ -257,14 +273,22 @@ type BodyReader = IO BS.ByteString
 -- then continue. We do NOT want to scope the remainder of the computation
 -- as part of the same HTTP request.
 --
--- TODO: Deal with maximum file sizes and minimum download rate.
-execBodyReader :: FileSize -> Handle -> BodyReader -> IO ()
-execBodyReader mlen h br = go
+-- TODO: Deal with minimum download rate.
+execBodyReader :: String      -- ^ Description of the file (for error msgs only)
+               -> FileSize    -- ^ Maximum file size
+               -> Handle      -- ^ Handle to write data too
+               -> BodyReader  -- ^ The action to give us blocks from the file
+               -> IO ()
+execBodyReader file mlen h br = go 0
   where
-    go = do bs <- br
-            if BS.null bs
-              then return ()
-              else BS.hPut h bs >> go
+    go :: Int -> IO ()
+    go sz = do
+      unless (sz `fileSizeWithinBounds` mlen) $
+        throwIO $ VerificationErrorFileTooLarge file
+      bs <- br
+      if BS.null bs
+        then return ()
+        else BS.hPut h bs >> go (sz + BS.length bs)
 
 {-------------------------------------------------------------------------------
   Information about remote files

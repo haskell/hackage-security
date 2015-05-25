@@ -8,6 +8,7 @@ module Hackage.Security.Client.Repository (
   , Repository(..)
   , TempPath
   , LogMessage(..)
+  , UpdateFailure(..)
     -- * Paths
   , remoteFilePath
   , cachedFilePath
@@ -18,9 +19,11 @@ module Hackage.Security.Client.Repository (
   , IsCached(..)
   , mustCache
   , formatLogMessage
+  , formatUpdateFailure
   , describeRemoteFile
   ) where
 
+import Control.Exception
 import System.FilePath
 import qualified Data.ByteString as BS
 
@@ -200,10 +203,29 @@ data LogMessage =
     -- | Download a file from a repository
     --
     -- We also record the reason why we are downloading rather than updating.
-  | LogDownloading (Some RemoteFile) String
+  | LogDownloading (Some RemoteFile) UpdateFailure
 
     -- | Incrementally updating a file from a repository
   | LogUpdating (Some RemoteFile)
+
+data UpdateFailure =
+    -- | Some files we never attempt to update
+    UpdateNotAttempted
+
+    -- | Server only provides compressed form of the file
+  | UpdateImpossibleOnlyCompressed
+
+    -- | Server does not support incremental downloads
+  | UpdateImpossibleUnsupported
+
+    -- | We don't have a local copy of the file to update
+  | UpdateImpossibleNoLocalCopy
+
+    -- | Update failed with an IO exception
+  | UpdateFailedIO IOException
+
+    -- | Update failed with a verification error
+  | UpdateFailedVerification VerificationError
 
 {-------------------------------------------------------------------------------
   Paths
@@ -279,10 +301,26 @@ formatLogMessage LogRootUpdated =
     "Root info updated"
 formatLogMessage (LogVerificationError err) =
     "Verification error: " ++ formatVerificationError err
+formatLogMessage (LogDownloading (Some file) UpdateNotAttempted) =
+    "Downloading " ++ describeRemoteFile file
 formatLogMessage (LogDownloading (Some file) why) =
-    "Downloading " ++ describeRemoteFile file ++ " (" ++ why ++ ")"
+    "Downloading " ++ describeRemoteFile file ++ " (" ++ formatUpdateFailure why ++ ")"
 formatLogMessage (LogUpdating (Some file)) =
     "Updating " ++ describeRemoteFile file
+
+formatUpdateFailure :: UpdateFailure -> String
+formatUpdateFailure UpdateNotAttempted =
+    "update not attempt"
+formatUpdateFailure UpdateImpossibleOnlyCompressed =
+    "server only provides file in compressed format"
+formatUpdateFailure UpdateImpossibleUnsupported =
+    "server does not provide incremental downloads"
+formatUpdateFailure UpdateImpossibleNoLocalCopy =
+    "no local copy"
+formatUpdateFailure (UpdateFailedIO ex) =
+    "update failed: " ++ show ex
+formatUpdateFailure (UpdateFailedVerification ex) =
+    "update failed: " ++ formatVerificationError ex
 
 describeRemoteFile :: RemoteFile fs -> String
 describeRemoteFile RemoteTimestamp          = "timestamp"

@@ -115,6 +115,10 @@ data VerificationError =
      -- but the information wasn't in the corresponding @targets.json@ file.
    | VerificationErrorUnknownTarget String
 
+     -- | The file we requested from the server was larger than expected
+     -- (potential endless data attack)
+   | VerificationErrorFileTooLarge String
+
      -- | The spec stipulates that if a verification error occurs during
      -- the check for updates, we must download new root information and
      -- start over. However, we limit how often we attempt this.
@@ -217,6 +221,8 @@ formatVerificationError (VerificationErrorFileInfo file) =
     "Invalid hash for " ++ file
 formatVerificationError (VerificationErrorUnknownTarget file) =
     file ++ " not found in corresponding target metadata"
+formatVerificationError (VerificationErrorFileTooLarge file) =
+    file ++ " too large"
 formatVerificationError VerificationErrorLoop =
     "Verification loop"
 
