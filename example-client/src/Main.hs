@@ -69,9 +69,9 @@ initRepo GlobalOpts{..}
     initClient :: (String -> IO ()) -> IO Remote.HttpClient
     initClient =
       case globalHttpClient of
-        "HTTP"         -> HttpClient.HTTP.initClient
-        "http-conduit" -> HttpClient.Conduit.initClient
-        _otherwise     -> error "unsupported HTTP client"
+        "HTTP"        -> HttpClient.HTTP.initClient
+        "http-client" -> HttpClient.Conduit.initClient
+        _otherwise    -> error "unsupported HTTP client"
 
     logger :: LogMessage -> IO ()
     logger msg = putStrLn $ "# " ++ formatLogMessage msg

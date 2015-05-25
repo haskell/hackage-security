@@ -5,6 +5,7 @@ module Hackage.Security.Client.Repository.HTTP (
   , getServerSupportsAcceptBytes
   , setServerSupportsAcceptBytes
     -- * Abstracting over HTTP libraries
+  , BodyReader
   , HttpClient(..)
   , FileSize(..)
   , Cache
@@ -17,6 +18,7 @@ import Control.Monad.Except
 import Network.URI
 import System.FilePath
 import System.IO
+import qualified Data.ByteString      as BS
 import qualified Data.ByteString.Lazy as BS.L
 
 import Hackage.Security.Client.Formats
@@ -83,15 +85,15 @@ data FileSize =
 -- | Abstraction over HTTP clients
 --
 -- This avoids insisting on a particular implementation (such as the HTTP
--- package) and allows for other implements (such as a conduit based one)
+-- package) and allows for other implementations (such as a conduit based one)
 data HttpClient = HttpClient {
     -- | Download a file
-    httpClientGet :: forall a. URI -> FileSize -> (TempPath -> IO a) -> IO a
+    httpClientGet :: forall a. URI -> (BodyReader -> IO a) -> IO a
 
     -- | Download a byte range
     --
     -- Range is starting and (exclusive) end offset in bytes.
-  , httpClientGetRange :: forall a. URI -> (Int, Int) -> (TempPath -> IO a) -> IO a
+  , httpClientGetRange :: forall a. URI -> (Int, Int) -> (BodyReader -> IO a) -> IO a
 
     -- | Server capabilities
     --
@@ -136,6 +138,10 @@ withRemote httpClient baseURI cache logger remoteFile callback = do
         getFile httpClient baseURI cache callback remoteFile
       Right (sf, len, fp) -> do
         logger $ LogUpdating (Some remoteFile)
+        -- TODO: Catch checksum exceptions, and retry without using incremental
+        -- updates (verify that we don't first re-try with root info)
+        -- Test by bootstrapping the repo, in which case the incremental update
+        -- will fail (provided the index is bigger?)
         incTar httpClient baseURI cache (callback sf) len fp
 
 -- | Should we do an incremental update?
@@ -173,39 +179,23 @@ shouldDoIncremental HttpClient{..} cache remoteFile = runExceptT $ do
         Nothing -> throwError "No previously downloaded index"
         Just fp -> return fp
 
-    return (selected, len, cachedIndex)
+    -- TODO: Other factors to decide whether or not we want to do incremental updates
+    -- TODO: (Not here:) deal with transparent compression of the update
+    -- (but see <https://github.com/haskell/cabal/issues/678> and
+    -- @Distribution.Client.GZipUtils@ in @cabal-install@)
 
--- | Get a tar file incrementally
---
--- Sadly, this has some tar-specific functionality
-incTar :: HttpClient -> URI -> Cache
-       -> (TempPath -> IO a)
-       -> Trusted FileLength -> FilePath -> IO a
-incTar HttpClient{..} baseURI cache callback len cachedFile = do
-    -- TODO: Once we have a local tarball index, this is not necessary
-    currentSize <- getFileSize cachedFile
-    let currentMinusTrailer = currentSize - 1024
-        range = (fromInteger currentMinusTrailer, trustedFileLength len)
-    httpClientGetRange uri range $ \tempRange -> do
-      withSystemTempFile "00-index.tar" $ \tempPath h -> do
-        BS.L.hPut h =<< BS.L.readFile cachedFile
-        hSeek h AbsoluteSeek currentMinusTrailer
-        BS.L.hPut h =<< BS.L.readFile tempRange
-        hClose h
-        result <- callback tempPath
-        Local.cacheRemoteFile cache tempPath (Some FUn) CacheIndex
-        return result
-  where
-    -- TODO: There are hardcoded references to "00-index.tar" and
-    -- "00-index.tar.gz" everwhere. We should probably abstract over that.
-    uri = baseURI { uriPath = uriPath baseURI </> "00-index.tar" }
+    return (selected, len, cachedIndex)
 
 -- | Get any file from the server, without using incremental updates
 getFile :: HttpClient -> URI -> Cache
         -> (SelectedFormat fs -> TempPath -> IO a)
         -> RemoteFile fs -> IO a
 getFile HttpClient{..} baseURI cache callback remoteFile =
-    httpClientGet uri sz $ \tempPath -> do
+    withSystemTempFile (takeFileName (uriPath uri)) $ \tempPath h -> do
+      -- We are careful NOT to scope the remainder of the computation underneath
+      -- the httpClientGet
+      httpClientGet uri $ execBodyReader sz h
+      hClose h
       result <- callback format tempPath
       Local.cacheRemoteFile cache
                             tempPath
@@ -220,6 +210,65 @@ getFile HttpClient{..} baseURI cache callback remoteFile =
                               (remoteFileURI baseURI remoteFile)
                               (remoteFileSize remoteFile))
 
+-- | Get a tar file incrementally
+--
+-- Sadly, this has some tar-specific functionality
+incTar :: HttpClient -> URI -> Cache
+       -> (TempPath -> IO a)
+       -> Trusted FileLength -> FilePath -> IO a
+incTar HttpClient{..} baseURI cache callback len cachedFile = do
+    -- TODO: Once we have a local tarball index, this is not necessary
+    currentSize <- getFileSize cachedFile
+    let currentMinusTrailer = currentSize - 1024
+        range   = (fromInteger currentMinusTrailer, trustedFileLength len)
+        rangeSz = FileSizeExact (snd range - fst range)
+    withSystemTempFile (takeFileName (uriPath uri)) $ \tempPath h -> do
+      BS.L.hPut h =<< BS.L.readFile cachedFile
+      hSeek h AbsoluteSeek currentMinusTrailer
+      -- As in 'getFile', make sure we don't scope the remainder of the
+      -- computation underneath the httpClientGetRange
+      httpClientGetRange uri range $ execBodyReader rangeSz h
+      hClose h
+      result <- callback tempPath
+      Local.cacheRemoteFile cache tempPath (Some FUn) CacheIndex
+      return result
+  where
+    -- TODO: There are hardcoded references to "00-index.tar" and
+    -- "00-index.tar.gz" everwhere. We should probably abstract over that.
+    uri = baseURI { uriPath = uriPath baseURI </> "00-index.tar" }
+
+{-------------------------------------------------------------------------------
+  Body readers
+-------------------------------------------------------------------------------}
+
+-- | An @IO@ action that represents an incoming response body coming from the
+-- server.
+--
+-- The action gets a single chunk of data from the response body, or an empty
+-- bytestring if no more data is available.
+--
+-- This definition is copied from the @http-client@ package.
+type BodyReader = IO BS.ByteString
+
+-- | Execute a body reader
+--
+-- NOTE: This intentially does NOT use the @with..@ pattern: we want to execute
+-- the entire body reader (or cancel it) and write the results to a file and
+-- then continue. We do NOT want to scope the remainder of the computation
+-- as part of the same HTTP request.
+--
+-- TODO: Deal with maximum file sizes and minimum download rate.
+execBodyReader :: FileSize -> Handle -> BodyReader -> IO ()
+execBodyReader mlen h br = go
+  where
+    go = do bs <- br
+            if BS.null bs
+              then return ()
+              else BS.hPut h bs >> go
+
+{-------------------------------------------------------------------------------
+  Information about remote files
+-------------------------------------------------------------------------------}
 
 remoteFileURI :: URI -> RemoteFile fs -> Formats fs URI
 remoteFileURI baseURI = fmap aux . remoteFilePath

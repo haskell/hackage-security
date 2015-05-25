@@ -12,19 +12,23 @@ build-type:          Simple
 cabal-version:       >=1.10
 
 -- For the example-client the lower limit is currently ghc 7.4
--- (because http-conduit relies on http-client, which requires base 4.5)
+-- (because http-client requires base 4.5)
 
 executable example-client
   main-is:             Main.hs
   build-depends:       base                 >= 4.4,
                        bytestring           >= 0.9,
                        Cabal                >= 1.12,
+                       case-insensitive     >= 1.2,
+                       data-default-class   >= 0.0,
                        directory            >= 1.1,
                        filepath             >= 1.2,
+                       http-types           >= 0.8,
+                       mtl                  >= 2.1,
                        network-uri          >= 2.6,
                        optparse-applicative >= 0.11,
                        HTTP                 >= 4000.2.19,
-                       http-conduit         >= 2.1,
+                       http-client          >= 0.4,
                        temporary            >= 1.2,
                        hackage-security
   hs-source-dirs:      src
