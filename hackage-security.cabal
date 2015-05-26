@@ -20,8 +20,8 @@ library
                        Hackage.Security.Client
                        Hackage.Security.Client.Formats
                        Hackage.Security.Client.Repository
-                       Hackage.Security.Client.Repository.Local
                        Hackage.Security.Client.Repository.HTTP
+                       Hackage.Security.Client.Repository.Local
                        Hackage.Security.JSON
                        Hackage.Security.JSON.Archive
                        Hackage.Security.Key
@@ -35,6 +35,8 @@ library
                        Hackage.Security.TUF.FileInfo
                        Hackage.Security.TUF.FileMap
                        Hackage.Security.TUF.Header
+                       Hackage.Security.TUF.Mirrors
+                       Hackage.Security.TUF.Patterns
                        Hackage.Security.TUF.Root
                        Hackage.Security.TUF.Signed
                        Hackage.Security.TUF.Snapshot
