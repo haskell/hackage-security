@@ -23,6 +23,7 @@ library
                        Hackage.Security.Client.Repository.Local
                        Hackage.Security.Client.Repository.HTTP
                        Hackage.Security.JSON
+                       Hackage.Security.JSON.Archive
                        Hackage.Security.Key
                        Hackage.Security.Key.Env
                        Hackage.Security.Key.ExplicitSharing

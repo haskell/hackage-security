@@ -33,7 +33,6 @@ import Distribution.Text
 import Hackage.Security.Client.Formats
 import Hackage.Security.Trusted
 import Hackage.Security.TUF
-import Hackage.Security.Util.Some
 import Hackage.Security.Util.Stack
 
 {-------------------------------------------------------------------------------
@@ -209,10 +208,10 @@ data LogMessage =
     -- | Download a file from a repository
     --
     -- We also record the reason why we are downloading rather than updating.
-  | LogDownloading (Some RemoteFile) UpdateFailure
+  | LogDownloading String UpdateFailure
 
     -- | Incrementally updating a file from a repository
-  | LogUpdating (Some RemoteFile)
+  | LogUpdating String
 
 -- | Records why we are downloading a file rather than updating it.
 data UpdateFailure =
@@ -309,12 +308,12 @@ formatLogMessage LogRootUpdated =
     "Root info updated"
 formatLogMessage (LogVerificationError err) =
     "Verification error: " ++ formatVerificationError err
-formatLogMessage (LogDownloading (Some file) UpdateNotAttempted) =
-    "Downloading " ++ describeRemoteFile file
-formatLogMessage (LogDownloading (Some file) why) =
-    "Downloading " ++ describeRemoteFile file ++ " (" ++ formatUpdateFailure why ++ ")"
-formatLogMessage (LogUpdating (Some file)) =
-    "Updating " ++ describeRemoteFile file
+formatLogMessage (LogDownloading file UpdateNotAttempted) =
+    "Downloading " ++ file
+formatLogMessage (LogDownloading file why) =
+    "Downloading " ++ file ++ " (" ++ formatUpdateFailure why ++ ")"
+formatLogMessage (LogUpdating file) =
+    "Updating " ++ file
 
 formatUpdateFailure :: UpdateFailure -> String
 formatUpdateFailure UpdateNotAttempted =

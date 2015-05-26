@@ -36,6 +36,7 @@ import Control.Concurrent
 import Control.Exception
 import Control.Monad.Except
 import Network.URI
+import System.Directory
 import System.FilePath
 import System.IO
 import qualified Data.ByteString      as BS
@@ -44,11 +45,14 @@ import qualified Data.ByteString.Lazy as BS.L
 import Hackage.Security.Client.Formats
 import Hackage.Security.Client.Repository
 import Hackage.Security.Client.Repository.Local (Cache)
+import Hackage.Security.Key.ExplicitSharing
 import Hackage.Security.Trusted
 import Hackage.Security.TUF
 import Hackage.Security.Util.IO
 import Hackage.Security.Util.Some
 import qualified Hackage.Security.Client.Repository.Local as Local
+import qualified Hackage.Security.JSON.Archive            as Archive
+import qualified Hackage.Security.Key.Env                 as KeyEnv
 
 {-------------------------------------------------------------------------------
   Server capabilities
@@ -139,7 +143,7 @@ withRepository
   -> (Repository -> IO a)  -- ^ Callback
   -> IO a
 withRepository http auth cache logger callback = callback Repository {
-    repWithRemote    = withRemote http auth cache logger
+    repWithRemote    = flip $ withRemote http auth cache logger
   , repGetCached     = Local.getCached     cache
   , repGetCachedRoot = Local.getCachedRoot cache
   , repClearCache    = Local.clearCache    cache
@@ -152,33 +156,65 @@ withRepository http auth cache logger callback = callback Repository {
 -------------------------------------------------------------------------------}
 
 -- | Get a file from the server
---
--- TODO: We need to deal with the combined timestamp/snapshot thing
-withRemote :: HttpClient -> URI -> Cache
+withRemote :: forall fs a.
+              HttpClient -> URI -> Cache
            -> (LogMessage -> IO ())
-           -> RemoteFile fs
-           -> (SelectedFormat fs -> TempPath -> IO a) -> IO a
-withRemote httpClient baseURI cache logger remoteFile callback = do
-    mIncremental <- shouldDoIncremental httpClient cache remoteFile
+           -> (SelectedFormat fs -> TempPath -> IO a)
+           -> RemoteFile fs -> IO a
+withRemote httpClient baseURI cache logger callback = go
+  where
+    -- When we get a request for the timestamp, we download the combined
+    -- timestamp/snapshot archive instead, and unpack that archive into a
+    -- separate directory. It is important that we don't just overwrite the
+    -- local files because these files are not yet verified.
+    go :: RemoteFile fs -> IO a
+    go RemoteTimestamp = do
+      logger $ LogDownloading "timestamp-snapshot.json" UpdateNotAttempted
+      let arPath = "timestamp-snapshot.json"
+          arURI  = baseURI { uriPath = uriPath baseURI </> arPath }
+          arSz   = FileSizeUnknown -- TODO
+      getFile' httpClient arURI arSz "timestamp-snapshot.json" $ \tempPath -> do
+        createDirectoryIfMissing True (cache </> "unverified")
+        mAr <- readCanonical KeyEnv.empty tempPath
+        case mAr of
+          Left  ex -> throwIO ex
+          Right ar -> Archive.writeEntries (cache </> "unverified") ar
+      let tempTS = cache </> "unverified" </> "timestamp.json"
+      result <- callback (SZ FUn) tempTS
+      Local.cacheRemoteFile cache tempTS (Some FUn) (CacheAs CachedTimestamp)
+      return result
 
-    -- If we can download incrementally, try. However, if this throws an I/O
-    -- exception or a verification error we try again using a normal download.
-    didDownload <- case mIncremental of
-      Left reason ->
-        return $ Left reason
-      Right (sf, len, fp) -> do
-        logger $ LogUpdating (Some remoteFile)
-        catches (Right <$> incTar httpClient baseURI cache (callback sf) len fp) [
-            Handler $ return . Left . UpdateFailedIO
-          , Handler $ return . Left . UpdateFailedVerification
-          ]
+    -- When we get a request for the snapshot, we assume we have previously
+    -- gotten a request for the timestamp, so we just use the file we extracted
+    -- from the combined timestamp/snapshot archive
+    go (RemoteSnapshot _) = do
+      let tempSS = cache </> "unverified" </> "snapshot.json"
+      result <- callback (SZ FUn) tempSS
+      Local.cacheRemoteFile cache tempSS (Some FUn) (CacheAs CachedSnapshot)
+      return result
 
-    case didDownload of
-      Left reason -> do
-        logger $ LogDownloading (Some remoteFile) reason
-        getFile httpClient baseURI cache callback remoteFile
-      Right did ->
-        return did
+    -- Other files we download normally (incrementally if possible)
+    go remoteFile = do
+      mIncremental <- shouldDoIncremental httpClient cache remoteFile
+
+      -- If we can download incrementally, try. However, if this throws an I/O
+      -- exception or a verification error we try again using a normal download.
+      didDownload <- case mIncremental of
+        Left reason ->
+          return $ Left reason
+        Right (sf, len, fp) -> do
+          logger $ LogUpdating (describeRemoteFile remoteFile)
+          catches (Right <$> incTar httpClient baseURI cache (callback sf) len fp) [
+              Handler $ return . Left . UpdateFailedIO
+            , Handler $ return . Left . UpdateFailedVerification
+            ]
+
+      case didDownload of
+        Left reason -> do
+          logger $ LogDownloading (describeRemoteFile remoteFile) reason
+          getFile httpClient baseURI cache callback remoteFile
+        Right did ->
+          return did
 
 -- | Should we do an incremental update?
 --
@@ -226,12 +262,8 @@ shouldDoIncremental HttpClient{..} cache remoteFile = runExceptT $ do
 getFile :: HttpClient -> URI -> Cache
         -> (SelectedFormat fs -> TempPath -> IO a)
         -> RemoteFile fs -> IO a
-getFile HttpClient{..} baseURI cache callback remoteFile =
-    withSystemTempFile (takeFileName (uriPath uri)) $ \tempPath h -> do
-      -- We are careful NOT to scope the remainder of the computation underneath
-      -- the httpClientGet
-      httpClientGet uri $ execBodyReader (describeRemoteFile remoteFile) sz h
-      hClose h
+getFile httpClient baseURI cache callback remoteFile =
+    getFile' httpClient uri sz (describeRemoteFile remoteFile) $ \tempPath -> do
       result <- callback format tempPath
       Local.cacheRemoteFile cache
                             tempPath
@@ -245,6 +277,21 @@ getFile HttpClient{..} baseURI cache callback remoteFile =
                             (formatsZip
                               (remoteFileURI baseURI remoteFile)
                               (remoteFileSize remoteFile))
+
+-- | Get a file from the server (by URI)
+getFile' :: HttpClient          -- ^ HTTP client
+         -> URI                 -- ^ File URI
+         -> FileSize            -- ^ File size
+         -> String              -- ^ File description (for error messages)
+         -> (TempPath -> IO a)  -- ^ Callback
+         -> IO a
+getFile' HttpClient{..} uri sz description callback =
+    withSystemTempFile (takeFileName (uriPath uri)) $ \tempPath h -> do
+      -- We are careful NOT to scope the remainder of the computation underneath
+      -- the httpClientGet
+      httpClientGet uri $ execBodyReader description sz h
+      hClose h
+      callback tempPath
 
 -- | Get a tar file incrementally
 --

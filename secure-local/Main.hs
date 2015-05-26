@@ -23,6 +23,7 @@ import Hackage.Security.Key.ExplicitSharing
 import Hackage.Security.TUF
 import Hackage.Security.Util.Some
 import Hackage.Security.Util.IO
+import qualified Hackage.Security.JSON.Archive        as Archive
 import qualified Hackage.Security.TUF.FileMap         as FileMap
 import qualified Hackage.Security.Key.Env             as KeyEnv
 import qualified Hackage.Security.Server.IndexTarball as Index
@@ -233,6 +234,13 @@ bootstrapOrUpdate opts@GlobalOpts{..} isBootstrap = do
           }
         signedTimestamp = withSignatures (privateTimestamp keys) timestamp
     writeCanonical (globalRepo </> "timestamp.json") signedTimestamp
+
+    -- Write the combined snapshot/timestamp file
+    logInfo $ "Creating " ++ globalRepo </> "timestamp-snapshot.json"
+    let timestampSnapshot = Archive.insert "snapshot.json"  signedSnapshot
+                          $ Archive.insert "timestamp.json" signedTimestamp
+                          $ Archive.empty
+    writeCanonical (globalRepo </> "timestamp-snapshot.json") timestampSnapshot
 
 -- | Create package metadata
 --
