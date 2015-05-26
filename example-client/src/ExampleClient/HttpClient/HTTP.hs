@@ -77,18 +77,12 @@ withResponse caps response callback = do
     -- See <https://github.com/haskell/HTTP/issues/86>.
     updateCapabilities caps response
     chunks <- newIORef $ BS.L.toChunks (rspBody response)
+    -- NOTE: Lazy bytestrings invariant: no empty chunks
     let br = do bss <- readIORef chunks
-                let (bs, bss') = findNonEmptyChunk bss
-                writeIORef chunks bss'
-                return bs
+                case bss of
+                  []        -> return BS.empty
+                  (bs:bss') -> writeIORef chunks bss' >> return bs
     callback br
-  where
-    -- Find a non-empty chunk, if one exists. Only returns an empty chunk if
-    -- no non-empty chunk can be found.
-    findNonEmptyChunk :: [BS.ByteString] -> (BS.ByteString, [BS.ByteString])
-    findNonEmptyChunk []                    = (BS.empty, [])
-    findNonEmptyChunk (bs:bss) | BS.null bs = findNonEmptyChunk bss
-                               | otherwise  = (bs, bss)
 
 -- | Update recorded server capabilities given a response
 updateCapabilities :: ServerCapabilities -> Response a -> IO ()
