@@ -290,7 +290,6 @@ downloadPackage rep pkgId callback = evalContT $ do
     let keyEnv = rootKeys (trusted cachedRoot)
 
     -- NOTE: The files inside the index as evaluated lazily.
-    -- See also <https://github.com/theupdateframework/tuf/issues/282>.
     --
     -- 1. The index tarball contains delegated target.json files for both
     --    unsigned and signed packages. We need to verify the signatures of all
@@ -303,7 +302,17 @@ downloadPackage rep pkgId callback = evalContT $ do
     --
     -- Since we don't have author signing yet, we don't have any additional
     -- signed metadata and therefore we currently don't have to do anything
-    -- here:
+    -- here.
+    --
+    -- TODO: If we have explicit, author-signed, ists of versions for a package
+    -- (as described in @README.md@), then evaluating these "middle-level"
+    -- delegation files lazily opens us up to a rollback attack: if we've never
+    -- downloaded the delegations for a package before, then we have nothing to
+    -- compare the version number in the file that we downloaded against. One
+    -- option is to always download and verify all these middle level files
+    -- (strictly); other is to include the version number of all of these files
+    -- in the snapshot. This is described in more detail in 
+    -- <https://github.com/theupdateframework/tuf/issues/282#issuecomment-102468421>.
     let trustIndex = trustLocalFile
 
     -- Get the metadata (from the previously updated index)
