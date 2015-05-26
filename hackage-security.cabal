@@ -18,7 +18,6 @@ flag base46
 library
   exposed-modules:     Hackage.Security.Base64
                        Hackage.Security.Client
-                       Hackage.Security.Client.IndexTarball
                        Hackage.Security.Client.Formats
                        Hackage.Security.Client.Repository
                        Hackage.Security.Client.Repository.Local

@@ -12,17 +12,22 @@ module Hackage.Security.Client.Repository.Local (
   ) where
 
 import Control.Exception
+import Control.Monad
 import System.Directory
 import System.FilePath
-import qualified Codec.Compression.GZip as GZip
-import qualified Data.ByteString        as BS
-import qualified Data.ByteString.Lazy   as BS.L
+import System.IO
+import Codec.Archive.Tar.Index (TarIndex)
+import qualified Codec.Archive.Tar       as Tar
+import qualified Codec.Archive.Tar.Index as TarIndex
+import qualified Codec.Compression.GZip  as GZip
+import qualified Data.ByteString         as BS
+import qualified Data.ByteString.Builder as BS
+import qualified Data.ByteString.Lazy    as BS.L
 
 import Hackage.Security.Client.Repository
 import Hackage.Security.Client.Formats
 import Hackage.Security.Util.IO
 import Hackage.Security.Util.Some
-import qualified Hackage.Security.Client.IndexTarball as Index
 
 {-------------------------------------------------------------------------------
   Top-level
@@ -68,8 +73,11 @@ withRemote repo cache remoteFile callback = do
 
 -- | Cache a previously downloaded remote file
 cacheRemoteFile :: Cache -> TempPath -> Some Format -> IsCached -> IO ()
-cacheRemoteFile cache tempPath (Some f) isCached =
+cacheRemoteFile cache tempPath (Some f) isCached = do
     go f (cachedFileName isCached)
+    -- TODO: This recreates the tar index ahead of time. Alternatively, we
+    -- could delete the index here and then it will be rebuilt on first access.
+    when (isCached == CacheIndex) $ rebuildTarIndex cache
   where
     go :: Format f -> Maybe FilePath -> IO ()
     go _ Nothing =
@@ -80,6 +88,19 @@ cacheRemoteFile cache tempPath (Some f) isCached =
     go FGz (Just localName) = do
       compressed <- BS.L.readFile tempPath
       BS.L.writeFile (cache </> localName) $ GZip.decompress compressed
+
+-- | Rebuild the tarball index
+--
+-- TODO: Should we attempt to rebuild this incrementally?
+rebuildTarIndex :: Cache -> IO ()
+rebuildTarIndex cache = do
+    entries <- Tar.read <$> BS.L.readFile (cache </> "00-index.tar")
+    case TarIndex.build entries of
+      Left  ex    -> throwIO ex
+      Right index ->
+        withBinaryFile (cache </> "00-index.tar.idx") WriteMode $ \h -> do
+          hSetBuffering h (BlockBuffering Nothing)
+          BS.hPutBuilder h $ TarIndex.serialise index
 
 -- | The name of the file as cached
 --
@@ -121,14 +142,36 @@ getCachedRoot cache = do
 
 -- | Get a file from the index
 getFromIndex :: Cache -> IndexFile -> IO (Maybe BS.ByteString)
-getFromIndex cache indexFile =
-    force =<< Index.extractFile
-      (cache </> "00-index.tar")
-      (indexFilePath indexFile)
+getFromIndex cache indexFile = do
+    mIndex <- tryReadIndex (cache </> "00-index.tar.idx")
+    case mIndex of
+      Left _err -> do
+        -- If index is corrupted, rebuild and try again
+        rebuildTarIndex cache
+        getFromIndex cache indexFile
+      Right index ->
+        case TarIndex.lookup index (indexFilePath indexFile) of
+          Just (TarIndex.TarFileEntry offset) ->
+            -- TODO: We might want to keep this handle open
+            withFile (cache </> "00-index.tar") ReadMode $ \h -> do
+              entry <- TarIndex.hReadEntry h offset
+              case Tar.entryContent entry of
+                Tar.NormalFile lbs _size -> do
+                  bs <- evaluate $ BS.concat . BS.L.toChunks $ lbs
+                  return $ Just bs
+                _otherwise ->
+                  return Nothing
+          _otherwise ->
+            return Nothing
   where
-    force :: Maybe BS.L.ByteString -> IO (Maybe BS.ByteString)
-    force Nothing   = return Nothing
-    force (Just bs) = Just <$> (evaluate . BS.concat . BS.L.toChunks $ bs)
+    -- TODO: How come 'deserialise' uses _strict_ ByteStrings?
+    tryReadIndex :: FilePath -> IO (Either (Maybe IOException) TarIndex)
+    tryReadIndex fp = aux <$> try (TarIndex.deserialise <$> BS.readFile fp)
+      where
+        aux :: Either e (Maybe (a, leftover)) -> Either (Maybe e) a
+        aux (Left e)              = Left (Just e)
+        aux (Right Nothing)       = Left Nothing
+        aux (Right (Just (a, _))) = Right a
 
 -- | Delete a previously downloaded remote file
 clearCache :: Cache -> IO ()

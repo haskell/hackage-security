@@ -101,7 +101,7 @@ data CachedFile =
 
     -- | Snapshot metadata (@snapshot.json@)
   | CachedSnapshot
-  deriving Show
+  deriving (Eq, Ord, Show)
 
 -- | Files that we might request from the index
 data IndexFile =
@@ -287,6 +287,7 @@ data IsCached =
     -- keep an index tarball index for quick access, others may scan the tarball
     -- linearly, etc.
   | CacheIndex
+  deriving (Eq, Ord, Show)
 
 -- | Which remote files should we cache locally?
 mustCache :: RemoteFile fs -> IsCached
