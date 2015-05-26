@@ -1,8 +1,7 @@
 module ExampleClient.HttpClient.Conduit (
-    initClient
+    withClient
   ) where
 
-import Control.Concurrent
 import Control.Monad
 import Data.Default.Class (def)
 import Network.URI
@@ -18,64 +17,42 @@ import Hackage.Security.Client.Repository.HTTP
   Top-level API
 -------------------------------------------------------------------------------}
 
-initClient :: (String -> IO ()) -> IO HttpClient
-initClient _logger = do
-    m'   <- newMVar ManagerNotInit
+withClient :: (String -> IO ()) -> (HttpClient -> IO a) -> IO a
+withClient _logger callback = do
     caps <- newServerCapabilities
-    return $ HttpClient {
-        httpClientGet          = get      m' caps
-      , httpClientGetRange     = getRange m' caps
-      , httpClientCapabilities = caps
-      }
-
-{-------------------------------------------------------------------------------
-  Dealing with the Manager
-
-  We start the manager on first use, and then keep it open; however,
-  this setup also allows to terminate the manager at any point should we want
-  to; it will then automatically be recreated when needed again.
-
-  TODO: Should the manager ever be terminated?
--------------------------------------------------------------------------------}
-
-data Manager' = ManagerNotInit | ManagerInit Manager
-
-withManager' :: MVar Manager' -> (Manager -> IO a) -> IO a
-withManager' mv callback = modifyMVar mv $ \st -> do
-    m <- case st of
-           ManagerInit m  -> return m
-           ManagerNotInit -> newManager defaultManagerSettings
-    result <- callback m
-    return (ManagerInit m, result)
+    withManager defaultManagerSettings $ \manager ->
+      callback HttpClient {
+          httpClientGet          = get      manager caps
+        , httpClientGetRange     = getRange manager caps
+        , httpClientCapabilities = caps
+        }
 
 {-------------------------------------------------------------------------------
   Individual methods
 -------------------------------------------------------------------------------}
 
 -- See TODOs in the HTTP client
-get :: MVar Manager' -> ServerCapabilities
+get :: Manager -> ServerCapabilities
     -> URI -> (BodyReader -> IO a) -> IO a
-get m' caps uri callback = do
+get manager caps uri callback = do
     -- TODO: setUri fails under certain circumstances; in particular, when
     -- the URI contains URL auth. Not sure if this is a concern.
     request <- setUri def uri
-    withManager' m' $ \m -> do
-      withResponse request m $ \response -> do
-        updateCapabilities caps response
-        callback (responseBody response)
+    withResponse request manager $ \response -> do
+      updateCapabilities caps response
+      callback (responseBody response)
 
-getRange :: MVar Manager' -> ServerCapabilities
+getRange :: Manager -> ServerCapabilities
          -> URI -> (Int, Int) -> (BodyReader -> IO a) -> IO a
-getRange m' caps uri (from, to) callback = do
+getRange manager caps uri (from, to) callback = do
     request' <- setUri def uri
     let request = request' {
             requestHeaders = (hRange, rangeHeader)
                            : requestHeaders request'
           }
-    withManager' m' $ \m -> do
-      withResponse request m $ \response -> do
-        updateCapabilities caps response
-        callback (responseBody response)
+    withResponse request manager $ \response -> do
+      updateCapabilities caps response
+      callback (responseBody response)
   where
     -- Content-Range header uses inclusive rather than exclusive bounds
     -- See <http://www.w3.org/Protocols/rfc2616/rfc2616-sec14.html>

@@ -1,3 +1,20 @@
+-- | An implementation of Repository that talks to repositories over HTTP.
+--
+-- This implementation is itself parameterized over a 'HttpClient', so that it
+-- it not tied to a specific library; for instance, 'HttpClient' can be
+-- implemented with the @HTTP@ library, the @http-client@ libary, or others.
+--
+-- It would also be possible to give _other_ Repository implementations that
+-- talk to repositories over HTTP, if you want to make other design decisions
+-- than we did here, in particular:
+--
+-- * We attempt to do incremental downloads of the index when possible.
+-- * We reuse the "Repository.Local"  to deal with the local cache.
+-- * We download @timestamp.json@ and @snapshot.json@ together. This is
+--   implemented here because:
+--   - One level down (HttpClient) we have no access to the local cache
+--   - One level up (Repository API) would require _all_ Repositories to
+--     implement this optimization.
 module Hackage.Security.Client.Repository.HTTP (
     -- * Server capabilities
     ServerCapabilities -- opaque
@@ -12,7 +29,7 @@ module Hackage.Security.Client.Repository.HTTP (
     -- ** Utility
   , fileSizeWithinBounds
     -- * Top-level API
-  , initRepo
+  , withRepository
   ) where
 
 import Control.Concurrent
@@ -113,12 +130,15 @@ data HttpClient = HttpClient {
   Top-level API
 -------------------------------------------------------------------------------}
 
-initRepo :: HttpClient            -- ^ Implementation of the HTTP protocol
-         -> URI                   -- ^ Base URI
-         -> Cache                 -- ^ Location of local cache
-         -> (LogMessage -> IO ()) -- ^ Logger
-         -> Repository
-initRepo http auth cache logger = Repository {
+-- | Initialize the repository (and cleanup resources afterwards)
+withRepository
+  :: HttpClient            -- ^ Implementation of the HTTP protocol
+  -> URI                   -- ^ Base URI
+  -> Cache                 -- ^ Location of local cache
+  -> (LogMessage -> IO ()) -- ^ Logger
+  -> (Repository -> IO a)  -- ^ Callback
+  -> IO a
+withRepository http auth cache logger callback = callback Repository {
     repWithRemote    = withRemote http auth cache logger
   , repGetCached     = Local.getCached     cache
   , repGetCachedRoot = Local.getCachedRoot cache

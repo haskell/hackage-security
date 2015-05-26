@@ -104,6 +104,12 @@ data CachedFile =
   deriving (Eq, Ord, Show)
 
 -- | Files that we might request from the index
+--
+-- TODO: We should also provide a way to extract preferred versions info from
+-- the tarball. After all, this is a security sensitive, as it might be used
+-- for rollback/freeze attacks. Until we have author signing however this is
+-- not a strict necessity, as the preferred versions comes from the index which
+-- is itself signed.
 data IndexFile =
     -- | Package-specific metadata (@targets.json@)
     IndexPkgMetadata PackageIdentifier
@@ -208,6 +214,7 @@ data LogMessage =
     -- | Incrementally updating a file from a repository
   | LogUpdating (Some RemoteFile)
 
+-- | Records why we are downloading a file rather than updating it.
 data UpdateFailure =
     -- | Some files we never attempt to update
     UpdateNotAttempted

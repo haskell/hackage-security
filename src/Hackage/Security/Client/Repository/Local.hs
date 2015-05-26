@@ -1,7 +1,7 @@
 module Hackage.Security.Client.Repository.Local (
     LocalRepo
   , Cache
-  , initRepo
+  , withRepository
     -- * Low-level API (for the benefit of other Repository implementations)
   , getCached
   , getCachedRoot
@@ -36,12 +36,14 @@ import Hackage.Security.Util.Some
 type LocalRepo = FilePath
 type Cache     = FilePath
 
--- | Initialy a local repository
-initRepo :: LocalRepo             -- ^ Location of local repository
-         -> Cache                 -- ^ Location of local cache
-         -> (LogMessage -> IO ()) -- ^ Logger
-         -> Repository
-initRepo repo cache logger = Repository {
+-- | Initialize the repository (and cleanup resources afterwards)
+withRepository
+  :: LocalRepo             -- ^ Location of local repository
+  -> Cache                 -- ^ Location of local cache
+  -> (LogMessage -> IO ()) -- ^ Logger
+  -> (Repository -> IO a)  -- ^ Callback
+  -> IO a
+withRepository repo cache logger callback = callback Repository {
     repWithRemote    = withRemote repo cache
   , repGetCached     = getCached     cache
   , repGetCachedRoot = getCachedRoot cache

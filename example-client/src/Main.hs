@@ -28,19 +28,19 @@ main = do
 -------------------------------------------------------------------------------}
 
 check :: GlobalOpts -> IO ()
-check opts = do
-    rep <- initRepo opts
-    print =<< checkForUpdates rep CheckExpiry
+check opts =
+    withRepo opts $ \rep ->
+      print =<< checkForUpdates rep CheckExpiry
 
 {-------------------------------------------------------------------------------
   Downloading packages
 -------------------------------------------------------------------------------}
 
 get :: GlobalOpts -> PackageIdentifier -> IO ()
-get opts pkgId = do
-    rep <- initRepo opts
-    downloadPackage rep pkgId $ \tempPath ->
-      copyFile tempPath localFile
+get opts pkgId =
+    withRepo opts $ \rep ->
+      downloadPackage rep pkgId $ \tempPath ->
+        copyFile tempPath localFile
   where
     localFile = "." </> pkgTarGz pkgId
 
@@ -48,29 +48,29 @@ get opts pkgId = do
   Common functionality
 -------------------------------------------------------------------------------}
 
-initRepo :: GlobalOpts -> IO Repository
-initRepo GlobalOpts{..}
-    | "http://" `isPrefixOf` globalRepo = initRemoteRepo
-    | otherwise                         = initLocalRepo
+withRepo :: GlobalOpts -> (Repository -> IO a) -> IO a
+withRepo GlobalOpts{..}
+    | "http://" `isPrefixOf` globalRepo = withRemoteRepo
+    | otherwise                         = withLocalRepo
   where
-    initLocalRepo :: IO Repository
-    initLocalRepo = return $ Local.initRepo globalRepo globalCache logger
+    withLocalRepo :: (Repository -> IO a) -> IO a
+    withLocalRepo = Local.withRepository globalRepo globalCache logger
 
-    initRemoteRepo :: IO Repository
-    initRemoteRepo = do
-        httpClient <- initClient putStrLn
-        return $ Remote.initRepo httpClient baseURI globalCache logger
+    withRemoteRepo :: (Repository -> IO a) -> IO a
+    withRemoteRepo callback =
+        withClient putStrLn $ \httpClient ->
+          Remote.withRepository httpClient baseURI globalCache logger callback
       where
         baseURI :: URI
         baseURI = case parseURI globalRepo of
                     Nothing  -> error $ "Invalid URI: " ++ globalRepo
                     Just uri -> uri
 
-    initClient :: (String -> IO ()) -> IO Remote.HttpClient
-    initClient =
+    withClient :: (String -> IO ()) -> (Remote.HttpClient -> IO a) -> IO a
+    withClient =
       case globalHttpClient of
-        "HTTP"        -> HttpClient.HTTP.initClient
-        "http-client" -> HttpClient.Conduit.initClient
+        "HTTP"        -> HttpClient.HTTP.withClient
+        "http-client" -> HttpClient.Conduit.withClient
         _otherwise    -> error "unsupported HTTP client"
 
     logger :: LogMessage -> IO ()

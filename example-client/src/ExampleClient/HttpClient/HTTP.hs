@@ -1,6 +1,6 @@
 -- | Implementation of 'HttpClient' using the HTTP package
 module ExampleClient.HttpClient.HTTP (
-    initClient
+    withClient
   ) where
 
 import Control.Concurrent
@@ -21,15 +21,15 @@ import Hackage.Security.Client.Repository.HTTP
   Top-level API
 -------------------------------------------------------------------------------}
 
-initClient :: (String -> IO ()) -> IO HttpClient
-initClient logger = do
-    caps    <- newServerCapabilities
-    browser <- newMVar BrowserNotInit
-    return $ HttpClient {
-        httpClientGet          = get      logger browser caps
-      , httpClientGetRange     = getRange logger browser caps
-      , httpClientCapabilities = caps
-      }
+withClient :: (String -> IO ()) -> (HttpClient -> IO a) -> IO a
+withClient logger callback = do
+    caps <- newServerCapabilities
+    bracket browserInit browserCleanup $ \browser ->
+      callback HttpClient {
+          httpClientGet          = get      logger browser caps
+        , httpClientGetRange     = getRange logger browser caps
+        , httpClientCapabilities = caps
+        }
 
 {-------------------------------------------------------------------------------
   Individual methods
@@ -37,7 +37,7 @@ initClient logger = do
 
 -- TODO: We should verify that the file we downloaded is the expected size
 -- (that it didn't get truncated); here and in getRange
-get :: (String -> IO ()) -> MVar Browser -> ServerCapabilities
+get :: (String -> IO ()) -> Browser -> ServerCapabilities
     -> URI -> (BodyReader -> IO a) -> IO a
 get logger browser caps uri callback = do
     (_uri, response) <- withBrowser browser $ do
@@ -49,7 +49,7 @@ get logger browser caps uri callback = do
       (2, 0, 0)  -> withResponse caps response callback
       _otherwise -> throwIO $ UnexpectedResponse (rspCode response)
 
-getRange :: (String -> IO ()) -> MVar Browser -> ServerCapabilities
+getRange :: (String -> IO ()) -> Browser -> ServerCapabilities
          -> URI -> (Int, Int) -> (BodyReader -> IO a) -> IO a
 getRange logger browser caps uri (from, to) callback = do
     (_uri, response) <- withBrowser browser $ do
@@ -103,32 +103,40 @@ data UnexpectedResponse = UnexpectedResponse (Int, Int, Int)
 instance Exception UnexpectedResponse
 
 {-------------------------------------------------------------------------------
-  HTTP auxiliary
-
-  We initialize the browser state on first use, and then keep it open.
-  If we ever decide to close it, we will simply reopen it on the next use.
-  (Note that the 'browse' action doesn't itself create any connections, they are
-  created on demand; we just need to make sure to carry this state from one
-  invocation of 'browse' to another.)
-
-  TODO: Should we ever "terminate" the browser?
+  Browser state
 -------------------------------------------------------------------------------}
 
 type LazyStream = HandleStream BS.L.ByteString
+type Browser    = MVar (BrowserState LazyStream)
+
+-- | Run a browser action
+--
+-- IMPLEMENTATION NOTE: the 'browse' action doesn't itself create any
+-- connections, they are created on demand; we just need to make sure to carry
+-- this state from one invocation of 'browse' to another.
+withBrowser :: Browser -> BrowserAction LazyStream a -> IO a
+withBrowser browser act = modifyMVar browser $ \bst -> browse $ do
+    State.put bst
+    result <- act
+    bst'   <- State.get
+    return (bst', result)
+
+-- | Initial browser state
+browserInit :: IO Browser
+browserInit = newMVar =<< browse State.get
+
+-- | Cleanup browser state
+--
+-- NOTE: Calling 'withBrowser' after 'browserCleanup' will result in deadlock.
+--
+-- IMPLEMENTATION NOTE: "HTTP" does not provide any explicit API for resource
+-- cleanup, so we can only rely on the garbage collector to do for us.
+browserCleanup :: Browser -> IO ()
+browserCleanup = void . takeMVar
+
+{-------------------------------------------------------------------------------
+  HTTP auxiliary
+-------------------------------------------------------------------------------}
 
 hAcceptRanges :: HeaderName
 hAcceptRanges = HdrCustom "Accept-Ranges"
-
-data Browser = BrowserNotInit | BrowserInit (BrowserState LazyStream)
-
-withBrowser :: MVar Browser -> BrowserAction LazyStream a -> IO a
-withBrowser mv act = modifyMVar mv $ \st -> do
-    bst <- case st of
-             BrowserNotInit  -> browse State.get
-             BrowserInit bst -> return bst
-    (bst', result) <- browse $ do
-      State.put bst
-      result <- act
-      bst'   <- State.get
-      return (bst', result)
-    return (BrowserInit bst', result)
