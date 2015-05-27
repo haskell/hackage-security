@@ -37,6 +37,7 @@ import Hackage.Security.TUF.Snapshot
 import Hackage.Security.TUF.Targets
 import Hackage.Security.TUF.Timestamp
 import Hackage.Security.Util.Some
+import qualified Hackage.Security.Util.Lens as Lens
 
 {-------------------------------------------------------------------------------
   Datatypes
@@ -71,9 +72,11 @@ data RoleSpec a = RoleSpec {
   }
   deriving (Show)
 
-instance TUFHeader Root where
-  fileVersion = rootVersion
-  fileExpires = Just . rootExpires
+instance HasHeader Root where
+  fileVersion f x = (\y -> x { rootVersion = y }) <$> f (rootVersion x)
+  fileExpires f x = (\y -> x { rootExpires = y }) <$> f (rootExpires x)
+
+instance DescribeFile Root where
   describeFile _ = "root"
 
 {-------------------------------------------------------------------------------
@@ -137,7 +140,7 @@ verifyRoot :: Trusted Root             -- ^ Trusted (old) root data
            -> Maybe UTCTime            -- ^ Time now (if checking expiry)
            -> Signed Root              -- ^ New root data to verify
            -> Either VerificationError (Trusted Root)
-verifyRoot old = verifyRole (rootRoleRoot old) (Just (fileVersion old))
+verifyRoot old = verifyRole (rootRoleRoot old) (Just (rootVersion (trusted old)))
 
 -- | Verify a timestamp
 verifyTimestamp :: Trusted Root      -- ^ Trusted root data
@@ -171,7 +174,7 @@ verifySnapshot root = verifyRole (rootRoleSnapshot root)
 -- NOTE 2: We are not actually verifying the signatures _themselves_ here
 -- (we did that when we parsed the JSON). We are merely verifying the provenance
 -- of the keys.
-verifyRole :: forall a. TUFHeader a
+verifyRole :: forall a. (HasHeader a, DescribeFile a)
            => Trusted (RoleSpec a)     -- ^ For signature validation
            -> Maybe FileVersion        -- ^ Previous version (if available)
            -> Maybe UTCTime            -- ^ Time now (if checking expiry)
@@ -185,9 +188,9 @@ verifyRole (trusted -> RoleSpec{roleSpecThreshold = KeyThreshold threshold, ..})
     go :: Except VerificationError (Trusted a)
     go = do
       -- Verify expiry date
-      case (mNow, fileExpires signed) of
-        (Just now, Just expiry) ->
-          when (isExpired now expiry) $
+      case mNow of
+        Just now ->
+          when (isExpired now (Lens.get fileExpires signed)) $
             throwError $ VerificationErrorExpired (describeFile signed)
         _otherwise ->
           return ()
@@ -196,7 +199,7 @@ verifyRole (trusted -> RoleSpec{roleSpecThreshold = KeyThreshold threshold, ..})
       case mPrev of
         Nothing   -> return ()
         Just prev ->
-          when (fileVersion signed < prev) $
+          when (Lens.get fileVersion signed < prev) $
             throwError $ VerificationErrorVersion (describeFile signed)
 
       -- Verify signatures

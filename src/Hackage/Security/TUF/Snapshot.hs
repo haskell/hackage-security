@@ -20,8 +20,8 @@ import qualified Hackage.Security.TUF.FileMap as FileMap
 -------------------------------------------------------------------------------}
 
 data Snapshot = Snapshot {
-    snapshotVersion   :: FileVersion
-  , snapshotExpires   :: FileExpires
+    snapshotVersion :: FileVersion
+  , snapshotExpires :: FileExpires
 
     -- | File info for the root metadata
     --
@@ -42,9 +42,11 @@ data Snapshot = Snapshot {
   , snapshotInfoTar :: Maybe FileInfo
   }
 
-instance TUFHeader Snapshot where
-  fileVersion = snapshotVersion
-  fileExpires = Just . snapshotExpires
+instance HasHeader Snapshot where
+  fileVersion f x = (\y -> x { snapshotVersion = y }) <$> f (snapshotVersion x)
+  fileExpires f x = (\y -> x { snapshotExpires = y }) <$> f (snapshotExpires x)
+
+instance DescribeFile Snapshot where
   describeFile _ = "snapshot"
 
 {-------------------------------------------------------------------------------

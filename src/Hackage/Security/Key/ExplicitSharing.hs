@@ -21,6 +21,7 @@ import Control.Exception
 import Control.Monad.Except
 import Control.Monad.Reader
 import Data.Typeable (Typeable)
+import System.IO
 import qualified Data.ByteString.Lazy as BS.L
 
 import Hackage.Security.Key
@@ -111,7 +112,10 @@ readCanonical :: FromJSON ReadJSON a
               => KeyEnv
               -> FilePath
               -> IO (Either DeserializationError a)
-readCanonical env fp = parseJSON env <$> BS.L.readFile fp
+readCanonical env fp = do
+    withFile fp ReadMode $ \h -> do
+      bs <- BS.L.hGetContents h
+      evaluate $ parseJSON env bs
 
 {-------------------------------------------------------------------------------
   Writing: Primitive functions

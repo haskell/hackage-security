@@ -1,10 +1,13 @@
 -- | Header used by all TUF types
 module Hackage.Security.TUF.Header (
-    TUFHeader(..)
+    HasHeader(..)
+  , DescribeFile(..)
   , FileVersion  -- opaque
   , FileExpires  -- opaque
+  , Header(..)
     -- ** Utility
   , expiresInDays
+  , expiresNever
   , isExpired
   , versionInitial
   , versionIncrement
@@ -13,18 +16,21 @@ module Hackage.Security.TUF.Header (
 import Data.Time
 
 import Hackage.Security.JSON
+import Hackage.Security.TUF.Signed
+import Hackage.Security.Util.Lens
 
 {-------------------------------------------------------------------------------
   TUF header
 -------------------------------------------------------------------------------}
 
-class TUFHeader a where
+class HasHeader a where
   -- | File expiry date
-  fileExpires :: a -> Maybe FileExpires
+  fileExpires :: Lens' a FileExpires
 
   -- | File version (monotonically increasing counter)
-  fileVersion :: a -> FileVersion
+  fileVersion :: Lens' a FileVersion
 
+class DescribeFile a where
   -- | Describe this file (for use in error messages)
   describeFile :: a -> String
 
@@ -36,18 +42,43 @@ newtype FileVersion = FileVersion Int
   deriving (Eq, Ord, Show)
 
 -- | File expiry date
-newtype FileExpires = FileExpires UTCTime
+--
+-- A 'Nothing' value here means no expiry. That makes it possible to set some
+-- files to never expire. (Note that not having the Maybe in the type here still
+-- allows that, because you could set an expiry date 2000 years into the future.
+-- By having the Maybe here we avoid the _need_ for such encoding issues.)
+newtype FileExpires = FileExpires (Maybe UTCTime)
   deriving (Eq, Ord, Show)
+
+-- | Occassionally it is useful to read only a header from a file.
+--
+-- 'HeaderOnly' intentionally only has a 'FromJSON' instance (no 'ToJSON').
+-- The 'FromJSON' instance for @Signed Header@s ignores the actual signatures,
+-- so that it can be read in an empty key environment. (Again, useful if you
+-- just want to read the reader of a signed file).
+data Header = Header {
+    headerExpires :: FileExpires
+  , headerVersion :: FileVersion
+  }
+
+instance HasHeader Header where
+  fileExpires f x = (\y -> x { headerExpires = y }) <$> f (headerExpires x)
+  fileVersion f x = (\y -> x { headerVersion = y }) <$> f (headerVersion x)
 
 {-------------------------------------------------------------------------------
   Utility
 -------------------------------------------------------------------------------}
 
+expiresNever :: FileExpires
+expiresNever = FileExpires Nothing
+
 expiresInDays :: UTCTime -> Integer -> FileExpires
-expiresInDays now n = FileExpires $ addUTCTime (fromInteger n * oneDay) now
+expiresInDays now n =
+    FileExpires . Just $ addUTCTime (fromInteger n * oneDay) now
 
 isExpired :: UTCTime -> FileExpires -> Bool
-isExpired now (FileExpires e) = e < now
+isExpired _   (FileExpires Nothing)  = False
+isExpired now (FileExpires (Just e)) = e < now
 
 versionInitial :: FileVersion
 versionInitial = FileVersion 1
@@ -63,13 +94,28 @@ instance ToJSON FileVersion where
   toJSON (FileVersion i) = toJSON i
 
 instance ToJSON FileExpires where
-  toJSON (FileExpires str) = toJSON str
+  toJSON (FileExpires (Just e)) = toJSON e
+  toJSON (FileExpires Nothing)  = JSNull
 
 instance ReportSchemaErrors m => FromJSON m FileVersion where
   fromJSON enc = FileVersion <$> fromJSON enc
 
 instance ReportSchemaErrors m => FromJSON m FileExpires where
-  fromJSON enc = FileExpires <$> fromJSON enc
+  fromJSON JSNull = return $ FileExpires Nothing
+  fromJSON enc    = FileExpires . Just <$> fromJSON enc
+
+instance ReportSchemaErrors m => FromJSON m Header where
+  fromJSON enc = do
+    headerExpires <- fromJSField enc "expires"
+    headerVersion <- fromJSField enc "version"
+    return Header{..}
+
+-- See comments for 'Header'.
+instance ReportSchemaErrors m => FromJSON m (Signed Header) where
+  fromJSON envelope = do
+    enc    <- fromJSField envelope "signed"
+    signed <- fromJSON enc
+    return Signed{signatures = [], ..}
 
 {-------------------------------------------------------------------------------
   Auxiliary

@@ -14,4 +14,4 @@ import Hackage.Security.TUF.Header
 -- "Hackage.Security.Trusted.Unsafe" module, and any direct use of this
 -- constructor should be considered a proof obligation.
 newtype Trusted a = DeclareTrusted { trusted :: a }
-  deriving (Eq, Ord, Show, TUFHeader)
+  deriving (Eq, Ord, Show, DescribeFile)

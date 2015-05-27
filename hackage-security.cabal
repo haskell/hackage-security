@@ -42,6 +42,7 @@ library
                        Hackage.Security.TUF.Snapshot
                        Hackage.Security.TUF.Targets
                        Hackage.Security.TUF.Timestamp
+                       Hackage.Security.Util.Lens
                        Hackage.Security.Util.IO
                        Hackage.Security.Util.Some
                        Hackage.Security.Util.Stack
@@ -122,7 +123,9 @@ executable hackage-secure-local
                        hackage-security
   hs-source-dirs:      secure-local
   default-language:    Haskell2010
-  default-extensions:  RecordWildCards
+  default-extensions:  FlexibleContexts
+                       ScopedTypeVariables
+                       RecordWildCards
   other-extensions:    TemplateHaskell
   ghc-options:         -Wall
 

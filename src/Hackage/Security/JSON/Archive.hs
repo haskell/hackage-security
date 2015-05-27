@@ -11,9 +11,11 @@ module Hackage.Security.JSON.Archive (
   , lookup
     -- * I/O
   , writeEntries
+  , fromEntries
   ) where
 
 import Prelude hiding (lookup)
+import Control.Monad.Except
 import Data.Map (Map)
 import System.FilePath
 import qualified Data.ByteString.Lazy as BS.L
@@ -48,6 +50,19 @@ writeEntries baseDir (A ar) = mapM_ go $ Map.toList ar
   where
     go :: (FilePath, JSValue) -> IO ()
     go (fp, val) = BS.L.writeFile (baseDir </> fp) (renderCanonicalJSON val)
+
+-- | Construct an archive from a set of JSON files
+--
+-- This verifies that the entries are valid JSON.
+fromEntries :: [FilePath] -> IO (Either String Archive)
+fromEntries = runExceptT . fmap (A . Map.fromList) . mapM go
+  where
+    go :: FilePath -> ExceptT String IO (FilePath, JSValue)
+    go fp = do
+      bs <- lift $ BS.L.readFile fp
+      case parseCanonicalJSON bs of
+        Left  err -> throwError err
+        Right val -> return (fp, val)
 
 {-------------------------------------------------------------------------------
   JSON

@@ -32,7 +32,7 @@ import qualified Hackage.Security.TUF.FileMap as FileMap
 -- change (and hence attacks like freeze attacks are not a concern).
 data Targets = Targets {
     targetsVersion     :: FileVersion
-  , targetsExpires     :: Maybe FileExpires
+  , targetsExpires     :: FileExpires
   , targets            :: FileMap
   , targetsDelegations :: Maybe Delegations
   }
@@ -56,9 +56,11 @@ data DelegationSpec = DelegationSpec {
   , delegation              :: Delegation
   }
 
-instance TUFHeader Targets where
-  fileVersion = targetsVersion
-  fileExpires = targetsExpires
+instance HasHeader Targets where
+  fileVersion f x = (\y -> x { targetsVersion = y }) <$> f (targetsVersion x)
+  fileExpires f x = (\y -> x { targetsExpires = y }) <$> f (targetsExpires x)
+
+instance DescribeFile Targets where
   -- TODO: We should be more precise here, this is an insufficient clue as to
   -- _which_ targets file this is.
   describeFile _ = "targets file"
@@ -112,17 +114,17 @@ instance ToJSON Targets where
   toJSON Targets{..} = JSObject $ mconcat [
       [ ("_type"       , JSString "Targets")
       , ("version"     , toJSON targetsVersion)
+      , ("expires"     , toJSON targetsExpires)
       , ("targets"     , toJSON targets)
       ]
     , [ ("delegations" , toJSON d) | Just d <- [ targetsDelegations ] ]
-    , [ ("expires"     , toJSON e) | Just e <- [ targetsExpires     ] ]
     ]
 
 instance FromJSON ReadJSON Targets where
   fromJSON enc = do
     -- TODO: verify _type
     targetsVersion     <- fromJSField    enc "version"
-    targetsExpires     <- fromJSOptField enc "expires"
+    targetsExpires     <- fromJSField    enc "expires"
     targets            <- fromJSField    enc "targets"
     targetsDelegations <- fromJSOptField enc "delegations"
     return Targets{..}

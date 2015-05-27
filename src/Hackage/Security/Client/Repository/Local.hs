@@ -177,6 +177,6 @@ getFromIndex cache indexFile = do
 
 -- | Delete a previously downloaded remote file
 clearCache :: Cache -> IO ()
-clearCache cache = ignoreDoesNotExist $ do
+clearCache cache = void . handleDoesNotExist $ do
     removeFile $ cache </> cachedFilePath CachedTimestamp
     removeFile $ cache </> cachedFilePath CachedSnapshot

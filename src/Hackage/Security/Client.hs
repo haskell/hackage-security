@@ -113,7 +113,7 @@ checkForUpdates rep checkExpiry =
         >>= readJSON keyEnv
         >>= throwErrors . verifyTimestamp
               cachedRoot
-              (fmap fileVersion mOldTS)
+              (fmap (timestampVersion . trusted) mOldTS)
               mNow
 
       -- Check if the snapshot has changed
@@ -138,7 +138,7 @@ checkForUpdates rep checkExpiry =
             >>= readJSON keyEnv
             >>= throwErrors . verifySnapshot
                   cachedRoot
-                  (fmap fileVersion mOldSS)
+                  (fmap (snapshotVersion . trusted) mOldSS)
                   mNow
 
           -- If root metadata changed, update and restart
@@ -311,7 +311,7 @@ downloadPackage rep pkgId callback = evalContT $ do
     -- compare the version number in the file that we downloaded against. One
     -- option is to always download and verify all these middle level files
     -- (strictly); other is to include the version number of all of these files
-    -- in the snapshot. This is described in more detail in 
+    -- in the snapshot. This is described in more detail in
     -- <https://github.com/theupdateframework/tuf/issues/282#issuecomment-102468421>.
     let trustIndex = trustLocalFile
 
