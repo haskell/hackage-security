@@ -304,6 +304,7 @@ TUF spec, is the version, expiry time, and signatures. Therefore our
     , "expires" : EXPIRES
     , "meta"    : {
            "root.json"    : FILEINFO
+         , "mirrors.json" : FILEINFO
          , "index.tar"    : FILEINFO
          , "index.tar.gz" : FILEINFO
         }
@@ -317,19 +318,18 @@ a strict superset of the information in TUF's `snapshot.json` (instead of
 containing the hashes of the metadata in the repo, it contains the actual
 metadata themselves).
 
-(We list the file info of the root metadata explicitly, rather than recording it
-in the index tarball, because during the check for updates process (section 5.1,
-&ldquo;The Client Application&rdquo;, of the TUF spec) we need to know if the
-root metadata has changed; we don't want to have to download the entire index
-tarball to do that.)
+We list the file info of the root and mirrors metadata explicitly, rather than
+recording it in the index tarball, so that we can check them for updates during
+the update process  (section 5.1, &ldquo;The Client Application&rdquo;, of the
+TUF spec) without downloading the entire index tarball.
 
 #### Efficiency of requests
 
-Since our `snapshot.json` contains only a single entry (corresponding to the
-index tarball), it becomes very similar to in function to `timestamp.json`.
-However, it is logically different and signed with a different key. Admittedly,
-in our current setup both the timestamp and the snapshot keys will be kept on
-the same server, but this may not be the case in the future.  
+Since our `snapshot.json` contains only a small and fixed number of entries, it
+becomes very similar to in function to `timestamp.json`. However, it is
+logically different and signed with a different key. Admittedly, in our current
+setup both the timestamp and the snapshot keys will be kept on the same server,
+but this may not be the case in the future.
 
 In order to keep the comparison with TUF as clear as possible we will keep
 these files separate. However, since the size of our `snapshot.json` is

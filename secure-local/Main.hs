@@ -49,11 +49,12 @@ main = do
 
 createKeys :: GlobalOpts -> IO ()
 createKeys opts = do
-    keys <- PrivateKeys <$> (replicateM 3 $ createKey' KeyTypeEd25519)
-                        <*> (replicateM 3 $ createKey' KeyTypeEd25519)
-                        <*> (replicateM 1 $ createKey' KeyTypeEd25519)
-                        <*> (replicateM 1 $ createKey' KeyTypeEd25519)
-    writeKeys opts keys
+    privateRoot      <- replicateM 3 $ createKey' KeyTypeEd25519
+    privateTarget    <- replicateM 3 $ createKey' KeyTypeEd25519
+    privateTimestamp <- replicateM 1 $ createKey' KeyTypeEd25519
+    privateSnapshot  <- replicateM 1 $ createKey' KeyTypeEd25519
+    privateMirrors   <- replicateM 3 $ createKey' KeyTypeEd25519
+    writeKeys opts PrivateKeys{..}
 
 {-------------------------------------------------------------------------------
   Dealing with (private) keys
@@ -64,6 +65,7 @@ data PrivateKeys = PrivateKeys {
   , privateTarget    :: [Some Key]
   , privateTimestamp :: [Some Key]
   , privateSnapshot  :: [Some Key]
+  , privateMirrors   :: [Some Key]
   }
 
 readKeys :: GlobalOpts -> IO PrivateKeys
@@ -72,6 +74,7 @@ readKeys GlobalOpts{..} =
                 <*> readKeysAt (globalKeys </> "target")
                 <*> readKeysAt (globalKeys </> "timestamp")
                 <*> readKeysAt (globalKeys </> "snapshot")
+                <*> readKeysAt (globalKeys </> "mirrors")
 
 writeKeys :: GlobalOpts -> PrivateKeys -> IO ()
 writeKeys opts PrivateKeys{..} = do
@@ -79,6 +82,7 @@ writeKeys opts PrivateKeys{..} = do
     forM_ privateTarget    $ writeKey opts "target"
     forM_ privateTimestamp $ writeKey opts "timestamp"
     forM_ privateSnapshot  $ writeKey opts "snapshot"
+    forM_ privateMirrors   $ writeKey opts "mirrors"
 
 readKeysAt :: FilePath -> IO [Some Key]
 readKeysAt dir = catMaybes <$> do
@@ -150,6 +154,10 @@ bootstrapOrUpdate opts@GlobalOpts{..} isBootstrap = do
                           roleSpecKeys      = map somePublicKey (privateTimestamp keys)
                         , roleSpecThreshold = KeyThreshold 1
                         }
+                    , rootRolesMirrors = RoleSpec {
+                          roleSpecKeys      = map somePublicKey (privateMirrors keys)
+                        , roleSpecThreshold = KeyThreshold 1
+                        }
                     }
                 }
               signedRoot = withSignatures (privateRoot keys) root
@@ -209,17 +217,31 @@ bootstrapOrUpdate opts@GlobalOpts{..} isBootstrap = do
     BS.L.writeFile (globalRepo </> "00-index.tar.gz") =<<
       GZip.compress <$> BS.L.readFile (globalRepo </> "00-index.tar")
 
+    -- Create mirrors
+    logInfo $ "Creating " ++ globalRepo </> "mirrors.json"
+    let mirrors = Mirrors {
+            mirrorsVersion = versionInitial
+          , mirrorsExpires = expiresInDays now (10 * 365)
+          , mirrors        = []
+          }
+        signedMirrors = withSignatures (privateMirrors keys) mirrors
+    writeCanonical (globalRepo </> "mirrors.json") signedMirrors
+
     -- Create snapshot
+    -- TODO: If we are updating we should be incrementing the version, not
+    -- keeping it the same
     logInfo $ "Creating " ++ globalRepo </> "snapshot.json"
-    rootInfo  <- computeFileInfo $ globalRepo </> "root.json"
-    tarInfo   <- computeFileInfo $ globalRepo </> "00-index.tar"
-    tarGzInfo <- computeFileInfo $ globalRepo </> "00-index.tar.gz"
+    rootInfo    <- computeFileInfo $ globalRepo </> "root.json"
+    mirrorsInfo <- computeFileInfo $ globalRepo </> "mirrors.json"
+    tarInfo     <- computeFileInfo $ globalRepo </> "00-index.tar"
+    tarGzInfo   <- computeFileInfo $ globalRepo </> "00-index.tar.gz"
     let snapshot = Snapshot {
-            snapshotVersion   = versionInitial
-          , snapshotExpires   = expiresInDays now 3
-          , snapshotInfoRoot  = rootInfo
-          , snapshotInfoTar   = Just tarInfo
-          , snapshotInfoTarGz = tarGzInfo
+            snapshotVersion     = versionInitial
+          , snapshotExpires     = expiresInDays now 3
+          , snapshotInfoRoot    = rootInfo
+          , snapshotInfoMirrors = mirrorsInfo
+          , snapshotInfoTar     = Just tarInfo
+          , snapshotInfoTarGz   = tarGzInfo
           }
         signedSnapshot = withSignatures (privateSnapshot keys) snapshot
     writeCanonical (globalRepo </> "snapshot.json") signedSnapshot
@@ -241,6 +263,8 @@ bootstrapOrUpdate opts@GlobalOpts{..} isBootstrap = do
                           $ Archive.insert "timestamp.json" signedTimestamp
                           $ Archive.empty
     writeCanonical (globalRepo </> "timestamp-snapshot.json") timestampSnapshot
+  where
+
 
 -- | Create package metadata
 --
@@ -335,16 +359,18 @@ findPackages GlobalOpts{..} = do
                return Nothing
 
     skipPkg :: FilePath -> Bool
-    skipPkg "."                  = True
-    skipPkg ".."                 = True
-    skipPkg "00-index.tar"       = True
-    skipPkg "00-index.tar.gz"    = True
-    skipPkg "preferred-versions" = True
-    skipPkg "targets.json"       = True
-    skipPkg "root.json"          = True
-    skipPkg "snapshot.json"      = True
-    skipPkg "timestamp.json"     = True
-    skipPkg _                    = False
+    skipPkg "."                       = True
+    skipPkg ".."                      = True
+    skipPkg "00-index.tar"            = True
+    skipPkg "00-index.tar.gz"         = True
+    skipPkg "preferred-versions"      = True
+    skipPkg "targets.json"            = True
+    skipPkg "root.json"               = True
+    skipPkg "snapshot.json"           = True
+    skipPkg "timestamp.json"          = True
+    skipPkg "timestamp-snapshot.json" = True
+    skipPkg "mirrors.json"            = True
+    skipPkg _                         = False
 
     skipVersion :: FilePath -> Bool
     skipVersion "."  = True

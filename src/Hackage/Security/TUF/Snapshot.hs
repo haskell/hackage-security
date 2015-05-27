@@ -2,6 +2,7 @@ module Hackage.Security.TUF.Snapshot (
     Snapshot(..)
     -- * Trusted info
   , trustedSnapshotInfoRoot
+  , trustedSnapshotInfoMirrors
   , trustedSnapshotInfoTarGz
   , trustedSnapshotInfoTar
   ) where
@@ -29,6 +30,9 @@ data Snapshot = Snapshot {
     -- index tarball.
   , snapshotInfoRoot :: FileInfo
 
+    -- | File info for the mirror metadata
+  , snapshotInfoMirrors :: FileInfo
+
     -- | Compressed index tarball
   , snapshotInfoTarGz :: FileInfo
 
@@ -50,6 +54,9 @@ instance TUFHeader Snapshot where
 trustedSnapshotInfoRoot  :: Trusted Snapshot -> Trusted FileInfo
 trustedSnapshotInfoRoot = DeclareTrusted . snapshotInfoRoot . trusted
 
+trustedSnapshotInfoMirrors  :: Trusted Snapshot -> Trusted FileInfo
+trustedSnapshotInfoMirrors = DeclareTrusted . snapshotInfoMirrors . trusted
+
 trustedSnapshotInfoTarGz :: Trusted Snapshot -> Trusted FileInfo
 trustedSnapshotInfoTarGz = DeclareTrusted . snapshotInfoTarGz . trusted
 
@@ -70,6 +77,7 @@ instance ToJSON Snapshot where
     where
       snapshotMeta = FileMap.fromList $ [
           ("root.json"    , snapshotInfoRoot)
+        , ("mirrors.json" , snapshotInfoMirrors)
         , ("index.tar.gz" , snapshotInfoTarGz)
         ] ++
         [ ("index.tar" , infoTar) | Just infoTar <- [snapshotInfoTar] ]
@@ -77,11 +85,12 @@ instance ToJSON Snapshot where
 instance ReportSchemaErrors m => FromJSON m Snapshot where
   fromJSON enc = do
     -- TODO: Should we verify _type?
-    snapshotVersion    <- fromJSField enc "version"
-    snapshotExpires    <- fromJSField enc "expires"
-    snapshotMeta       <- fromJSField enc "meta"
-    snapshotInfoRoot   <- FileMap.lookupM snapshotMeta "root.json"
-    snapshotInfoTarGz  <- FileMap.lookupM snapshotMeta "index.tar.gz"
+    snapshotVersion     <- fromJSField enc "version"
+    snapshotExpires     <- fromJSField enc "expires"
+    snapshotMeta        <- fromJSField enc "meta"
+    snapshotInfoRoot    <- FileMap.lookupM snapshotMeta "root.json"
+    snapshotInfoMirrors <- FileMap.lookupM snapshotMeta "mirrors.json"
+    snapshotInfoTarGz   <- FileMap.lookupM snapshotMeta "index.tar.gz"
     let snapshotInfoTar = FileMap.lookup "index.tar" snapshotMeta
     return Snapshot{..}
 

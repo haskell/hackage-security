@@ -9,6 +9,7 @@ module Hackage.Security.TUF.Root (
   , rootRoleSnapshot
   , rootRoleTargets
   , rootRoleTimestamp
+  , rootRoleMirrors
     -- * Role verification
   , VerificationError(..)
   , verifyRoot
@@ -30,6 +31,7 @@ import Hackage.Security.Key.ExplicitSharing
 import Hackage.Security.Trusted.Unsafe
 import Hackage.Security.TUF.Common
 import Hackage.Security.TUF.Header
+import Hackage.Security.TUF.Mirrors
 import Hackage.Security.TUF.Signed
 import Hackage.Security.TUF.Snapshot
 import Hackage.Security.TUF.Targets
@@ -57,7 +59,7 @@ data RootRoles = RootRoles {
   , rootRolesSnapshot  :: RoleSpec Snapshot
   , rootRolesTargets   :: RoleSpec Targets
   , rootRolesTimestamp :: RoleSpec Timestamp
---, rootRolesMirrors   :: RoleSpec Mirrors    -- TODO
+  , rootRolesMirrors   :: RoleSpec Mirrors
   }
 
 -- | Role specification
@@ -89,6 +91,9 @@ rootRoleTargets = DeclareTrusted . rootRolesTargets . rootRoles . trusted
 
 rootRoleTimestamp :: Trusted Root -> Trusted (RoleSpec Timestamp)
 rootRoleTimestamp = DeclareTrusted . rootRolesTimestamp . rootRoles . trusted
+
+rootRoleMirrors :: Trusted Root -> Trusted (RoleSpec Mirrors)
+rootRoleMirrors = DeclareTrusted . rootRolesMirrors . rootRoles . trusted
 
 {-------------------------------------------------------------------------------
   Role verification
@@ -236,6 +241,7 @@ instance ToJSON RootRoles where
     , ("snapshot"  , toJSON rootRolesSnapshot)
     , ("targets"   , toJSON rootRolesTargets)
     , ("timestamp" , toJSON rootRolesTimestamp)
+    , ("mirrors"   , toJSON rootRolesMirrors)
     ]
 
 instance FromJSON ReadJSON RootRoles where
@@ -244,6 +250,7 @@ instance FromJSON ReadJSON RootRoles where
     rootRolesSnapshot  <- fromJSField enc "snapshot"
     rootRolesTargets   <- fromJSField enc "targets"
     rootRolesTimestamp <- fromJSField enc "timestamp"
+    rootRolesMirrors   <- fromJSField enc "mirrors"
     return RootRoles{..}
 
 instance ToJSON Root where
