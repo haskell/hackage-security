@@ -410,8 +410,22 @@ repWithMirror rep callback = do
     mMirrors <- repGetCached rep CachedMirrors
     mirrors  <- case mMirrors of
       Nothing -> return Nothing
-      Just fp -> (Just . ignoreSigned) <$> (throwErrors =<< readNoKeys fp)
+      Just fp -> filterMirrors <$> (throwErrors =<< readNoKeys fp)
     Repository.repWithMirror rep mirrors $ callback
+  where
+    filterMirrors :: IgnoreSigned Mirrors -> Maybe [Mirror]
+    filterMirrors = Just
+                  . filter (canUseMirror . mirrorContent)
+                  . mirrorsMirrors
+                  . ignoreSigned
+
+    -- Once we add support for partial mirrors, we wil need an additional
+    -- argument to 'repWithMirror' (here, not in the Repository API itself)
+    -- that tells us which files we will be requested from the mirror.
+    -- We can then compare that against the specification of the partial mirror
+    -- to see if all of those files are available from this mirror.
+    canUseMirror :: MirrorContent -> Bool
+    canUseMirror MirrorFull = True
 
 {-------------------------------------------------------------------------------
   Auxiliary

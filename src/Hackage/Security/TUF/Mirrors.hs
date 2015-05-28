@@ -2,6 +2,7 @@ module Hackage.Security.TUF.Mirrors (
     -- * TUF types
     Mirrors(..)
   , Mirror(..)
+  , MirrorContent(..)
   ) where
 
 import Hackage.Security.JSON

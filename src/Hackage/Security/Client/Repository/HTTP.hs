@@ -324,7 +324,7 @@ incTar HttpClient{..} baseURI cache callback len cachedFile = do
 -- | Mirror selection
 --
 -- TODO
-withMirror :: Maybe Mirrors -> IO a -> IO a
+withMirror :: Maybe [Mirror] -> IO a -> IO a
 withMirror _ = id
 
 {-------------------------------------------------------------------------------

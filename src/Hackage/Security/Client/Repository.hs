@@ -214,14 +214,14 @@ data Repository = Repository {
     -- 'ignoreMirrors').  Conversely, HTTP implementations of repositories may
     -- have other, out-of-band information (for example, coming from a cabal
     -- config file) that they may use to influence mirror selection.
-  , repWithMirror :: forall a. Maybe Mirrors -> IO a -> IO a
+  , repWithMirror :: forall a. Maybe [Mirror] -> IO a -> IO a
 
     -- | Logging
   , repLog :: LogMessage -> IO ()
   }
 
 -- | Helper function to implement 'repWithMirrors'.
-mirrorsUnsupported :: Maybe Mirrors -> IO a -> IO a
+mirrorsUnsupported :: Maybe [Mirror] -> IO a -> IO a
 mirrorsUnsupported _ = id
 
 data LogMessage =
