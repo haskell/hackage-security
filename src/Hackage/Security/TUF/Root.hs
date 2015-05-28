@@ -15,6 +15,7 @@ module Hackage.Security.TUF.Root (
   , verifyRoot
   , verifyTimestamp
   , verifySnapshot
+  , verifyMirrors
     -- * Utility
   , formatVerificationError
   ) where
@@ -157,6 +158,14 @@ verifySnapshot :: Trusted Root       -- ^ Root data
                -> Signed Snapshot    -- ^ Snapshot to verify
                -> Either VerificationError (Trusted Snapshot)
 verifySnapshot root = verifyRole (rootRoleSnapshot root)
+
+-- | Verify mirrors
+verifyMirrors :: Trusted Root       -- ^ Root data
+              -> Maybe FileVersion  -- ^ Previous version (if available)
+              -> Maybe UTCTime      -- ^ Time now (if checking expiry)
+              -> Signed Mirrors     -- ^ Mirrors to verify
+              -> Either VerificationError (Trusted Mirrors)
+verifyMirrors root = verifyRole (rootRoleMirrors root)
 
 -- | Role verification
 --

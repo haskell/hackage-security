@@ -157,6 +157,34 @@ checkForUpdates rep checkExpiry =
                 updateRoot rep mNow (Right newRootInfo)
                 throwIO RootUpdated
 
+          -- If mirrors changed, download and verify
+          let mOldMirrorsInfo = fmap trustedSnapshotInfoMirrors mOldSS
+              newMirrorsInfo  = trustedSnapshotInfoMirrors newSS
+              expectedMirrors = RemoteMirrors (trustedFileInfoLength newMirrorsInfo)
+          when (infoChanged mOldMirrorsInfo newMirrorsInfo) $ do
+            -- Get the old mirrors file (so we can verify version numbers)
+            mOldMirrors :: Maybe (Trusted Mirrors)
+               <- repGetCached rep CachedMirrors
+              >>= traverse (readJSON keyEnv)
+              >>= return . fmap trustLocalFile
+
+            -- Verify new mirrors
+            _newMirrors :: Trusted Mirrors
+               <- repGetRemote' rep expectedMirrors
+              >>= verifyFileInfo' (Just newMirrorsInfo)
+              >>= readJSON keyEnv
+              >>= throwErrors . verifyMirrors
+                    cachedRoot
+                    (fmap (mirrorsVersion . trusted) mOldMirrors)
+                    mNow
+
+            -- We don't actually _do_ anything with the mirrors file now
+            -- because we want to use a single server for a single
+            -- check-for-updates request. If validation was successful the
+            -- repository will have cached the mirrors file and it will
+            -- be available on the next request.
+            return ()
+
           -- If the index changed, download it and verify it
           let mOldTarGzInfo = fmap trustedSnapshotInfoTarGz mOldSS
               newTarGzInfo  = trustedSnapshotInfoTarGz newSS

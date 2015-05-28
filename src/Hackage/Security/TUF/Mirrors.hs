@@ -6,7 +6,9 @@ module Hackage.Security.TUF.Mirrors (
   ) where
 
 import Hackage.Security.JSON
+import Hackage.Security.Key.ExplicitSharing
 import Hackage.Security.TUF.Header
+import Hackage.Security.TUF.Signed
 
 {-------------------------------------------------------------------------------
   Datatypes
@@ -26,6 +28,7 @@ data Mirror = Mirror {
     mirrorUrlBase :: String
   , mirrorContent :: MirrorContent
   }
+  deriving Show
 
 -- | Full versus partial mirrors
 --
@@ -37,6 +40,7 @@ data Mirror = Mirror {
 -- corresponding to TUF's @metacontent@ and @targetscontent@ fields.
 data MirrorContent =
     MirrorFull
+  deriving Show
 
 instance HasHeader Mirrors where
   fileVersion f x = (\y -> x { mirrorsVersion = y }) <$> f (mirrorsVersion x)
@@ -78,3 +82,6 @@ instance ReportSchemaErrors m => FromJSON m Mirrors where
     mirrorsExpires <- fromJSField enc "expires"
     mirrorsMirrors <- fromJSField enc "mirrors"
     return Mirrors{..}
+
+instance FromJSON ReadJSON (Signed Mirrors) where
+  fromJSON = signedFromJSON

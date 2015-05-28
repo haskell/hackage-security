@@ -68,6 +68,12 @@ data RemoteFile :: * -> * where
     RemoteSnapshot :: Trusted FileLength
                    -> RemoteFile (FormatUncompressed :- ())
 
+    -- | Mirrors metadata (@mirrors.json@)
+    --
+    -- We get the file length from the snapshot.
+    RemoteMirrors :: Trusted FileLength
+                  -> RemoteFile (FormatUncompressed :- ())
+
     -- | Index
     --
     -- The index file length comes from the snapshot.
@@ -127,6 +133,7 @@ remoteFileNonEmpty :: RemoteFile fs -> NonEmpty fs
 remoteFileNonEmpty RemoteTimestamp      = NonEmpty
 remoteFileNonEmpty (RemoteRoot _)       = NonEmpty
 remoteFileNonEmpty (RemoteSnapshot _)   = NonEmpty
+remoteFileNonEmpty (RemoteMirrors _)    = NonEmpty
 remoteFileNonEmpty (RemotePkgTarGz _ _) = NonEmpty
 remoteFileNonEmpty (RemoteIndex pf _)   = pf
 
@@ -276,6 +283,7 @@ remoteFilePath :: RemoteFile fs -> Formats fs FilePath
 remoteFilePath RemoteTimestamp        = FsUn "timestamp.json"
 remoteFilePath (RemoteRoot _)         = FsUn "root.json"
 remoteFilePath (RemoteSnapshot _)     = FsUn "snapshot.json"
+remoteFilePath (RemoteMirrors _)      = FsUn "mirrors.json"
 remoteFilePath (RemotePkgTarGz pId _) = FsGz (pkgLoc pId </> pkgTarGz pId)
 remoteFilePath (RemoteIndex _ lens)   = formatsMap aux lens
   where
@@ -336,6 +344,7 @@ mustCache :: RemoteFile fs -> IsCached
 mustCache RemoteTimestamp      = CacheAs CachedTimestamp
 mustCache (RemoteRoot _)       = CacheAs CachedRoot
 mustCache (RemoteSnapshot _)   = CacheAs CachedSnapshot
+mustCache (RemoteMirrors _)    = CacheAs CachedMirrors
 mustCache (RemoteIndex {})     = CacheIndex
 mustCache (RemotePkgTarGz _ _) = DontCache
 
@@ -369,5 +378,6 @@ describeRemoteFile :: RemoteFile fs -> String
 describeRemoteFile RemoteTimestamp          = "timestamp"
 describeRemoteFile (RemoteRoot _)           = "root"
 describeRemoteFile (RemoteSnapshot _)       = "snapshot"
+describeRemoteFile (RemoteMirrors _)        = "mirrors"
 describeRemoteFile (RemoteIndex _ _)        = "index"
 describeRemoteFile (RemotePkgTarGz pkgId _) = "package " ++ display pkgId

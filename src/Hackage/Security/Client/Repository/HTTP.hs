@@ -384,6 +384,8 @@ remoteFileSize (RemoteRoot mLen) =
     FsUn $ maybe FileSizeUnknown (FileSizeExact . trustedFileLength) mLen
 remoteFileSize (RemoteSnapshot len) =
     FsUn $ FileSizeExact (trustedFileLength len)
+remoteFileSize (RemoteMirrors len) =
+    FsUn $ FileSizeExact (trustedFileLength len)
 remoteFileSize (RemoteIndex _ lens) =
     fmap (FileSizeExact . trustedFileLength) lens
 remoteFileSize (RemotePkgTarGz _pkgId len) =
