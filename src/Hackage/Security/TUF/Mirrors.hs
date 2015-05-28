@@ -19,23 +19,25 @@ data Mirrors = Mirrors {
   , mirrors        :: [Mirror]
   }
 
+-- | Definition of a mirror
+--
+-- NOTE: Unlike the TUF specification, we require that all mirrors must have
+-- the same format. That is, we omit @metapath@ and @targetspath@.
 data Mirror = Mirror {
-    -- | The URL of the mirror which mirrorMetaPath and mirrorTargetsPath are
-    -- relative to
     mirrorUrlBase :: String
-
-    -- | All metadata files will be retrieved from mirrorMetaPath
-  , mirrorMetaPath :: FilePath
-
-    -- | All target files will be retrieved from mirrorTargetsPath
-  , mirrorTargetsPath :: FilePath
-
-    -- | The metadata files available from the mirror
-  , mirrorMetaContent :: [Some Pattern]
-
-    -- | The target files available from the mirror
-  , mirrorTargetsContent :: [Some Pattern]
+  , mirrorContent :: MirrorContent
   }
+
+-- | Full versus partial mirrors
+--
+-- The TUF spec explicitly allows for partial mirrors, with the mirrors file
+-- specifying (through patterns) what is available from partial mirrors.
+--
+-- For now we only support full mirrors; if we wanted to add partial mirrors,
+-- we would add a second @MirrorPartial@ constructor here with arguments
+-- corresponding to TUF's @metacontent@ and @targetscontent@ fields.
+data MirrorContent =
+    MirrorFull
 
 instance HasHeader Mirrors where
   fileVersion f x = (\y -> x { mirrorsVersion = y }) <$> f (mirrorsVersion x)
@@ -49,12 +51,11 @@ instance DescribeFile Mirrors where
 -------------------------------------------------------------------------------}
 
 instance ToJSON Mirror where
-  toJSON Mirror{..} = JSObject [
-      ("urlbase"        , toJSON mirrorUrlBase)
-    , ("metapath"       , toJSON mirrorMetaPath)
-    , ("targetspath"    , toJSON mirrorTargetsPath)
-    , ("metacontent"    , toJSON mirrorMetaContent)
-    , ("targetscontent" , toJSON mirrorTargetsContent)
+  toJSON Mirror{..} = JSObject $ concat [
+      [ ("urlbase"        , toJSON mirrorUrlBase)
+      ]
+    , case mirrorContent of
+        MirrorFull -> []
     ]
 
 instance ToJSON Mirrors where
@@ -67,11 +68,8 @@ instance ToJSON Mirrors where
 
 instance ReportSchemaErrors m => FromJSON m Mirror where
   fromJSON enc = do
-    mirrorUrlBase        <- fromJSField enc "urlbase"
-    mirrorMetaPath       <- fromJSField enc "metapath"
-    mirrorTargetsPath    <- fromJSField enc "targetspath"
-    mirrorMetaContent    <- fromJSField enc "metacontent"
-    mirrorTargetsContent <- fromJSField enc "targetscontent"
+    mirrorUrlBase <- fromJSField enc "urlbase"
+    let mirrorContent = MirrorFull
     return Mirror{..}
 
 instance ReportSchemaErrors m => FromJSON m Mirrors where
