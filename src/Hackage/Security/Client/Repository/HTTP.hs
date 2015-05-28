@@ -148,6 +148,7 @@ withRepository http auth cache logger callback = callback Repository {
   , repGetCachedRoot = Local.getCachedRoot cache
   , repClearCache    = Local.clearCache    cache
   , repGetFromIndex  = Local.getFromIndex  cache
+  , repWithMirror    = withMirror
   , repLog           = logger
   }
 
@@ -319,6 +320,12 @@ incTar HttpClient{..} baseURI cache callback len cachedFile = do
     -- TODO: There are hardcoded references to "00-index.tar" and
     -- "00-index.tar.gz" everwhere. We should probably abstract over that.
     uri = baseURI { uriPath = uriPath baseURI </> "00-index.tar" }
+
+-- | Mirror selection
+--
+-- TODO
+withMirror :: Maybe Mirrors -> IO a -> IO a
+withMirror _ = id
 
 {-------------------------------------------------------------------------------
   Body readers

@@ -59,7 +59,10 @@ data HasUpdates = HasUpdates | NoUpdates
 -- of the TUF spec.
 checkForUpdates :: Repository -> CheckExpiry -> IO HasUpdates
 checkForUpdates rep checkExpiry =
-    limitIterations 5 -- more or less randomly chosen maximum iterations
+    repWithMirror rep $ do
+      -- more or less randomly chosen maximum iterations
+      -- See <https://github.com/theupdateframework/tuf/issues/287>.
+      limitIterations 5
   where
     -- The spec stipulates that on a verification error we must download new
     -- root information and start over. However, in order to prevent DoS attacks
@@ -278,7 +281,7 @@ updateRoot rep mNow eFileInfo = evalContT $ do
 -- * May throw an InvalidPackageException if the requested package does not
 --   exist (this is a programmer error).
 downloadPackage :: Repository -> PackageIdentifier -> (TempPath -> IO a) -> IO a
-downloadPackage rep pkgId callback = evalContT $ do
+downloadPackage rep pkgId callback = repWithMirror rep $ evalContT $ do
     -- We need the cached root information in order to resolve key IDs and
     -- verify signatures. Note that whenever we read a JSON file, we verify
     -- signatures (even if we don't verify the keys); if this is a problem
@@ -401,6 +404,14 @@ repGetFromIndex r file = liftIO $
     tr :: BS.ByteString -> BS.L.ByteString
     tr = BS.L.fromChunks . (:[])
 
+-- Tries to load the cached mirrors file
+repWithMirror :: Repository -> IO a -> IO a
+repWithMirror rep callback = do
+    mMirrors <- repGetCached rep CachedMirrors
+    mirrors  <- case mMirrors of
+      Nothing -> return Nothing
+      Just fp -> (Just . ignoreSigned) <$> (throwErrors =<< readNoKeys fp)
+    Repository.repWithMirror rep mirrors $ callback
 
 {-------------------------------------------------------------------------------
   Auxiliary

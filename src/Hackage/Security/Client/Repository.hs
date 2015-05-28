@@ -9,6 +9,8 @@ module Hackage.Security.Client.Repository (
   , TempPath
   , LogMessage(..)
   , UpdateFailure(..)
+    -- ** Helpers
+  , mirrorsUnsupported
     -- * Paths
   , remoteFilePath
   , cachedFilePath
@@ -100,6 +102,9 @@ data CachedFile =
 
     -- | Snapshot metadata (@snapshot.json@)
   | CachedSnapshot
+
+    -- | Mirrors list (@mirrors.json@)
+  | CachedMirrors
   deriving (Eq, Ord, Show)
 
 -- | Files that we might request from the index
@@ -185,9 +190,39 @@ data Repository = Repository {
     -- entire extracted file in memory is not an issue.
   , repGetFromIndex :: IndexFile -> IO (Maybe BS.ByteString)
 
+    -- | Mirror selection
+    --
+    -- The purpose of 'repWithMirror' is to scope mirror selection. The idea
+    -- is that if we have
+    --
+    -- > repWithMirror mirrorList $
+    -- >   someCallback
+    --
+    -- then the repository may pick a mirror before calling @someCallback@,
+    -- catch exceptions thrown by @someCallback@, and potentially try the
+    -- callback again with a different mirror.
+    --
+    -- The list of mirrors may be @Nothing@ if we haven't yet downloaded the
+    -- list of mirrors from the repository, or when our cached list of mirrors
+    -- is invalid. Of course, if we did download it, then the list of mirrors
+    -- may still be empty. In this case the repository must fall back to its
+    -- primary download mechanism.
+    --
+    -- Mirrors as currently defined (in terms of a "base URL") are inherently a
+    -- HTTP (or related) concept, so in repository implementations such as the
+    -- local-repo 'repWithMirrors' is probably just an identity operation  (see
+    -- 'ignoreMirrors').  Conversely, HTTP implementations of repositories may
+    -- have other, out-of-band information (for example, coming from a cabal
+    -- config file) that they may use to influence mirror selection.
+  , repWithMirror :: forall a. Maybe Mirrors -> IO a -> IO a
+
     -- | Logging
   , repLog :: LogMessage -> IO ()
   }
+
+-- | Helper function to implement 'repWithMirrors'.
+mirrorsUnsupported :: Maybe Mirrors -> IO a -> IO a
+mirrorsUnsupported _ = id
 
 data LogMessage =
     -- | Root information was updated
@@ -249,9 +284,10 @@ remoteFilePath (RemoteIndex _ lens)   = formatsMap aux lens
     aux FGz _ = "00-index.tar.gz"
 
 cachedFilePath :: CachedFile -> FilePath
-cachedFilePath CachedTimestamp    = "timestamp.json"
-cachedFilePath CachedRoot         = "root.json"
-cachedFilePath CachedSnapshot     = "snapshot.json"
+cachedFilePath CachedTimestamp = "timestamp.json"
+cachedFilePath CachedRoot      = "root.json"
+cachedFilePath CachedSnapshot  = "snapshot.json"
+cachedFilePath CachedMirrors   = "mirrors.json"
 
 indexFilePath :: IndexFile -> FilePath
 indexFilePath (IndexPkgMetadata pkgId) = pkgLoc pkgId </> "targets.json"

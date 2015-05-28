@@ -16,7 +16,6 @@ module Hackage.Security.TUF.Header (
 import Data.Time
 
 import Hackage.Security.JSON
-import Hackage.Security.TUF.Signed
 import Hackage.Security.Util.Lens
 
 {-------------------------------------------------------------------------------
@@ -53,9 +52,6 @@ newtype FileExpires = FileExpires (Maybe UTCTime)
 -- | Occassionally it is useful to read only a header from a file.
 --
 -- 'HeaderOnly' intentionally only has a 'FromJSON' instance (no 'ToJSON').
--- The 'FromJSON' instance for @Signed Header@s ignores the actual signatures,
--- so that it can be read in an empty key environment. (Again, useful if you
--- just want to read the reader of a signed file).
 data Header = Header {
     headerExpires :: FileExpires
   , headerVersion :: FileVersion
@@ -109,13 +105,6 @@ instance ReportSchemaErrors m => FromJSON m Header where
     headerExpires <- fromJSField enc "expires"
     headerVersion <- fromJSField enc "version"
     return Header{..}
-
--- See comments for 'Header'.
-instance ReportSchemaErrors m => FromJSON m (Signed Header) where
-  fromJSON envelope = do
-    enc    <- fromJSField envelope "signed"
-    signed <- fromJSON enc
-    return Signed{signatures = [], ..}
 
 {-------------------------------------------------------------------------------
   Auxiliary

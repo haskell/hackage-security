@@ -6,8 +6,6 @@ module Hackage.Security.TUF.Mirrors (
 
 import Hackage.Security.JSON
 import Hackage.Security.TUF.Header
-import Hackage.Security.TUF.Patterns
-import Hackage.Security.Util.Some
 
 {-------------------------------------------------------------------------------
   Datatypes
@@ -16,7 +14,7 @@ import Hackage.Security.Util.Some
 data Mirrors = Mirrors {
     mirrorsVersion :: FileVersion
   , mirrorsExpires :: FileExpires
-  , mirrors        :: [Mirror]
+  , mirrorsMirrors :: [Mirror]
   }
 
 -- | Definition of a mirror
@@ -63,7 +61,7 @@ instance ToJSON Mirrors where
       ("_type"   , JSString "Mirrorlist")
     , ("version" , toJSON mirrorsVersion)
     , ("expires" , toJSON mirrorsExpires)
-    , ("mirrors" , toJSON mirrors)
+    , ("mirrors" , toJSON mirrorsMirrors)
     ]
 
 instance ReportSchemaErrors m => FromJSON m Mirror where
@@ -77,5 +75,5 @@ instance ReportSchemaErrors m => FromJSON m Mirrors where
     -- TODO: Verify _type
     mirrorsVersion <- fromJSField enc "version"
     mirrorsExpires <- fromJSField enc "expires"
-    mirrors        <- fromJSField enc "mirrors"
+    mirrorsMirrors <- fromJSField enc "mirrors"
     return Mirrors{..}

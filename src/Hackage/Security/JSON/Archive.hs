@@ -54,12 +54,14 @@ writeEntries baseDir (A ar) = mapM_ go $ Map.toList ar
 -- | Construct an archive from a set of JSON files
 --
 -- This verifies that the entries are valid JSON.
-fromEntries :: [FilePath] -> IO (Either String Archive)
-fromEntries = runExceptT . fmap (A . Map.fromList) . mapM go
+fromEntries :: FilePath   -- ^ Base directory
+            -> [FilePath] -- ^ Files to add (relative to basedir)
+            -> IO (Either String Archive)
+fromEntries baseDir = runExceptT . fmap (A . Map.fromList) . mapM go
   where
     go :: FilePath -> ExceptT String IO (FilePath, JSValue)
     go fp = do
-      bs <- lift $ BS.L.readFile fp
+      bs <- lift $ BS.L.readFile (baseDir </> fp)
       case parseCanonicalJSON bs of
         Left  err -> throwError err
         Right val -> return (fp, val)

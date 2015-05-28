@@ -15,6 +15,8 @@ module Hackage.Security.TUF.Signed (
     -- * JSON aids
   , signedFromJSON
   , verifySignatures
+    -- * Ignoring signatures
+  , IgnoreSigned(..)
   ) where
 
 import qualified Data.ByteString      as BS
@@ -117,3 +119,24 @@ signedFromJSON envelope = do
 --    responsibility of the calling code.
 verifySignatures :: JSValue -> [Signature] -> Bool
 verifySignatures = all . verifySignature . renderCanonicalJSON
+
+{-------------------------------------------------------------------------------
+  Ignoring signatures
+-------------------------------------------------------------------------------}
+
+-- | Sometimes we may want to ignore the signatures on a file
+--
+-- Perhaps we want to ignore the signatures because they have already been
+-- verified (trusted local files). Moreover, many file formats (that don't
+-- contain any other keys) can then be read without any key environment at all,
+-- which is occassionally useful.
+--
+-- This is only relevant for _reading_ files, so this only has a 'FromJSON'
+-- instance (and no 'ToJSON' instance).
+newtype IgnoreSigned a = IgnoreSigned { ignoreSigned :: a }
+
+instance (ReportSchemaErrors m, FromJSON m a) => FromJSON m (IgnoreSigned a) where
+  fromJSON envelope = do
+    enc          <- fromJSField envelope "signed"
+    ignoreSigned <- fromJSON enc
+    return IgnoreSigned{..}

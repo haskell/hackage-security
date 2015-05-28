@@ -7,6 +7,8 @@ module Hackage.Security.JSON (
   , ToObjectKey(..)
   , FromObjectKey(..)
   , ReportSchemaErrors(..)
+  , Expected
+  , Got
   , expected'
     -- * Utility
   , fromJSObject

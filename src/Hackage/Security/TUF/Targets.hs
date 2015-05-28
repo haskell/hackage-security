@@ -33,7 +33,7 @@ import qualified Hackage.Security.TUF.FileMap as FileMap
 data Targets = Targets {
     targetsVersion     :: FileVersion
   , targetsExpires     :: FileExpires
-  , targets            :: FileMap
+  , targetsTargets     :: FileMap
   , targetsDelegations :: Maybe Delegations
   }
 
@@ -71,7 +71,7 @@ instance DescribeFile Targets where
 
 trustedTargetsLookup :: FilePath -> Trusted Targets -> Maybe (Trusted FileInfo)
 trustedTargetsLookup fp (trusted -> Targets{..}) =
-    fmap DeclareTrusted $ FileMap.lookup fp targets
+    fmap DeclareTrusted $ FileMap.lookup fp targetsTargets
 
 {-------------------------------------------------------------------------------
   JSON
@@ -115,7 +115,7 @@ instance ToJSON Targets where
       [ ("_type"       , JSString "Targets")
       , ("version"     , toJSON targetsVersion)
       , ("expires"     , toJSON targetsExpires)
-      , ("targets"     , toJSON targets)
+      , ("targets"     , toJSON targetsTargets)
       ]
     , [ ("delegations" , toJSON d) | Just d <- [ targetsDelegations ] ]
     ]
@@ -125,7 +125,7 @@ instance FromJSON ReadJSON Targets where
     -- TODO: verify _type
     targetsVersion     <- fromJSField    enc "version"
     targetsExpires     <- fromJSField    enc "expires"
-    targets            <- fromJSField    enc "targets"
+    targetsTargets     <- fromJSField    enc "targets"
     targetsDelegations <- fromJSOptField enc "delegations"
     return Targets{..}
 

@@ -49,6 +49,7 @@ withRepository repo cache logger callback = callback Repository {
   , repGetCachedRoot = getCachedRoot cache
   , repClearCache    = clearCache    cache
   , repGetFromIndex  = getFromIndex  cache
+  , repWithMirror    = mirrorsUnsupported
   , repLog           = logger
   }
 

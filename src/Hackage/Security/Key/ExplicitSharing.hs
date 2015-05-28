@@ -15,6 +15,9 @@ module Hackage.Security.Key.ExplicitSharing (
   , writeKeyAsId
   , renderJSON
   , writeCanonical
+    -- * Reading without keys
+  , parseNoKeys
+  , readNoKeys
   ) where
 
 import Control.Exception
@@ -61,11 +64,14 @@ newtype ReadJSON a = ReadJSON {
   deriving (Functor, Applicative, Monad, MonadError DeserializationError)
 
 instance ReportSchemaErrors ReadJSON where
-  expected str mgot = throwError $ DeserializationErrorSchema msg
-    where
-      msg = case mgot of
-              Nothing  -> "Expected " ++ str
-              Just got -> "Expected " ++ str ++ " but got " ++ got
+  expected str mgot = throwError $ expectedError str mgot
+
+expectedError :: Expected -> Maybe Got -> DeserializationError
+expectedError str mgot = DeserializationErrorSchema msg
+  where
+    msg = case mgot of
+            Nothing  -> "Expected " ++ str
+            Just got -> "Expected " ++ str ++ " but got " ++ got
 
 runReadJSON :: KeyEnv -> ReadJSON a -> Either DeserializationError a
 runReadJSON env act = runReader (runExceptT (unReadJSON act)) env
@@ -133,3 +139,32 @@ renderJSON = renderCanonicalJSON . toJSON
 
 writeCanonical :: ToJSON a => FilePath -> a -> IO ()
 writeCanonical fp = BS.L.writeFile fp . renderJSON
+
+{-------------------------------------------------------------------------------
+  Reading datatypes that do not require keys
+-------------------------------------------------------------------------------}
+
+newtype NoKeys a = NoKeys {
+    unNoKeys :: Except DeserializationError a
+  }
+  deriving (Functor, Applicative, Monad, MonadError DeserializationError)
+
+instance ReportSchemaErrors NoKeys where
+  expected str mgot = throwError $ expectedError str mgot
+
+runNoKeys :: NoKeys a -> Either DeserializationError a
+runNoKeys = runExcept . unNoKeys
+
+parseNoKeys :: FromJSON NoKeys a
+            => BS.L.ByteString -> Either DeserializationError a
+parseNoKeys bs =
+    case parseCanonicalJSON bs of
+      Left  err -> Left (DeserializationErrorMalformed err)
+      Right val -> runNoKeys (fromJSON val)
+
+readNoKeys :: FromJSON NoKeys a
+           => FilePath -> IO (Either DeserializationError a)
+readNoKeys fp = do
+    withFile fp ReadMode $ \h -> do
+      bs <- BS.L.hGetContents h
+      evaluate $ parseNoKeys bs

@@ -139,6 +139,7 @@ bootstrapOrUpdate opts@GlobalOpts{..} isBootstrap = do
                                   , privateTarget    keys
                                   , privateSnapshot  keys
                                   , privateTimestamp keys
+                                  , privateMirrors   keys
                                   ]
                 , rootRoles   = RootRoles {
                       rootRolesRoot = RoleSpec {
@@ -172,7 +173,7 @@ bootstrapOrUpdate opts@GlobalOpts{..} isBootstrap = do
           let mirrors = Mirrors {
                   mirrorsVersion = versionInitial
                 , mirrorsExpires = expiresInDays now (10 * 365)
-                , mirrors        = []
+                , mirrorsMirrors = []
                 }
           void $ updateFile globalRepo
                             "mirrors.json"
@@ -186,7 +187,7 @@ bootstrapOrUpdate opts@GlobalOpts{..} isBootstrap = do
           let globalTargets = Targets {
                   targetsVersion     = versionInitial
                 , targetsExpires     = expiresNever
-                , targets            = FileMap.empty
+                , targetsTargets     = FileMap.empty
                 , targetsDelegations = Just $ Delegations {
                       delegationsKeys  = KeyEnv.empty
                     , delegationsRoles = [
@@ -267,9 +268,9 @@ bootstrapOrUpdate opts@GlobalOpts{..} isBootstrap = do
                       timestamp
 
     -- Write the combined snapshot/timestamp file
-    Right timestampSnapshot <- Archive.fromEntries [
-        globalRepo </> "snapshot.json"
-      , globalRepo </> "timestamp.json"
+    Right timestampSnapshot <- Archive.fromEntries globalRepo [
+        "snapshot.json"
+      , "timestamp.json"
       ]
     logInfo $ "Writing timestamp-snapshot.json"
     writeCanonical (globalRepo </> "timestamp-snapshot.json") timestampSnapshot
@@ -285,7 +286,7 @@ createPackageMetadata GlobalOpts{..} pkgId = do
     let targets = Targets {
             targetsVersion     = versionInitial
           , targetsExpires     = expiresNever
-          , targets            = FileMap.fromList fileMapEntries
+          , targetsTargets     = FileMap.fromList fileMapEntries
           , targetsDelegations = Nothing
           }
     -- Currently we "sign" with no keys
@@ -446,8 +447,8 @@ updateFile :: (ToJSON (Signed a), HasHeader a)
            -> a                -- ^ Unsigned object
            -> IO (Maybe FilePath)
 updateFile baseDir file sign a = do
-    mOldHeader :: Maybe (Either DeserializationError (Signed Header)) <-
-      handleDoesNotExist $ readCanonical KeyEnv.empty fp
+    mOldHeader :: Maybe (Either DeserializationError (IgnoreSigned Header)) <-
+      handleDoesNotExist $ readNoKeys fp
 
     case mOldHeader of
       Nothing -> do
@@ -461,7 +462,7 @@ updateFile baseDir file sign a = do
         logWarn $ "Overwriting " ++ file ++ " (old file corrupted)"
         writeCanonical fp (sign a)
         return $ Just file
-      Just (Right Signed {signed = oldHeader}) -> do
+      Just (Right (IgnoreSigned oldHeader)) -> do
         -- We cannot quite read the entire old file, because we don't know
         -- what key environment to use. Instead, we write the _new_ file,
         -- but setting the version number to be able to the version number
