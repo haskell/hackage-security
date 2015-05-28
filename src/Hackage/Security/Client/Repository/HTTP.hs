@@ -135,41 +135,66 @@ data HttpClient = HttpClient {
 -------------------------------------------------------------------------------}
 
 -- | Initialize the repository (and cleanup resources afterwards)
+--
+-- We allow to specify multiple mirrors to initialize the repository. These
+-- are mirrors that can be found "out of band" (out of the scope of the TUF
+-- protocol), for example in a @cabal.config@ file. The TUF protocol itself
+-- will specify that any of these mirrors can serve a @mirrors.json@ file
+-- that itself contains mirrors; we consider these as _additional_ mirrors
+-- to the ones that are passed here.
+--
+-- TODO: In the future we could allow finer control over precisely which
+-- mirrors we use (which combination of the mirrors that are passed as arguments
+-- here and the mirrors that we get from @mirrors.json@) as well as indicating
+-- mirror preferences.
 withRepository
   :: HttpClient            -- ^ Implementation of the HTTP protocol
-  -> URI                   -- ^ Base URI
+  -> [URI]                 -- ^ "Out of band" list of mirrors
   -> Cache                 -- ^ Location of local cache
   -> (LogMessage -> IO ()) -- ^ Logger
   -> (Repository -> IO a)  -- ^ Callback
   -> IO a
-withRepository http auth cache logger callback = callback Repository {
-    repWithRemote    = flip $ withRemote http auth cache logger
-  , repGetCached     = Local.getCached     cache
-  , repGetCachedRoot = Local.getCachedRoot cache
-  , repClearCache    = Local.clearCache    cache
-  , repGetFromIndex  = Local.getFromIndex  cache
-  , repWithMirror    = withMirror
-  , repLog           = logger
-  }
+withRepository http outOfBandMirrors cache logger callback = do
+    selectedMirror <- newMVar Nothing
+    callback Repository {
+        repWithRemote    = flip $ withRemote http selectedMirror cache logger
+      , repGetCached     = Local.getCached     cache
+      , repGetCachedRoot = Local.getCachedRoot cache
+      , repClearCache    = Local.clearCache    cache
+      , repGetFromIndex  = Local.getFromIndex  cache
+      , repWithMirror    = withMirror selectedMirror outOfBandMirrors
+      , repLog           = logger
+      }
 
 {-------------------------------------------------------------------------------
   Implementations of the various methods of Repository
 -------------------------------------------------------------------------------}
 
+-- | We select a mirror in 'withMirror' (the implementation of 'repWithMirror').
+-- Outside the scope of 'withMirror' no mirror is selected, and a call to
+-- 'withRemote' will throw an exception. If this exception is ever thrown its
+-- a bug: calls to 'withRemote' ('repWithRemote') should _always_ be in the
+-- scope of 'repWithMirror'.
+type SelectedMirror = MVar (Maybe URI)
+
 -- | Get a file from the server
 withRemote :: forall fs a.
-              HttpClient -> URI -> Cache
+              HttpClient -> SelectedMirror -> Cache
            -> (LogMessage -> IO ())
            -> (SelectedFormat fs -> TempPath -> IO a)
            -> RemoteFile fs -> IO a
-withRemote httpClient baseURI cache logger callback = go
+withRemote httpClient selectedMirror cache logger callback = \remoteFile -> do
+    mBaseURI <- readMVar selectedMirror
+    case mBaseURI of
+      Nothing      -> throwIO $ userError "Internal error: no mirror selected"
+      Just baseURI -> go baseURI remoteFile
   where
     -- When we get a request for the timestamp, we download the combined
     -- timestamp/snapshot archive instead, and unpack that archive into a
     -- separate directory. It is important that we don't just overwrite the
     -- local files because these files are not yet verified.
-    go :: RemoteFile fs -> IO a
-    go RemoteTimestamp = do
+    go :: URI -> RemoteFile fs -> IO a
+    go baseURI RemoteTimestamp = do
       logger $ LogDownloading "timestamp-snapshot.json" UpdateNotAttempted
       let arPath = "timestamp-snapshot.json"
           arURI  = baseURI { uriPath = uriPath baseURI </> arPath }
@@ -188,14 +213,14 @@ withRemote httpClient baseURI cache logger callback = go
     -- When we get a request for the snapshot, we assume we have previously
     -- gotten a request for the timestamp, so we just use the file we extracted
     -- from the combined timestamp/snapshot archive
-    go (RemoteSnapshot _) = do
+    go _baseURI (RemoteSnapshot _) = do
       let tempSS = cache </> "unverified" </> "snapshot.json"
       result <- callback (SZ FUn) tempSS
       Local.cacheRemoteFile cache tempSS (Some FUn) (CacheAs CachedSnapshot)
       return result
 
     -- Other files we download normally (incrementally if possible)
-    go remoteFile = do
+    go baseURI remoteFile = do
       mIncremental <- shouldDoIncremental httpClient cache remoteFile
 
       -- If we can download incrementally, try. However, if this throws an I/O
@@ -322,10 +347,9 @@ incTar HttpClient{..} baseURI cache callback len cachedFile = do
     uri = baseURI { uriPath = uriPath baseURI </> "00-index.tar" }
 
 -- | Mirror selection
---
--- TODO
-withMirror :: Maybe [Mirror] -> IO a -> IO a
-withMirror _ = id
+withMirror :: SelectedMirror -> [URI] -> Maybe [Mirror] -> IO a -> IO a
+withMirror selectedMirror outOfBandMirrors tufMirrors callback =
+    callback
 
 {-------------------------------------------------------------------------------
   Body readers

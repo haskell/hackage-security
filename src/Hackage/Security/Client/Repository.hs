@@ -170,6 +170,9 @@ data Repository = Repository {
     -- TODO: We should make it clear to the Repository that we are downloading
     -- files after a verification error. Remote repositories can use this
     -- information to force proxies to get files upstream.
+    --
+    -- NOTE: Calls to 'repWithRemote' should _always_ be in the scope of
+    -- 'repWithMirror'.
     repWithRemote :: forall a fs. RemoteFile fs
                   -> (SelectedFormat fs -> TempPath -> IO a)
                   -> IO a
