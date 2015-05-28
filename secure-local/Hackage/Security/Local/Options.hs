@@ -4,6 +4,7 @@ module Hackage.Security.Local.Options (
   , getOptions
   ) where
 
+import Network.URI
 import Options.Applicative
 
 {-------------------------------------------------------------------------------
@@ -39,6 +40,9 @@ data GlobalOpts = GlobalOpts {
     --
     -- The @create-keys@ option can be used to create this directory.
   , globalKeys :: FilePath
+
+    -- | Mirrors (to add to @mirrors.json@)
+  , globalMirrors :: [URI]
 
     -- | Command to execute
   , globalCommand :: Command
@@ -80,6 +84,11 @@ parseGlobalOptions = GlobalOpts
         , metavar "PATH"
         , help "Path to key store"
         ])
+  <*> (many . option readURI $ mconcat [
+          long "mirror"
+        , metavar "URI"
+        , help "Mirror (to add to mirrors.json)"
+        ])
   <*> (subparser $ mconcat [
           command "create-keys" (info (pure CreateKeys)
               (progDesc "Create keys"))
@@ -88,3 +97,10 @@ parseGlobalOptions = GlobalOpts
         , command "update" (info (pure Update)
             (progDesc "Update a (previously bootstrapped) local repository"))
         ])
+
+readURI :: ReadM URI
+readURI = do
+   uriStr <- str
+   case parseURI uriStr of
+     Nothing  -> fail $ "Invalid URI " ++ show uriStr
+     Just uri -> return uri

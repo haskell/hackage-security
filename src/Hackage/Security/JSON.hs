@@ -21,6 +21,7 @@ module Hackage.Security.JSON (
 import Data.Map (Map)
 import Data.Time
 import Text.JSON.Canonical
+import Network.URI
 import qualified Data.Map as Map
 
 #if !MIN_VERSION_base(4,6,0)
@@ -142,6 +143,16 @@ instance ( ReportSchemaErrors m
     where
       aux :: (String, JSValue) -> m (k, a)
       aux (k, a) = (,) <$> fromObjectKey k <*> fromJSON a
+
+instance ToJSON URI where
+  toJSON = toJSON . show
+
+instance ReportSchemaErrors m => FromJSON m URI where
+  fromJSON enc = do
+    str <- fromJSON enc
+    case parseURI str of
+      Nothing  -> expected "valid URI" (Just str)
+      Just uri -> return uri
 
 {-------------------------------------------------------------------------------
   Utility

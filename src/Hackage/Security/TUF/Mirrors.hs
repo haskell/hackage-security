@@ -3,7 +3,12 @@ module Hackage.Security.TUF.Mirrors (
     Mirrors(..)
   , Mirror(..)
   , MirrorContent(..)
+    -- ** Utility
+  , MirrorDescription
+  , describeMirror
   ) where
+
+import Network.URI
 
 import Hackage.Security.JSON
 import Hackage.Security.Key.ExplicitSharing
@@ -25,7 +30,7 @@ data Mirrors = Mirrors {
 -- NOTE: Unlike the TUF specification, we require that all mirrors must have
 -- the same format. That is, we omit @metapath@ and @targetspath@.
 data Mirror = Mirror {
-    mirrorUrlBase :: String
+    mirrorUrlBase :: URI
   , mirrorContent :: MirrorContent
   }
   deriving Show
@@ -48,6 +53,18 @@ instance HasHeader Mirrors where
 
 instance DescribeFile Mirrors where
   describeFile _ = "mirrors list"
+
+{-------------------------------------------------------------------------------
+  Utility
+-------------------------------------------------------------------------------}
+
+type MirrorDescription = String
+
+-- | Give a human-readable description of a particular mirror
+--
+-- (for use in error messages)
+describeMirror :: Mirror -> MirrorDescription
+describeMirror = show . mirrorUrlBase
 
 {-------------------------------------------------------------------------------
   JSON

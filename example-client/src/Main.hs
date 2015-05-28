@@ -59,7 +59,7 @@ withRepo GlobalOpts{..}
     withRemoteRepo :: (Repository -> IO a) -> IO a
     withRemoteRepo callback =
         withClient putStrLn $ \httpClient ->
-          Remote.withRepository httpClient baseURI globalCache logger callback
+          Remote.withRepository httpClient [baseURI] globalCache logger callback
       where
         baseURI :: URI
         baseURI = case parseURI globalRepo of

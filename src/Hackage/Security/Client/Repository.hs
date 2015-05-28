@@ -17,6 +17,11 @@ module Hackage.Security.Client.Repository (
   , indexFilePath
     -- * Names of package files
   , pkgTarGz
+    -- * Recoverable exceptions
+  , RecoverableException(..)
+  , CustomException(..)
+  , catchRecoverable
+  , handleRecoverable
     -- * Utility
   , IsCached(..)
   , mustCache
@@ -26,6 +31,7 @@ module Hackage.Security.Client.Repository (
   ) where
 
 import Control.Exception
+import Data.Typeable
 import System.FilePath
 import qualified Data.ByteString as BS
 
@@ -251,20 +257,26 @@ data LogMessage =
   | LogVerificationError VerificationError
 
     -- | Download a file from a repository
-    --
-    -- We also record the reason why we are downloading rather than updating.
-  | LogDownloading String UpdateFailure
+  | LogDownloading String
 
     -- | Incrementally updating a file from a repository
   | LogUpdating String
 
+    -- | Selected a particular mirror
+  | LogSelectedMirror MirrorDescription
+
+    -- | Updating a file failed
+    -- (we will try again by downloading it whole)
+  | LogUpdateFailed FileDescription UpdateFailure
+
+    -- | We got an exception with a particular mirror
+    -- (we will try with a different mirror if any are available)
+  | LogMirrorFailed MirrorDescription RecoverableException
+
 -- | Records why we are downloading a file rather than updating it.
 data UpdateFailure =
-    -- | Some files we never attempt to update
-    UpdateNotAttempted
-
     -- | Server only provides compressed form of the file
-  | UpdateImpossibleOnlyCompressed
+    UpdateImpossibleOnlyCompressed
 
     -- | Server does not support incremental downloads
   | UpdateImpossibleUnsupported
@@ -272,11 +284,54 @@ data UpdateFailure =
     -- | We don't have a local copy of the file to update
   | UpdateImpossibleNoLocalCopy
 
-    -- | Update failed with an IO exception
-  | UpdateFailedIO IOException
+    -- | Update failed
+  | UpdateFailed RecoverableException
 
-    -- | Update failed with a verification error
-  | UpdateFailedVerification VerificationError
+{-------------------------------------------------------------------------------
+  Recoverable exceptions
+-------------------------------------------------------------------------------}
+
+-- | An exception that we might be able to recover from
+--
+-- Example use cases:
+--
+-- * When we are updating a file incrementally rather than downloading it
+-- * When we are using a particular mirror (but might choose another)
+--
+-- In examples such as these we can catch these 'RecoverableException's,
+-- but we don't want to catch just any odd exception. For example, we don't
+-- want to catch a ThreadKilled exception while updating a file and then
+-- retry by downloading it.
+data RecoverableException =
+    RecoverIOException IOException
+  | RecoverVerificationError VerificationError
+  | RecoverCustom CustomException
+
+-- | Wrapper for custom exceptions (for example, those defined in HTTP clients)
+data CustomException where
+    CustomException :: Exception e => e -> CustomException
+  deriving (Typeable)
+
+deriving instance Show CustomException
+instance Exception CustomException
+
+formatRecoverableException :: RecoverableException -> String
+formatRecoverableException = go
+  where
+    -- TODO: Can we do better than @show@ for IO and custom exceptions?
+    go (RecoverIOException       e) = show e
+    go (RecoverVerificationError e) = formatVerificationError e
+    go (RecoverCustom            e) = show e
+
+catchRecoverable :: IO a -> (RecoverableException -> IO a) -> IO a
+catchRecoverable act handler = catches act [
+      Handler $ handler . RecoverIOException
+    , Handler $ handler . RecoverVerificationError
+    , Handler $ handler . RecoverCustom
+    ]
+
+handleRecoverable :: (RecoverableException -> IO a) -> IO a -> IO a
+handleRecoverable = flip catchRecoverable
 
 {-------------------------------------------------------------------------------
   Paths
@@ -356,26 +411,27 @@ formatLogMessage LogRootUpdated =
     "Root info updated"
 formatLogMessage (LogVerificationError err) =
     "Verification error: " ++ formatVerificationError err
-formatLogMessage (LogDownloading file UpdateNotAttempted) =
+formatLogMessage (LogDownloading file) =
     "Downloading " ++ file
-formatLogMessage (LogDownloading file why) =
-    "Downloading " ++ file ++ " (" ++ formatUpdateFailure why ++ ")"
 formatLogMessage (LogUpdating file) =
     "Updating " ++ file
+formatLogMessage (LogSelectedMirror mirror) =
+    "Selected mirror " ++ mirror
+formatLogMessage (LogUpdateFailed file ex) =
+    "Updating " ++ file ++ " failed (" ++ formatUpdateFailure ex ++ ")"
+formatLogMessage (LogMirrorFailed mirror ex) =
+       "Exception " ++ formatRecoverableException ex
+    ++ " when using mirror " ++ mirror
 
 formatUpdateFailure :: UpdateFailure -> String
-formatUpdateFailure UpdateNotAttempted =
-    "update not attempt"
 formatUpdateFailure UpdateImpossibleOnlyCompressed =
     "server only provides file in compressed format"
 formatUpdateFailure UpdateImpossibleUnsupported =
     "server does not provide incremental downloads"
 formatUpdateFailure UpdateImpossibleNoLocalCopy =
     "no local copy"
-formatUpdateFailure (UpdateFailedIO ex) =
-    "update failed: " ++ show ex
-formatUpdateFailure (UpdateFailedVerification ex) =
-    "update failed: " ++ formatVerificationError ex
+formatUpdateFailure (UpdateFailed ex) =
+    formatRecoverableException ex
 
 describeRemoteFile :: RemoteFile fs -> String
 describeRemoteFile RemoteTimestamp          = "timestamp"

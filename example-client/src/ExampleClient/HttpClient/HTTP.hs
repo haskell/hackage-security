@@ -29,6 +29,7 @@ withClient logger callback = do
           httpClientGet          = get      logger browser caps
         , httpClientGetRange     = getRange logger browser caps
         , httpClientCapabilities = caps
+        , httpWrapCustomEx       = id -- TODO
         }
 
 {-------------------------------------------------------------------------------

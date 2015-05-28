@@ -127,9 +127,6 @@ bootstrapOrUpdate opts@GlobalOpts{..} isBootstrap = do
       if not isBootstrap
         then return []
         else do
-          -- TODO: We should add a feature to update root/mirrors
-          -- (if nothing else, to refresh their expiry date)
-
           -- Create root metadata
           let root = Root {
                   rootVersion = versionInitial
@@ -170,10 +167,11 @@ bootstrapOrUpdate opts@GlobalOpts{..} isBootstrap = do
                             root
 
           -- Create mirrors
+          let mkMirror uri = Mirror uri MirrorFull
           let mirrors = Mirrors {
                   mirrorsVersion = versionInitial
                 , mirrorsExpires = expiresInDays now (10 * 365)
-                , mirrorsMirrors = []
+                , mirrorsMirrors = map mkMirror globalMirrors
                 }
           void $ updateFile globalRepo
                             "mirrors.json"

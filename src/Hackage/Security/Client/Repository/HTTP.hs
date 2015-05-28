@@ -128,6 +128,9 @@ data HttpClient = HttpClient {
     --
     -- HTTP clients should use 'newServerCapabilities' on initialization.
   , httpClientCapabilities :: ServerCapabilities
+
+    -- | Catch any custom exceptions thrown and wrap them as 'CustomException's
+  , httpWrapCustomEx :: forall a. IO a -> IO a
   }
 
 {-------------------------------------------------------------------------------
@@ -142,6 +145,9 @@ data HttpClient = HttpClient {
 -- will specify that any of these mirrors can serve a @mirrors.json@ file
 -- that itself contains mirrors; we consider these as _additional_ mirrors
 -- to the ones that are passed here.
+--
+-- NOTE: The list of mirrors should be non-empty (and should typically include
+-- the primary server).
 --
 -- TODO: In the future we could allow finer control over precisely which
 -- mirrors we use (which combination of the mirrors that are passed as arguments
@@ -162,7 +168,7 @@ withRepository http outOfBandMirrors cache logger callback = do
       , repGetCachedRoot = Local.getCachedRoot cache
       , repClearCache    = Local.clearCache    cache
       , repGetFromIndex  = Local.getFromIndex  cache
-      , repWithMirror    = withMirror selectedMirror outOfBandMirrors
+      , repWithMirror    = withMirror http selectedMirror outOfBandMirrors logger
       , repLog           = logger
       }
 
@@ -184,10 +190,13 @@ withRemote :: forall fs a.
            -> (SelectedFormat fs -> TempPath -> IO a)
            -> RemoteFile fs -> IO a
 withRemote httpClient selectedMirror cache logger callback = \remoteFile -> do
-    mBaseURI <- readMVar selectedMirror
-    case mBaseURI of
-      Nothing      -> throwIO $ userError "Internal error: no mirror selected"
-      Just baseURI -> go baseURI remoteFile
+   -- NOTE: Cannot use withMVar here, because the callback would be inside
+   -- the scope of the withMVar, and there might be further calls to
+   -- withRemote made by this callback, leading to deadlock.
+   mBaseURI <- readMVar selectedMirror
+   case mBaseURI of
+     Nothing      -> throwIO $ userError "Internal error: no mirror selected"
+     Just baseURI -> go baseURI remoteFile
   where
     -- When we get a request for the timestamp, we download the combined
     -- timestamp/snapshot archive instead, and unpack that archive into a
@@ -195,66 +204,71 @@ withRemote httpClient selectedMirror cache logger callback = \remoteFile -> do
     -- local files because these files are not yet verified.
     go :: URI -> RemoteFile fs -> IO a
     go baseURI RemoteTimestamp = do
-      logger $ LogDownloading "timestamp-snapshot.json" UpdateNotAttempted
-      let arPath = "timestamp-snapshot.json"
-          arURI  = baseURI { uriPath = uriPath baseURI </> arPath }
-          arSz   = FileSizeUnknown -- TODO
-      getFile' httpClient arURI arSz "timestamp-snapshot.json" $ \tempPath -> do
-        createDirectoryIfMissing True (cache </> "unverified")
-        mAr <- readCanonical KeyEnv.empty tempPath
-        case mAr of
-          Left  ex -> throwIO ex
-          Right ar -> Archive.writeEntries (cache </> "unverified") ar
-      let tempTS = cache </> "unverified" </> "timestamp.json"
-      result <- callback (SZ FUn) tempTS
-      Local.cacheRemoteFile cache tempTS (Some FUn) (CacheAs CachedTimestamp)
-      return result
+        logger $ LogDownloading "timestamp-snapshot.json"
+        let arPath = "timestamp-snapshot.json"
+            arURI  = baseURI { uriPath = uriPath baseURI </> arPath }
+            arSz   = FileSizeUnknown -- TODO
+        getFile' httpClient arURI arSz "timestamp-snapshot.json" $ \tempPath -> do
+          createDirectoryIfMissing True (cache </> "unverified")
+          mAr <- readCanonical KeyEnv.empty tempPath
+          case mAr of
+            Left  ex -> throwIO ex
+            Right ar -> Archive.writeEntries (cache </> "unverified") ar
+        let tempTS = cache </> "unverified" </> "timestamp.json"
+        result <- callback (SZ FUn) tempTS
+        Local.cacheRemoteFile cache tempTS (Some FUn) (CacheAs CachedTimestamp)
+        return result
 
     -- When we get a request for the snapshot, we assume we have previously
     -- gotten a request for the timestamp, so we just use the file we extracted
     -- from the combined timestamp/snapshot archive
     go _baseURI (RemoteSnapshot _) = do
-      let tempSS = cache </> "unverified" </> "snapshot.json"
-      result <- callback (SZ FUn) tempSS
-      Local.cacheRemoteFile cache tempSS (Some FUn) (CacheAs CachedSnapshot)
-      return result
+        let tempSS = cache </> "unverified" </> "snapshot.json"
+        result <- callback (SZ FUn) tempSS
+        Local.cacheRemoteFile cache tempSS (Some FUn) (CacheAs CachedSnapshot)
+        return result
 
     -- Other files we download normally (incrementally if possible)
     go baseURI remoteFile = do
-      mIncremental <- shouldDoIncremental httpClient cache remoteFile
+        mIncremental <- shouldDoIncremental httpClient cache remoteFile
 
-      -- If we can download incrementally, try. However, if this throws an I/O
-      -- exception or a verification error we try again using a normal download.
-      didDownload <- case mIncremental of
-        Left reason ->
-          return $ Left reason
-        Right (sf, len, fp) -> do
-          logger $ LogUpdating (describeRemoteFile remoteFile)
-          catches (Right <$> incTar httpClient baseURI cache (callback sf) len fp) [
-              Handler $ return . Left . UpdateFailedIO
-            , Handler $ return . Left . UpdateFailedVerification
-            ]
+        -- Try to download incrementally. However, if this throws an I/O
+        -- exception or a verification error we try again using a full download
+        didDownload <- case mIncremental of
+          Left Nothing ->
+            return Nothing
+          Left (Just failure) -> do
+            logger $ LogUpdateFailed (describeRemoteFile remoteFile) failure
+            return Nothing
+          Right (sf, len, fp) -> do
+            logger $ LogUpdating (describeRemoteFile remoteFile)
+            let incr = incTar httpClient baseURI cache (callback sf) len fp
+            catchRecoverable (Just <$> incr) $ \ex -> do
+              let failure = UpdateFailed ex
+              logger $ LogUpdateFailed (describeRemoteFile remoteFile) failure
+              return Nothing
 
-      case didDownload of
-        Left reason -> do
-          logger $ LogDownloading (describeRemoteFile remoteFile) reason
-          getFile httpClient baseURI cache callback remoteFile
-        Right did ->
-          return did
+        case didDownload of
+          Just did -> return did
+          Nothing  -> do
+            logger $ LogDownloading (describeRemoteFile remoteFile)
+            getFile httpClient baseURI cache callback remoteFile
 
 -- | Should we do an incremental update?
 --
--- Returns either 'Left' the reason why we cannot do an incremental update,
--- or else 'Right' the name of the local file that we should update.
+-- Returns either 'Left' the reason why we cannot do an incremental update (or
+-- @Nothing@ if we simply never update this kind of file), or else 'Right' the
+-- name of the local file that we should update.
 shouldDoIncremental
   :: forall fs. HttpClient -> Cache -> RemoteFile fs
-  -> IO (Either UpdateFailure (SelectedFormat fs, Trusted FileLength, FilePath))
+  -> IO (Either (Maybe UpdateFailure)
+                (SelectedFormat fs, Trusted FileLength, FilePath))
 shouldDoIncremental HttpClient{..} cache remoteFile = runExceptT $ do
     -- Currently the only file which we download incrementally is the index
     formats :: Formats fs (Trusted FileLength) <-
       case remoteFile of
         RemoteIndex _ lens -> return lens
-        _ -> throwError UpdateNotAttempted
+        _ -> throwError Nothing
 
     -- The server must be able to provide the index in uncompressed form
     -- NOTE: The two @SZ Fun@ expressions here have different types.
@@ -262,19 +276,19 @@ shouldDoIncremental HttpClient{..} cache remoteFile = runExceptT $ do
       case formats of
         FsUn   lenUn   -> return (SZ FUn, lenUn)
         FsUnGz lenUn _ -> return (SZ FUn, lenUn)
-        _ -> throwError UpdateImpossibleOnlyCompressed
+        _ -> throwError $ Just UpdateImpossibleOnlyCompressed
 
     -- Server must support @Range@ with a byte-range
     supportsAcceptBytes <- lift $ getServerSupportsAcceptBytes httpClientCapabilities
     unless supportsAcceptBytes $
-      throwError UpdateImpossibleUnsupported
+      throwError $ Just UpdateImpossibleUnsupported
 
     -- We already have a local file to be updated
     -- (if not we should try to download the initial file in compressed form)
     cachedIndex <- do
       mCachedIndex <- lift $ Local.getCachedIndex cache
       case mCachedIndex of
-        Nothing -> throwError UpdateImpossibleNoLocalCopy
+        Nothing -> throwError $ Just UpdateImpossibleNoLocalCopy
         Just fp -> return fp
 
     -- TODO: Other factors to decide whether or not we want to do incremental updates
@@ -347,9 +361,35 @@ incTar HttpClient{..} baseURI cache callback len cachedFile = do
     uri = baseURI { uriPath = uriPath baseURI </> "00-index.tar" }
 
 -- | Mirror selection
-withMirror :: SelectedMirror -> [URI] -> Maybe [Mirror] -> IO a -> IO a
-withMirror selectedMirror outOfBandMirrors tufMirrors callback =
-    callback
+withMirror :: forall a.
+              HttpClient -> SelectedMirror -> [URI] -> (LogMessage -> IO ())
+           -> Maybe [Mirror] -> IO a -> IO a
+withMirror HttpClient{..} selectedMirror outOfBandMirrors logger tufMirrors callback = do
+    -- TODO: In the future we will want to make the construction of this list
+    -- configurable.
+    let mirrorsToTry = outOfBandMirrors
+                    ++ maybe [] (map mirrorUrlBase) tufMirrors
+    go mirrorsToTry
+  where
+    go :: [URI] -> IO a
+    -- Empty list of mirrors is a bug
+    go [] = throwIO $ userError "No mirrors configured"
+    -- If we only have a single mirror left, let exceptions be thrown up
+    go [m] = do
+      logger $ LogSelectedMirror (show m)
+      select m $ callback
+    -- Otherwise, catch exceptions and if any were thrown, try with different
+    -- mirror
+    go (m:ms) = do
+      logger $ LogSelectedMirror (show m)
+      catchRecoverable (httpWrapCustomEx $ select m callback) $ \ex -> do
+        logger $ LogMirrorFailed (show m) ex
+        go ms
+
+    select :: URI -> IO a -> IO a
+    select uri =
+      bracket_ (modifyMVar_ selectedMirror $ \_ -> return $ Just uri)
+               (modifyMVar_ selectedMirror $ \_ -> return Nothing)
 
 {-------------------------------------------------------------------------------
   Body readers

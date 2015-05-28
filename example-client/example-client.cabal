@@ -35,4 +35,5 @@ executable example-client
   default-language:    Haskell2010
   default-extensions:  DeriveDataTypeable
                        RecordWildCards
+                       ScopedTypeVariables
   ghc-options:         -Wall

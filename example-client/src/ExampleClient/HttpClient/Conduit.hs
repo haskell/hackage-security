@@ -2,6 +2,7 @@ module ExampleClient.HttpClient.Conduit (
     withClient
   ) where
 
+import Control.Exception
 import Control.Monad
 import Data.Default.Class (def)
 import Network.URI
@@ -11,6 +12,7 @@ import Network.HTTP.Types
 import qualified Data.CaseInsensitive  as CI
 import qualified Data.ByteString.Char8 as BS.C8
 
+import Hackage.Security.Client.Repository
 import Hackage.Security.Client.Repository.HTTP
 
 {-------------------------------------------------------------------------------
@@ -25,6 +27,7 @@ withClient _logger callback = do
           httpClientGet          = get      manager caps
         , httpClientGetRange     = getRange manager caps
         , httpClientCapabilities = caps
+        , httpWrapCustomEx       = wrapCustomEx
         }
 
 {-------------------------------------------------------------------------------
@@ -65,6 +68,14 @@ updateCapabilities caps response = do
       setServerSupportsAcceptBytes caps True
   where
     headers = responseHeaders response
+
+-- | Wrap custom exceptions
+--
+-- TODO: Are there any others we should catch?
+wrapCustomEx :: IO a -> IO a
+wrapCustomEx act = catches act [
+      Handler $ \(ex :: HttpException) -> throwIO (CustomException ex)
+    ]
 
 {-------------------------------------------------------------------------------
   http-client auxiliary

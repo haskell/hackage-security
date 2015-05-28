@@ -116,6 +116,7 @@ executable hackage-secure-local
                        Cabal                >= 1.12,
                        directory            >= 1.1,
                        filepath             >= 1.2,
+                       network-uri          >= 2.6,
                        optparse-applicative >= 0.11,
                        tar                  >= 0.4,
                        time                 >= 1.2,
