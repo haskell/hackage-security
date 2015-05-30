@@ -24,7 +24,7 @@ import Text.JSON.Canonical
 import Network.URI
 import qualified Data.Map as Map
 
-#if !MIN_VERSION_base(4,6,0)
+#if !MIN_VERSION_base(4,8,0)
 import System.Locale
 #endif
 
@@ -119,7 +119,7 @@ instance ReportSchemaErrors m => FromJSON m UTCTime where
     case parseTimeM False defaultTimeLocale "%FT%TZ" str of
       Just time -> return time
       Nothing   -> expected "valid date-time string" (Just str)
-#if !MIN_VERSION_base(4,6,0)
+#if !MIN_VERSION_base(4,8,0)
     where
       parseTimeM _trim = parseTime
 #endif
