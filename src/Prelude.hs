@@ -4,7 +4,7 @@
 {-# LANGUAGE CPP #-}
 module Prelude (
     module P
-#if !MIN_VERSION_base(4,6,0)
+#if !MIN_VERSION_base(4,8,0)
   , Applicative(..)
   , Monoid(..)
   , (<$>)
@@ -13,7 +13,7 @@ module Prelude (
 #endif
   ) where
 
-#if MIN_VERSION_base(4,6,0)
+#if MIN_VERSION_base(4,8,0)
 import "base" Prelude as P
 #else
 import "base" Prelude as P hiding (catch)

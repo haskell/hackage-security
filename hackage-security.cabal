@@ -11,8 +11,8 @@ category:            Distribution
 build-type:          Simple
 cabal-version:       >=1.10
 
-flag base46
-  description: Are we using base 4.6 or higher?
+flag base48
+  description: Are we using base 4.8 or higher?
   manual: False
 
 library
@@ -99,8 +99,8 @@ library
   -- TODO: We should get rid of the -fno-warn-deprecated-flags here
   ghc-options:         -Wall -fno-warn-deprecated-flags
 
-  if flag(base46)
-    build-depends: base >= 4.6
+  if flag(base48)
+    build-depends: base >= 4.8
   else
     build-depends: old-locale >= 1.0
 
