@@ -309,7 +309,7 @@ TUF spec, is the version, expiry time, and signatures. Therefore our
          , "index.tar.gz" : FILEINFO
         }
     }
-, "signatures" : <signatures from snapshot key>
+, "signatures" : /* signatures from snapshot key */
 }
 ```
 
@@ -344,6 +344,121 @@ file:
 , "snapshot.json" : { "signed": ..., "signatures": ... }
 }
 ```
+
+### Collections
+
+Package collections are a new Hackage feature that's [currently in
+development](http://www.well-typed.com/blog/2015/06/cabal-hackage-hacking-at-zurihac/).
+We want package collections to be signed, just like anything else.
+
+Collections will be stored under a prefix that is not a valid package name such
+as `/collections$`. Like packages, they are versioned and immutable, so we have
+
+```
+/collections$/StackageNightly/2015.06.02/StackageNightly.collection
+/collections$/StackageNightly/2015.06.03/StackageNightly.collection
+/collections$/StackageNightly/...
+/collections$/DebianJessie/...
+/collections$/...
+```
+
+Now we have to balance a few design constraints:
+
+1. As for packages, collections should be able to opt-in for author signing
+   (once we support author signing), but we should also support
+   not-author-signed (&ldquo;unsigned&rdquo;) collections. Moreover, it should
+   be possible for people to create new unsigned collections without the
+   involvement of the Hackage admins. This rules out listing all collections
+   explicitly in the top-level `targets.json` (which is signed with offline
+   target keys).
+
+2. Even unsigned packages should be protected at least by the snapshot key so
+   that we can trust collections from untrusted mirrors. This means that we need
+   list of collections and (perhaps more importantly) lists of collections
+   versions which are, directly or indirectly, signed by the snapshot role.
+
+3. However, since new versions of collections may be released rather frequently
+   (e.g., consider the nightly [Stackage](http://www.stackage.org/) releases) we
+   do not want the index to change with every new collection version.
+
+#### Unsigned collections
+
+For unsigned collections we add a single delegation rule to the top-level `targets.json`:
+
+``` javascript
+{ "name"      : "collections$/targets.json"
+, "keyids"    : /* snapshot key */
+, "threshold" : 1
+, "path"      : "collections$/*/*/*"
+}
+```
+
+The middle-level `targets.json`, signed with the snapshot role, lists delegation rules for all available collections:
+
+``` javascript
+[ { "name"      : "StackageNightly/targets.json"
+  , "keyids"    : /* snapshot key */
+  , "threshold" : 1
+  , "path"      : "StackageNightly/*/*"
+  }
+, { "name"      : "DebianJessie/targets.json"
+  , "keyids"    : /* snapshot key */
+  , "threshold" : 1
+  , "path"      : "DebianJessie/*/*"
+  }
+, ...
+]
+```
+
+These then finally lists all versions:
+
+``` javascript
+{ "signed" : {
+     "_type"   : "Targets"
+   , "version" : VERSION
+   , "expires" : /* expiry */
+   , "targets" : {
+         "2015.06.02/StackageNightly.collection" : FILEINFO
+       , "2015.06.03/StackageNightly.collection" : FILEINFO
+       , ...
+       }
+   }
+, "signatures" : /* signed with snapshot role */
+}
+```
+
+This is a slightly different approach from packages, because we cannot rely on
+the index to have the list of all versions; hence, we must list all versions
+explicitly here rather than using wildcards.
+
+All these target files (`collections$/targets.json` as well as
+`collections$/StackageNightly/targets.json`,
+`collections$/DebianJessie/targets.json`, etc.) must be listed with their hash
+in the top-level snapshot. This means that the snapshot will grow linearly with
+each new collection, but only with a small entry; and does not grow linearly
+with each new collection version. Unless we deviate from the TUF spec, this is
+unavoidable.
+
+#### Author-signed collections
+
+For author-signed collections we only need to make a single change. Suppose that
+the `DebianJessie` collection is signed. Then we move the rule for
+`DebianJessie` from `collections$/targets.json` and instead list it in the
+top-level `targets.json` (introducing a signed collection necessarily requires
+the involvement of the Hackage admins):
+
+``` javascript
+{ "name"      : "collections$/DebianJessie/targets.json"
+, "keyids"    : /* DebianJessie maintainer keys */
+, "threshold" : /* threshold */
+, "path"      : "collections$/DebianJessie/*/*"
+}
+```
+
+No other changes are required (apart from of course that
+`collections$/DebianJessie/targets.json` will now be signed with the
+`DebianJessie` maintainer keys rather than the snapshot key). As for packages,
+this requires a priority scheme for delegation rules.
 
 ## Open questions / TODOs
 
