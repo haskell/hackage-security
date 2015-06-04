@@ -13,6 +13,7 @@ import qualified Hackage.Security.Client.Repository.Local             as Local
 import qualified Hackage.Security.Client.Repository.Remote            as Remote
 import qualified Hackage.Security.Client.Repository.Remote.HTTP       as Remote.HTTP
 import qualified Hackage.Security.Client.Repository.Remote.HttpClient as Remote.HttpClient
+import qualified Hackage.Security.Client.Repository.Remote.Curl       as Remote.Curl
 
 import ExampleClient.Options
 
@@ -71,6 +72,7 @@ withRepo GlobalOpts{..}
       case globalHttpClient of
         "HTTP"        -> Remote.HTTP.withClient
         "http-client" -> Remote.HttpClient.withClient
+        "curl"        -> Remote.Curl.withClient
         _otherwise    -> error "unsupported HTTP client"
 
     logger :: LogMessage -> IO ()

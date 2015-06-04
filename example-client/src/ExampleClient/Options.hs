@@ -52,7 +52,7 @@ parseGlobalOptions :: Parser GlobalOpts
 parseGlobalOptions = GlobalOpts
   <$> (strOption $ mconcat [
           long "repo"
-        , metavar "PATH"
+        , metavar "URL"
         , help "Path to local repository"
         ])
   <*> (strOption $ mconcat [
@@ -63,7 +63,7 @@ parseGlobalOptions = GlobalOpts
   <*> (strOption $ mconcat [
          long "http-client"
        , metavar "CLIENT"
-       , help "HTTP client to use (currently supported: HTTP and http-conduit)"
+       , help "HTTP client to use (currently supported: HTTP, http-conduit, curl)"
        ])
   <*> (subparser $ mconcat [
           command "check" $

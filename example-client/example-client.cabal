@@ -24,7 +24,8 @@ executable example-client
                        optparse-applicative >= 0.11,
                        hackage-security,
                        hackage-security-HTTP,
-                       hackage-security-http-client
+                       hackage-security-http-client,
+                       hackage-security-curl
   hs-source-dirs:      src
   default-language:    Haskell2010
   default-extensions:  DeriveDataTypeable
