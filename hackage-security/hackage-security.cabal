@@ -20,8 +20,8 @@ library
                        Hackage.Security.Client
                        Hackage.Security.Client.Formats
                        Hackage.Security.Client.Repository
-                       Hackage.Security.Client.Repository.HTTP
                        Hackage.Security.Client.Repository.Local
+                       Hackage.Security.Client.Repository.Remote
                        Hackage.Security.JSON
                        Hackage.Security.JSON.Archive
                        Hackage.Security.Key
@@ -106,28 +106,3 @@ library
 
   if impl(ghc >= 7.8)
      default-extensions: RoleAnnotations
-
-executable hackage-secure-local
-  main-is:             Main.hs
-  other-modules:       Hackage.Security.Local.Options
-                       Prelude
-  build-depends:       base                 >= 4.4,
-                       bytestring           >= 0.9,
-                       Cabal                >= 1.12,
-                       directory            >= 1.1,
-                       filepath             >= 1.2,
-                       network-uri          >= 2.6,
-                       optparse-applicative >= 0.11,
-                       tar                  >= 0.4,
-                       time                 >= 1.2,
-                       zlib                 >= 0.6,
-                       hackage-security
-  hs-source-dirs:      secure-local
-  default-language:    Haskell2010
-  default-extensions:  FlexibleContexts
-                       ScopedTypeVariables
-                       RecordWildCards
-  other-extensions:    TemplateHaskell
-  ghc-options:         -Wall
-
--- TODO: We should have a mirror client as executable as well

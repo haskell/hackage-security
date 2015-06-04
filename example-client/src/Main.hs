@@ -9,12 +9,12 @@ import Distribution.Package
 
 import Hackage.Security.Client
 import Hackage.Security.Client.Repository
-import qualified Hackage.Security.Client.Repository.Local as Local
-import qualified Hackage.Security.Client.Repository.HTTP  as Remote
+import qualified Hackage.Security.Client.Repository.Local             as Local
+import qualified Hackage.Security.Client.Repository.Remote            as Remote
+import qualified Hackage.Security.Client.Repository.Remote.HTTP       as Remote.HTTP
+import qualified Hackage.Security.Client.Repository.Remote.HttpClient as Remote.HttpClient
 
 import ExampleClient.Options
-import qualified ExampleClient.HttpClient.HTTP    as HttpClient.HTTP
-import qualified ExampleClient.HttpClient.Conduit as HttpClient.Conduit
 
 main :: IO ()
 main = do
@@ -69,8 +69,8 @@ withRepo GlobalOpts{..}
     withClient :: (String -> IO ()) -> (Remote.HttpClient -> IO a) -> IO a
     withClient =
       case globalHttpClient of
-        "HTTP"        -> HttpClient.HTTP.withClient
-        "http-client" -> HttpClient.Conduit.withClient
+        "HTTP"        -> Remote.HTTP.withClient
+        "http-client" -> Remote.HttpClient.withClient
         _otherwise    -> error "unsupported HTTP client"
 
     logger :: LogMessage -> IO ()

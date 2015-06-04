@@ -1,7 +1,7 @@
-name:                example-client
+name:                hackage-security-local
 version:             0.1.0.0
-synopsis:            Example client using the Hackage security library
--- description:
+synopsis:            Utility to manage secure file-based package repositories
+homepage:            http://github.com/well-typed/hackage-security/
 license:             BSD3
 license-file:        LICENSE
 author:              Edsko de Vries
@@ -11,23 +11,25 @@ category:            Distribution
 build-type:          Simple
 cabal-version:       >=1.10
 
--- For the example-client the lower limit is currently ghc 7.4
--- (because http-client requires base 4.5)
-
-executable example-client
+executable hackage-secure-local
   main-is:             Main.hs
+  other-modules:       Hackage.Security.Local.Options
+                       Prelude
   build-depends:       base                 >= 4.4,
+                       bytestring           >= 0.9,
                        Cabal                >= 1.12,
                        directory            >= 1.1,
                        filepath             >= 1.2,
                        network-uri          >= 2.6,
                        optparse-applicative >= 0.11,
-                       hackage-security,
-                       hackage-security-HTTP,
-                       hackage-security-http-client
+                       tar                  >= 0.4,
+                       time                 >= 1.2,
+                       zlib                 >= 0.6,
+                       hackage-security
   hs-source-dirs:      src
   default-language:    Haskell2010
-  default-extensions:  DeriveDataTypeable
-                       RecordWildCards
+  default-extensions:  FlexibleContexts
                        ScopedTypeVariables
+                       RecordWildCards
+  other-extensions:    TemplateHaskell
   ghc-options:         -Wall

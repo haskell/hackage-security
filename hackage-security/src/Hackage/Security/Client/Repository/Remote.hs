@@ -15,7 +15,7 @@
 --   - One level down (HttpClient) we have no access to the local cache
 --   - One level up (Repository API) would require _all_ Repositories to
 --     implement this optimization.
-module Hackage.Security.Client.Repository.HTTP (
+module Hackage.Security.Client.Repository.Remote (
     -- * Server capabilities
     ServerCapabilities -- opaque
   , newServerCapabilities

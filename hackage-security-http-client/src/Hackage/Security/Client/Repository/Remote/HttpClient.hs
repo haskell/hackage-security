@@ -1,4 +1,4 @@
-module ExampleClient.HttpClient.Conduit (
+module Hackage.Security.Client.Repository.Remote.HttpClient (
     withClient
   ) where
 
@@ -13,7 +13,7 @@ import qualified Data.CaseInsensitive  as CI
 import qualified Data.ByteString.Char8 as BS.C8
 
 import Hackage.Security.Client.Repository
-import Hackage.Security.Client.Repository.HTTP
+import Hackage.Security.Client.Repository.Remote
 
 {-------------------------------------------------------------------------------
   Top-level API

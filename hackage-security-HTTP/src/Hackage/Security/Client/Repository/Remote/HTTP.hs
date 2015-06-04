@@ -1,5 +1,5 @@
 -- | Implementation of 'HttpClient' using the HTTP package
-module ExampleClient.HttpClient.HTTP (
+module Hackage.Security.Client.Repository.Remote.HTTP (
     withClient
   ) where
 
@@ -15,7 +15,7 @@ import qualified Data.ByteString      as BS
 import qualified Data.ByteString.Lazy as BS.L
 import qualified Control.Monad.State  as State
 
-import Hackage.Security.Client.Repository.HTTP
+import Hackage.Security.Client.Repository.Remote
 
 {-------------------------------------------------------------------------------
   Top-level API
