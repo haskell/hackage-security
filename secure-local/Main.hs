@@ -123,6 +123,14 @@ bootstrapOrUpdate opts@GlobalOpts{..} isBootstrap = do
     keys <- readKeys opts
     now  <- getCurrentTime
 
+    -- We overwrite files during bootstrap process, but update them only
+    -- if necessary during an update. Note that we _only_ write the updated
+    -- files to the tarball, so the user deletes the tarball and then calls
+    -- update (rather than bootstrap) the tarball will be missing files.
+    let whenWrite = if isBootstrap
+                      then WriteAlways
+                      else WriteIfNecessary
+
     newBootstrapped <-
       if not isBootstrap
         then return []
@@ -161,7 +169,8 @@ bootstrapOrUpdate opts@GlobalOpts{..} isBootstrap = do
                         }
                     }
                 }
-          void $ updateFile globalRepo
+          void $ updateFile whenWrite
+                            globalRepo
                             "root.json"
                             (withSignatures (privateRoot keys))
                             root
@@ -173,7 +182,8 @@ bootstrapOrUpdate opts@GlobalOpts{..} isBootstrap = do
                 , mirrorsExpires = expiresInDays now (10 * 365)
                 , mirrorsMirrors = map mkMirror globalMirrors
                 }
-          void $ updateFile globalRepo
+          void $ updateFile whenWrite
+                            globalRepo
                             "mirrors.json"
                             (withSignatures (privateMirrors keys))
                             mirrors
@@ -197,7 +207,8 @@ bootstrapOrUpdate opts@GlobalOpts{..} isBootstrap = do
                         ]
                     }
                 }
-          newGlobalTargets <- updateFile globalRepo
+          newGlobalTargets <- updateFile whenWrite
+                                         globalRepo
                                          "targets.json"
                                          (withSignatures (privateTarget keys))
                                          globalTargets
@@ -206,7 +217,7 @@ bootstrapOrUpdate opts@GlobalOpts{..} isBootstrap = do
 
     -- Create targets.json for each package version
     pkgs <- findPackages opts
-    newPackageMetadata <- forM pkgs $ createPackageMetadata opts
+    newPackageMetadata <- forM pkgs $ createPackageMetadata opts whenWrite
 
     -- New files to be added to the index
     let newFiles :: [FilePath]
@@ -225,11 +236,17 @@ bootstrapOrUpdate opts@GlobalOpts{..} isBootstrap = do
     -- TODO: Currently this means that we add the extra files a-new to the index
     -- on every iteration
     let addToIndex = newFiles ++ extraFiles
+    case whenWrite of
+      WriteAlways -> do
+        -- If we are recreating all files, also recreate the index
+        removeFile (globalRepo </> "00-index.tar")
+        logInfo $ "Writing " ++ globalRepo </> "00-index.tar"
+      WriteIfNecessary -> do
+        logInfo $ "Appending to " ++ globalRepo </> "00-index.tar"
     Index.appendToTarball
       (globalRepo </> "00-index.tar")
       globalRepo
       addToIndex
-    logInfo $ "Writing " ++ globalRepo </> "00-index.tar"
     BS.L.writeFile (globalRepo </> "00-index.tar.gz") =<<
       GZip.compress <$> BS.L.readFile (globalRepo </> "00-index.tar")
 
@@ -248,7 +265,8 @@ bootstrapOrUpdate opts@GlobalOpts{..} isBootstrap = do
           , snapshotInfoTar     = Just tarInfo
           , snapshotInfoTarGz   = tarGzInfo
           }
-    void $ updateFile globalRepo
+    void $ updateFile whenWrite
+                      globalRepo
                       "snapshot.json"
                       (withSignatures (privateSnapshot keys))
                       snapshot
@@ -260,7 +278,8 @@ bootstrapOrUpdate opts@GlobalOpts{..} isBootstrap = do
           , timestampExpires      = expiresInDays now 3
           , timestampInfoSnapshot = snapshotInfo
           }
-    void $ updateFile globalRepo
+    void $ updateFile whenWrite
+                      globalRepo
                       "timestamp.json"
                       (withSignatures (privateTimestamp keys))
                       timestamp
@@ -278,8 +297,8 @@ bootstrapOrUpdate opts@GlobalOpts{..} isBootstrap = do
 -- If we find that the package metadata has changed, we return the path of the
 -- new @target.json@ as well as the path of the @.cabal@ file so that we know
 -- to include it in the index. If nothing changed, we return the empty list.
-createPackageMetadata :: GlobalOpts -> PackageIdentifier -> IO [FilePath]
-createPackageMetadata GlobalOpts{..} pkgId = do
+createPackageMetadata :: GlobalOpts -> WhenWrite -> PackageIdentifier -> IO [FilePath]
+createPackageMetadata GlobalOpts{..} whenWrite pkgId = do
     fileMapEntries <- computeFileMapEntries
     let targets = Targets {
             targetsVersion     = versionInitial
@@ -288,7 +307,8 @@ createPackageMetadata GlobalOpts{..} pkgId = do
           , targetsDelegations = Nothing
           }
     -- Currently we "sign" with no keys
-    mUpdated <- updateFile globalRepo
+    mUpdated <- updateFile whenWrite
+                           globalRepo
                            (pathPkgMetadata pkgId)
                            (withSignatures [])
                            targets
@@ -427,6 +447,8 @@ logWarn str = putStrLn $ "Warning: " ++ str
   Auxiliary
 -------------------------------------------------------------------------------}
 
+data WhenWrite = WriteIfNecessary | WriteAlways
+
 -- | Write canonical JSON
 --
 -- We write the file to a temporary location and compare file info with the file
@@ -439,28 +461,33 @@ logWarn str = putStrLn $ "Warning: " ++ str
 -- might not work. Instead we should (here and elsewhere) have a temporary
 -- directory on the same file system. A worry for later.
 updateFile :: (ToJSON (Signed a), HasHeader a)
-           => FilePath         -- ^ Base directory
+           => WhenWrite        -- ^ When should we overwrite the existing file?
+           -> FilePath         -- ^ Base directory
            -> FilePath         -- ^ Path relative to base directory
            -> (a -> Signed a)  -- ^ Signing function
            -> a                -- ^ Unsigned object
            -> IO (Maybe FilePath)
-updateFile baseDir file sign a = do
+updateFile whenWrite baseDir file sign a = do
     mOldHeader :: Maybe (Either DeserializationError (IgnoreSigned Header)) <-
       handleDoesNotExist $ readNoKeys fp
 
-    case mOldHeader of
-      Nothing -> do
+    case (whenWrite, mOldHeader) of
+      (WriteAlways, _) -> do
+        logInfo $ "Writing " ++ file
+        writeCanonical fp (sign a)
+        return $ Just file
+      (WriteIfNecessary, Nothing) -> do
         -- If there is no previous version of the file, or the old file is
         -- broken just create the new file
         logInfo $ "Creating " ++ file
         writeCanonical fp (sign a)
         return $ Just file
-      Just (Left _err) -> do
+      (WriteIfNecessary, Just (Left _err)) -> do
         -- If the old file is corrupted, warn and overwrite
         logWarn $ "Overwriting " ++ file ++ " (old file corrupted)"
         writeCanonical fp (sign a)
         return $ Just file
-      Just (Right (IgnoreSigned oldHeader)) -> do
+      (WriteIfNecessary, Just (Right (IgnoreSigned oldHeader))) -> do
         -- We cannot quite read the entire old file, because we don't know
         -- what key environment to use. Instead, we write the _new_ file,
         -- but setting the version number to be able to the version number
