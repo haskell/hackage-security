@@ -36,7 +36,6 @@ import Control.Concurrent
 import Control.Exception
 import Control.Monad.Except
 import Network.URI
-import System.Directory
 import System.FilePath
 import System.IO
 import qualified Data.ByteString      as BS
@@ -45,14 +44,11 @@ import qualified Data.ByteString.Lazy as BS.L
 import Hackage.Security.Client.Formats
 import Hackage.Security.Client.Repository
 import Hackage.Security.Client.Repository.Local (Cache)
-import Hackage.Security.Key.ExplicitSharing
 import Hackage.Security.Trusted
 import Hackage.Security.TUF
 import Hackage.Security.Util.IO
 import Hackage.Security.Util.Some
 import qualified Hackage.Security.Client.Repository.Local as Local
-import qualified Hackage.Security.JSON.Archive            as Archive
-import qualified Hackage.Security.Key.Env                 as KeyEnv
 
 {-------------------------------------------------------------------------------
   Server capabilities
@@ -195,41 +191,9 @@ withRemote httpClient selectedMirror cache logger callback = \remoteFile -> do
    -- withRemote made by this callback, leading to deadlock.
    mBaseURI <- readMVar selectedMirror
    case mBaseURI of
-     Nothing      -> throwIO $ userError "Internal error: no mirror selected"
-     Just baseURI -> go baseURI remoteFile
-  where
-    -- When we get a request for the timestamp, we download the combined
-    -- timestamp/snapshot archive instead, and unpack that archive into a
-    -- separate directory. It is important that we don't just overwrite the
-    -- local files because these files are not yet verified.
-    go :: URI -> RemoteFile fs -> IO a
-    go baseURI RemoteTimestamp = do
-        logger $ LogDownloading "timestamp-snapshot.json"
-        let arPath = "timestamp-snapshot.json"
-            arURI  = baseURI { uriPath = uriPath baseURI </> arPath }
-            arSz   = FileSizeUnknown -- TODO
-        getFile' httpClient arURI arSz "timestamp-snapshot.json" $ \tempPath -> do
-          createDirectoryIfMissing True (cache </> "unverified")
-          mAr <- readCanonical KeyEnv.empty tempPath
-          case mAr of
-            Left  ex -> throwIO ex
-            Right ar -> Archive.writeEntries (cache </> "unverified") ar
-        let tempTS = cache </> "unverified" </> "timestamp.json"
-        result <- callback (SZ FUn) tempTS
-        Local.cacheRemoteFile cache tempTS (Some FUn) (CacheAs CachedTimestamp)
-        return result
-
-    -- When we get a request for the snapshot, we assume we have previously
-    -- gotten a request for the timestamp, so we just use the file we extracted
-    -- from the combined timestamp/snapshot archive
-    go _baseURI (RemoteSnapshot _) = do
-        let tempSS = cache </> "unverified" </> "snapshot.json"
-        result <- callback (SZ FUn) tempSS
-        Local.cacheRemoteFile cache tempSS (Some FUn) (CacheAs CachedSnapshot)
-        return result
-
-    -- Other files we download normally (incrementally if possible)
-    go baseURI remoteFile = do
+     Nothing ->
+       throwIO $ userError "Internal error: no mirror selected"
+     Just baseURI -> do
         mIncremental <- shouldDoIncremental httpClient cache remoteFile
 
         -- Try to download incrementally. However, if this throws an I/O

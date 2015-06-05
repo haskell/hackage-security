@@ -323,28 +323,6 @@ recording it in the index tarball, so that we can check them for updates during
 the update process  (section 5.1, &ldquo;The Client Application&rdquo;, of the
 TUF spec) without downloading the entire index tarball.
 
-#### Efficiency of requests
-
-Since our `snapshot.json` contains only a small and fixed number of entries, it
-becomes very similar to in function to `timestamp.json`. However, it is
-logically different and signed with a different key. Admittedly, in our current
-setup both the timestamp and the snapshot keys will be kept on the same server,
-but this may not be the case in the future.
-
-In order to keep the comparison with TUF as clear as possible we will keep
-these files separate. However, since the size of our `snapshot.json` is
-essentially fixed (unlike in standard TUF) we can safely download both the
-timestamp and the snapshot in one go, without exposing ourselves to a
-potential endless data attack. To make the initial HTTP request more efficient,
-we can easily bundle both `timestamp.json` and `snapshot.json` in a single JSON
-file:
-
-``` javascript
-{ "timestamp.json": { "signed": ..., "signatures": ... }
-, "snapshot.json" : { "signed": ..., "signatures": ... }
-}
-```
-
 ### Collections
 
 Package collections are a new Hackage feature that's [currently in

@@ -23,7 +23,6 @@ import Hackage.Security.Key.ExplicitSharing
 import Hackage.Security.TUF
 import Hackage.Security.Util.Some
 import Hackage.Security.Util.IO
-import qualified Hackage.Security.JSON.Archive        as Archive
 import qualified Hackage.Security.Key.Env             as KeyEnv
 import qualified Hackage.Security.Server.IndexTarball as Index
 import qualified Hackage.Security.TUF.FileMap         as FileMap
@@ -283,14 +282,6 @@ bootstrapOrUpdate opts@GlobalOpts{..} isBootstrap = do
                       "timestamp.json"
                       (withSignatures (privateTimestamp keys))
                       timestamp
-
-    -- Write the combined snapshot/timestamp file
-    Right timestampSnapshot <- Archive.fromEntries globalRepo [
-        "snapshot.json"
-      , "timestamp.json"
-      ]
-    logInfo $ "Writing timestamp-snapshot.json"
-    writeCanonical (globalRepo </> "timestamp-snapshot.json") timestampSnapshot
 
 -- | Create package metadata
 --
