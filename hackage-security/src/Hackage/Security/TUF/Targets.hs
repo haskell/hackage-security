@@ -4,15 +4,14 @@ module Hackage.Security.TUF.Targets (
   , Delegations(..)
   , DelegationSpec(..)
   , Delegation(..)
-    -- * Accessing trusted information
-  , trustedTargetsLookup
+    -- ** Util
+  , targetsLookup
   ) where
 
 import Hackage.Security.JSON
 import Hackage.Security.Key
 import Hackage.Security.Key.Env (KeyEnv)
 import Hackage.Security.Key.ExplicitSharing
-import Hackage.Security.Trusted.Unsafe
 import Hackage.Security.TUF.Common
 import Hackage.Security.TUF.FileInfo
 import Hackage.Security.TUF.FileMap (FileMap)
@@ -66,12 +65,11 @@ instance DescribeFile Targets where
   describeFile _ = "targets file"
 
 {-------------------------------------------------------------------------------
-  Accessing trusted information
+  Utility
 -------------------------------------------------------------------------------}
 
-trustedTargetsLookup :: FilePath -> Trusted Targets -> Maybe (Trusted FileInfo)
-trustedTargetsLookup fp (trusted -> Targets{..}) =
-    fmap DeclareTrusted $ FileMap.lookup fp targetsTargets
+targetsLookup :: FilePath -> Targets -> Maybe FileInfo
+targetsLookup fp Targets{..} = FileMap.lookup fp targetsTargets
 
 {-------------------------------------------------------------------------------
   JSON

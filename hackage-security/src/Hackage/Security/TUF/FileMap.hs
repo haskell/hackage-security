@@ -25,7 +25,6 @@ import Data.Map (Map)
 import qualified Data.Map as Map
 
 import Hackage.Security.JSON
-import Hackage.Security.Trusted.Unsafe
 import Hackage.Security.TUF.FileInfo
 
 {-------------------------------------------------------------------------------
@@ -69,16 +68,16 @@ lookupM m fp =
 
 data FileChange =
     -- | File got added or modified; we record the new file info
-    FileChanged (Trusted FileInfo)
+    FileChanged FileInfo
 
     -- | File got deleted
   | FileDeleted
   deriving (Eq, Ord, Show)
 
-fileMapChanges :: Trusted FileMap  -- ^ Old
-               -> Trusted FileMap  -- ^ New
+fileMapChanges :: FileMap  -- ^ Old
+               -> FileMap  -- ^ New
                -> Map FilePath FileChange
-fileMapChanges (trusted -> FileMap a) (trusted -> FileMap b) =
+fileMapChanges (FileMap a) (FileMap b) =
     Map.fromList $ go (Map.toList a) (Map.toList b)
   where
     -- Assumes the old and new lists are sorted alphabetically
@@ -86,16 +85,13 @@ fileMapChanges (trusted -> FileMap a) (trusted -> FileMap b) =
     go :: [(FilePath, FileInfo)]
        -> [(FilePath, FileInfo)]
        -> [(FilePath, FileChange)]
-    go [] new = map (second fileChanged) new
+    go [] new = map (second FileChanged) new
     go old [] = map (second (const FileDeleted)) old
     go old@((fp, nfo):old') new@((fp', nfo'):new')
       | fp < fp'    = (fp , FileDeleted     ) : go old' new
-      | fp > fp'    = (fp', fileChanged nfo') : go old  new'
-      | nfo /= nfo' = (fp , fileChanged nfo') : go old' new'
+      | fp > fp'    = (fp', FileChanged nfo') : go old  new'
+      | nfo /= nfo' = (fp , FileChanged nfo') : go old' new'
       | otherwise   = go old' new'
-
-    -- DeclareTrusted okay because FileInfo from Trusted FileMaps
-    fileChanged = FileChanged . DeclareTrusted
 
 {-------------------------------------------------------------------------------
   JSON

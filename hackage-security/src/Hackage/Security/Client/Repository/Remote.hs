@@ -343,7 +343,7 @@ incTar HttpClient{..} baseURI cache callback len cachedFile = do
     -- TODO: Once we have a local tarball index, this is not necessary
     currentSize <- getFileSize cachedFile
     let currentMinusTrailer = currentSize - 1024
-        range   = (fromInteger currentMinusTrailer, trustedFileLength len)
+        range   = (fromInteger currentMinusTrailer, fileLength (trusted len))
         rangeSz = FileSizeExact (snd range - fst range)
     withSystemTempFile (takeFileName (uriPath uri)) $ \tempPath h -> do
       BS.L.hPut h =<< BS.L.readFile cachedFile
@@ -445,12 +445,12 @@ remoteFileSize :: RemoteFile fs -> Formats fs FileSize
 remoteFileSize (RemoteTimestamp) =
     FsUn FileSizeUnknown
 remoteFileSize (RemoteRoot mLen) =
-    FsUn $ maybe FileSizeUnknown (FileSizeExact . trustedFileLength) mLen
+    FsUn $ maybe FileSizeUnknown (FileSizeExact . fileLength . trusted) mLen
 remoteFileSize (RemoteSnapshot len) =
-    FsUn $ FileSizeExact (trustedFileLength len)
+    FsUn $ FileSizeExact (fileLength (trusted len))
 remoteFileSize (RemoteMirrors len) =
-    FsUn $ FileSizeExact (trustedFileLength len)
+    FsUn $ FileSizeExact (fileLength (trusted len))
 remoteFileSize (RemoteIndex _ lens) =
-    fmap (FileSizeExact . trustedFileLength) lens
+    fmap (FileSizeExact . fileLength . trusted) lens
 remoteFileSize (RemotePkgTarGz _pkgId len) =
-    FsGz $ FileSizeExact (trustedFileLength len)
+    FsGz $ FileSizeExact (fileLength (trusted len))

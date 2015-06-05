@@ -1,3 +1,7 @@
+{-# LANGUAGE CPP #-}
+#if __GLASGOW_HASKELL__ >= 710
+{-# LANGUAGE StaticPointers #-}
+#endif
 module Hackage.Security.Client (
     -- * Checking for updates
     HasUpdates(..)
@@ -26,7 +30,8 @@ import Hackage.Security.Client.Formats
 import Hackage.Security.JSON
 import Hackage.Security.Key.Env (KeyEnv)
 import Hackage.Security.Key.ExplicitSharing
-import Hackage.Security.Trusted.Unsafe
+import Hackage.Security.Trusted
+import Hackage.Security.Trusted.TCB
 import Hackage.Security.TUF
 import Hackage.Security.Util.Stack
 import Hackage.Security.Util.Some
@@ -114,14 +119,14 @@ checkForUpdates rep checkExpiry =
       newTS :: Trusted Timestamp
          <- repGetRemote' rep RemoteTimestamp
         >>= readJSON keyEnv
-        >>= throwErrors . verifyTimestamp
+        >>= liftM trustVerified . throwErrors . verifyTimestamp
               cachedRoot
               (fmap (timestampVersion . trusted) mOldTS)
               mNow
 
       -- Check if the snapshot has changed
-      let mOldSnapshotInfo = fmap trustedTimestampInfoSnapshot mOldTS
-          newSnapshotInfo  = trustedTimestampInfoSnapshot newTS
+      let mOldSnapshotInfo = fmap (static timestampInfoSnapshot <$$>) mOldTS
+          newSnapshotInfo  = static timestampInfoSnapshot <$$> newTS
       if not (infoChanged mOldSnapshotInfo newSnapshotInfo)
         then
           return NoUpdates
@@ -134,19 +139,20 @@ checkForUpdates rep checkExpiry =
 
           -- Get the new snapshot
           let expectedSnapshot =
-                RemoteSnapshot (trustedFileInfoLength newSnapshotInfo)
+                RemoteSnapshot (static fileInfoLength <$$> newSnapshotInfo)
           newSS :: Trusted Snapshot
              <- repGetRemote' rep expectedSnapshot
             >>= verifyFileInfo' (Just newSnapshotInfo)
             >>= readJSON keyEnv
-            >>= throwErrors . verifySnapshot
+            >>= liftM trustVerified . throwErrors . verifySnapshot
                   cachedRoot
                   (fmap (snapshotVersion . trusted) mOldSS)
                   mNow
 
           -- If root metadata changed, update and restart
-          let newRootInfo = trustedSnapshotInfoRoot newSS
-          case fmap trustedSnapshotInfoRoot mOldSS of
+          let mOldRootInfo = fmap (static snapshotInfoRoot <$$>) mOldSS
+              newRootInfo  = static snapshotInfoRoot <$$> newSS
+          case mOldRootInfo of
             Nothing ->
               -- If we didn't have an old snapshot, consider the root info as
               -- unchanged (otherwise this would loop indefinitely.)
@@ -158,9 +164,9 @@ checkForUpdates rep checkExpiry =
                 throwIO RootUpdated
 
           -- If mirrors changed, download and verify
-          let mOldMirrorsInfo = fmap trustedSnapshotInfoMirrors mOldSS
-              newMirrorsInfo  = trustedSnapshotInfoMirrors newSS
-              expectedMirrors = RemoteMirrors (trustedFileInfoLength newMirrorsInfo)
+          let mOldMirrorsInfo = fmap (static snapshotInfoMirrors <$$>) mOldSS
+              newMirrorsInfo  = static snapshotInfoMirrors <$$> newSS
+              expectedMirrors = RemoteMirrors (static fileInfoLength <$$> newMirrorsInfo)
           when (infoChanged mOldMirrorsInfo newMirrorsInfo) $ do
             -- Get the old mirrors file (so we can verify version numbers)
             mOldMirrors :: Maybe (Trusted Mirrors)
@@ -173,7 +179,7 @@ checkForUpdates rep checkExpiry =
                <- repGetRemote' rep expectedMirrors
               >>= verifyFileInfo' (Just newMirrorsInfo)
               >>= readJSON keyEnv
-              >>= throwErrors . verifyMirrors
+              >>= liftM trustVerified . throwErrors . verifyMirrors
                     cachedRoot
                     (fmap (mirrorsVersion . trusted) mOldMirrors)
                     mNow
@@ -186,17 +192,17 @@ checkForUpdates rep checkExpiry =
             return ()
 
           -- If the index changed, download it and verify it
-          let mOldTarGzInfo = fmap trustedSnapshotInfoTarGz mOldSS
-              newTarGzInfo  = trustedSnapshotInfoTarGz newSS
-              mNewTarInfo   = trustedSnapshotInfoTar   newSS
+          let mOldTarGzInfo = fmap (static snapshotInfoTarGz <$$>) mOldSS
+              newTarGzInfo  = static snapshotInfoTarGz <$$> newSS
+              mNewTarInfo   = trustSeq (static snapshotInfoTar <$$> newSS)
               expectedIndex =
                   -- This definition is a bit ugly, not sure how to improve it
                   case mNewTarInfo of
                     Nothing -> Some $ RemoteIndex NonEmpty $
-                      FsGz (trustedFileInfoLength newTarGzInfo)
+                      FsGz (static fileInfoLength <$$> newTarGzInfo)
                     Just newTarInfo -> Some $ RemoteIndex NonEmpty $
-                      FsUnGz (trustedFileInfoLength newTarInfo)
-                             (trustedFileInfoLength newTarGzInfo)
+                      FsUnGz (static fileInfoLength <$$> newTarInfo)
+                             (static fileInfoLength <$$> newTarGzInfo)
           when (infoChanged mOldTarGzInfo newTarGzInfo) $ do
             (indexFormat, indexPath) <- repGetRemote rep expectedIndex
 
@@ -280,12 +286,12 @@ updateRoot rep mNow eFileInfo = evalContT $ do
       >>= return . trustLocalFile
 
     let mFileInfo    = eitherToMaybe eFileInfo
-        expectedRoot = RemoteRoot (fmap trustedFileInfoLength mFileInfo)
+        expectedRoot = RemoteRoot (fmap (static fileInfoLength <$$>) mFileInfo)
     _newRoot :: Trusted Root
        <- repGetRemote' rep expectedRoot
       >>= verifyFileInfo' mFileInfo
       >>= readJSON KeyEnv.empty
-      >>= throwErrors . verifyRoot oldRoot mNow
+      >>= liftM trustVerified . throwErrors . verifyRoot oldRoot mNow
 
     repClearCache rep
 
@@ -358,15 +364,20 @@ downloadPackage rep pkgId callback = repWithMirror rep $ evalContT $ do
       >>= throwErrors . parseJSON keyEnv
       >>= return . trustIndex
 
+    let mTargetMetaData :: Maybe (Trusted FileInfo)
+        mTargetMetaData = trustSeq
+                        $ trustStatic (static targetsLookup)
+             `trustApply` DeclareTrusted packageFileName
+             `trustApply` targets
     targetMetaData :: Trusted FileInfo
-      <- case trustedTargetsLookup packageFileName targets of
+      <- case mTargetMetaData of
            Nothing -> liftIO $
              throwIO $ VerificationErrorUnknownTarget packageFileName
            Just nfo ->
              return nfo
 
     -- TODO: should we check if cached package available? (spec says no)
-    let expectedPkg = RemotePkgTarGz pkgId (trustedFileInfoLength targetMetaData)
+    let expectedPkg = RemotePkgTarGz pkgId (static fileInfoLength <$$> targetMetaData)
     tarGz <- repGetRemote' rep expectedPkg
          >>= verifyFileInfo' (Just targetMetaData)
     lift $ callback tarGz

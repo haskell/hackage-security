@@ -4,12 +4,9 @@ module Hackage.Security.TUF.Common (
     FileLength(..)
   , Hash(..)
   , KeyThreshold(..)
-    -- ** Trusted info
-  , trustedFileLength
   ) where
 
 import Hackage.Security.JSON
-import Hackage.Security.Trusted
 
 {-------------------------------------------------------------------------------
   Simple types
@@ -19,7 +16,7 @@ import Hackage.Security.Trusted
 --
 -- Having verified file length information means we can protect against
 -- endless data attacks and similar.
-newtype FileLength = FileLength Int
+newtype FileLength = FileLength { fileLength :: Int }
   deriving (Eq, Ord, Show)
 
 -- | Key threshold
@@ -32,13 +29,6 @@ newtype KeyThreshold = KeyThreshold Int
 -- | File hash
 newtype Hash = Hash String
   deriving (Eq, Ord, Show)
-
-{-------------------------------------------------------------------------------
-  Extracting trusted information
--------------------------------------------------------------------------------}
-
-trustedFileLength :: Trusted FileLength -> Int
-trustedFileLength (trusted -> FileLength n) = n
 
 {-------------------------------------------------------------------------------
   JSON

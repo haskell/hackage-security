@@ -1,7 +1,5 @@
 module Hackage.Security.TUF.Timestamp (
     Timestamp(..)
-    -- * Accessing trusted information
-  , trustedTimestampInfoSnapshot
   ) where
 
 import Hackage.Security.JSON
@@ -9,7 +7,6 @@ import Hackage.Security.Key.ExplicitSharing
 import Hackage.Security.TUF.FileInfo
 import Hackage.Security.TUF.Header
 import Hackage.Security.TUF.Signed
-import Hackage.Security.Trusted.Unsafe
 import qualified Hackage.Security.TUF.FileMap as FileMap
 
 {-------------------------------------------------------------------------------
@@ -28,14 +25,6 @@ instance HasHeader Timestamp where
 
 instance DescribeFile Timestamp where
   describeFile _ = "timestamp"
-
-{-------------------------------------------------------------------------------
-  Accessing trusted information
--------------------------------------------------------------------------------}
-
--- | Snapshot file info
-trustedTimestampInfoSnapshot :: Trusted Timestamp -> Trusted FileInfo
-trustedTimestampInfoSnapshot = DeclareTrusted . timestampInfoSnapshot . trusted
 
 {-------------------------------------------------------------------------------
   JSON

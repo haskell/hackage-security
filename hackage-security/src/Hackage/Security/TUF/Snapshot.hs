@@ -1,15 +1,9 @@
 module Hackage.Security.TUF.Snapshot (
     Snapshot(..)
-    -- * Trusted info
-  , trustedSnapshotInfoRoot
-  , trustedSnapshotInfoMirrors
-  , trustedSnapshotInfoTarGz
-  , trustedSnapshotInfoTar
   ) where
 
 import Hackage.Security.JSON
 import Hackage.Security.Key.ExplicitSharing
-import Hackage.Security.Trusted.Unsafe
 import Hackage.Security.TUF.Header
 import Hackage.Security.TUF.FileInfo
 import Hackage.Security.TUF.Signed
@@ -48,22 +42,6 @@ instance HasHeader Snapshot where
 
 instance DescribeFile Snapshot where
   describeFile _ = "snapshot"
-
-{-------------------------------------------------------------------------------
-  Extracting trusted information
--------------------------------------------------------------------------------}
-
-trustedSnapshotInfoRoot  :: Trusted Snapshot -> Trusted FileInfo
-trustedSnapshotInfoRoot = DeclareTrusted . snapshotInfoRoot . trusted
-
-trustedSnapshotInfoMirrors  :: Trusted Snapshot -> Trusted FileInfo
-trustedSnapshotInfoMirrors = DeclareTrusted . snapshotInfoMirrors . trusted
-
-trustedSnapshotInfoTarGz :: Trusted Snapshot -> Trusted FileInfo
-trustedSnapshotInfoTarGz = DeclareTrusted . snapshotInfoTarGz . trusted
-
-trustedSnapshotInfoTar :: Trusted Snapshot -> Maybe (Trusted FileInfo)
-trustedSnapshotInfoTar = fmap DeclareTrusted . snapshotInfoTar . trusted
 
 {-------------------------------------------------------------------------------
   JSON

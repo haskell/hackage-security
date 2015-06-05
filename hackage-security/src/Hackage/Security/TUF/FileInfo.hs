@@ -3,12 +3,9 @@ module Hackage.Security.TUF.FileInfo (
     FileInfo(..)
   , HashFn(..)
   , Hash(..)
-    -- * Extracting trusted info
-  , trustedFileInfoLength
     -- * Utility
   , fileInfo
   , computeFileInfo
-  , verifyFileInfo
   ) where
 
 import Prelude hiding (lookup)
@@ -18,7 +15,6 @@ import qualified Data.Map             as Map
 import qualified Data.ByteString.Lazy as BS.L
 
 import Hackage.Security.JSON
-import Hackage.Security.Trusted.Unsafe
 import Hackage.Security.TUF.Common
 
 {-------------------------------------------------------------------------------
@@ -42,13 +38,6 @@ data FileInfo = FileInfo {
   deriving (Eq, Ord, Show)
 
 {-------------------------------------------------------------------------------
-  Extracting trusted information
--------------------------------------------------------------------------------}
-
-trustedFileInfoLength :: Trusted FileInfo -> Trusted FileLength
-trustedFileInfoLength = DeclareTrusted . fileInfoLength . trusted
-
-{-------------------------------------------------------------------------------
   Utility
 -------------------------------------------------------------------------------}
 
@@ -70,10 +59,6 @@ fileInfo bs = FileInfo {
 -- | Compute 'FileInfo'
 computeFileInfo :: FilePath -> IO FileInfo
 computeFileInfo fp = fileInfo <$> BS.L.readFile fp
-
--- | Verify 'FileInfo'
-verifyFileInfo :: FilePath -> Trusted FileInfo -> IO Bool
-verifyFileInfo fp info = (== trusted info) <$> computeFileInfo fp
 
 {-------------------------------------------------------------------------------
   JSON

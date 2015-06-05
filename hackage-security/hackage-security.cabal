@@ -29,7 +29,7 @@ library
                        Hackage.Security.Key.ExplicitSharing
                        Hackage.Security.Server.IndexTarball
                        Hackage.Security.Trusted
-                       Hackage.Security.Trusted.Unsafe
+                       Hackage.Security.Trusted.TCB
                        Hackage.Security.TUF
                        Hackage.Security.TUF.Common
                        Hackage.Security.TUF.FileInfo
@@ -106,3 +106,6 @@ library
 
   if impl(ghc >= 7.8)
      default-extensions: RoleAnnotations
+
+  if impl(ghc >= 7.10)
+     other-extensions: StaticPointers
