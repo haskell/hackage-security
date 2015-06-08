@@ -1,7 +1,7 @@
 # Hackage Security
 
-This is a library for Hackage security based on
-[TUF, The Update Framework](http://theupdateframework.com/).
+This is a library for Hackage security based on [TUF, The Update
+Framework][TUF].
 
 ## Comparison with TUF
 
@@ -23,9 +23,9 @@ author signing (or not).
 
 ##### Package specific metadata
 
-Version 1.0 of package `Foo` will be stored in `targets/Foo/1.0`. This directory
-will contain a single metadata file `targets/Foo/1.0/targets.json` containing
-hashes and sizes of the package tarball and the `.cabal` files:
+Version 1.0 of package `Foo` will be stored in `/Foo/1.0`. This directory will
+contain a single metadata file `/Foo/1.0/targets.json` containing the hash and
+size of the package tarball:
 
 ``` javascript
 { "signed" : {
@@ -33,11 +33,7 @@ hashes and sizes of the package tarball and the `.cabal` files:
    , "version" : VERSION
    , "expires" : never
    , "targets" : {
-         "Foo-1.0.tar.gz"     : FILEINFO
-       , "Foo-1.0.cabal"      : FILEINFO
-       , "Foo-1.0-rev1.cabal" : FILEINFO
-       , "Foo-1.0-rev2.cabal" : FILEINFO
-       , ...
+         "Foo-1.0.tar.gz" : FILEINFO
        }
    }
 , "signatures" : []
@@ -46,7 +42,12 @@ hashes and sizes of the package tarball and the `.cabal` files:
 
 Note that expiry dates are relevant only for information that we expect to
 change over time (such as the snapshot). Since packages are immutable, they
-cannot expire.
+cannot expire. (Additionally, there is no point adding an expiry date to files
+that are protected only the snapshot key, as the snapshot _itself_ will expire).
+
+There is no point listing the file info of the `.cabal` files here: `.cabal`
+files are listed by value in the index tarball, and are therefore already
+protected by the snapshot key (but see author signing, below).
 
 ##### Delegation
 
@@ -62,10 +63,10 @@ information:
     , "delegations" : {
           "keys"  : []
         , "roles" : [
-               { "name"      : "targets/*/*/targets.json"
+               { "name"      : "*/*/targets.json"
                , "keyids"    : []
                , "threshold" : 0
-               , "path"      : "targets/*/*/*"
+               , "path"      : "*/*/*"
                }
              ]
        }
@@ -91,11 +92,9 @@ offline target keys are not required).
 
 ##### Security
 
-As per the TUF specification, the hashes and sizes of _all_ metadata files
-(which therefore includes package specific `targets/Foo/1.0/targets.json`) are
-listed in the snapshot. This means that untrusted mirrors or man-in-the-middle
-attacks cannot change which packages are visible or change the packages
-themselves.
+This setup is sufficient to allow for untrusted mirrors: since they do not  have
+access to the snapshot key, they (or a man-in-the-middle) cannot change which
+packages are visible or change the packages themselves.
 
 However, since the snapshot key is stored on the server, if the server itself is
 compromised almost all security guarantees are void.
@@ -146,6 +145,11 @@ and `revisions.json`:
 }
 ```
 
+Unlike for unsigned packages, listing the file info for the `.cabal` file is
+useful for signed packages: although the `.cabal` files are listed by value in
+the index  tarball, the index is only signed by the snapshot key. We may want to
+additionally check that the `.cabal` are properly author signed too.
+
 ##### Delegation
 
 Delegation for signed packages is a bit more complicated. We extend the
@@ -166,26 +170,26 @@ top-level targets file to
                , "path"      : "*/*/*"
                }
              // Delegation for package Bar
-             , { "name"      : "targets/Bar/targets.json"
+             , { "name"      : "Bar/targets.json"
                , "keyids"    : <top-level target keys>
                , "threshold" : THRESHOLD
-               , "path"      : "targets/Bar/*/*"
+               , "path"      : "Bar/*/*"
                }
-             , { "name"      : "targets/Bar/*/revisions.json"
+             , { "name"      : "Bar/*/revisions.json"
                , "keyids"    : <Hackage trustee key IDs>
                , "threshold" : THRESHOLD
-               , "path"      : "targets/Bar/*/*.cabal"
+               , "path"      : "Bar/*/*.cabal"
                }
              // Delegation for package Baz
-             , { "name"      : "targets/Baz/targets.json"
+             , { "name"      : "Baz/targets.json"
                , "keyids"    : <top-level target keys>
                , "threshold" : THRESHOLD
-               , "path"      : "targets/Baz/*/*"
+               , "path"      : "Baz/*/*"
                }
-             , { "name"      : "targets/Baz/*/revisions.json"
+             , { "name"      : "Baz/*/revisions.json"
                , "keyids"    : <Hackage trustee key IDs>
                , "threshold" : THRESHOLD
-               , "path"      : "targets/Baz/*/*.cabal"
+               , "path"      : "Baz/*/*.cabal"
                }
              // .. delegation for other signed packages ..
              ]
@@ -201,16 +205,15 @@ issue here as freezing this list would make en entire new package, rather than
 a new package version, invisible).
 
 This says that the delegation information for package `Bar-`_x.y_ is found in
-`targets/Bar/targets.json` as well as `targets/Bar/`_x.y_`/revisions.json`,
-where the latter can only contain information about the `.cabal` files, not the
-package itself. Note that these rules overlap with the rule for unsigned
-packages, and so we need a priority scheme between rules. The TUF specification
-leaves this quite open; in our case, we can implement a very simple rule: more
-specific rules (rules with fewer wildcards) take precedence over less specific
-rules.
+`/Bar/targets.json` as well as `/Bar/`_x.y_`/revisions.json`, where the latter
+can only contain information about the `.cabal` files, not the package itself.
+Note that these rules overlap with the rule for unsigned packages, and so we
+need a priority scheme between rules. The TUF specification leaves this quite
+open; in our case, we can implement a very simple rule: more specific rules
+(rules with fewer wildcards) take precedence over less specific rules.
 
-This &ldquo;middle level&rdquo; targets file `targets/Bar/targets.json`
-introduces the author keys and contains further delegation information:
+This &ldquo;middle level&rdquo; targets file `/Bar/targets.json` introduces the
+author keys and contains further delegation information:
 
 ``` javascript
 { "signed" : {
@@ -289,13 +292,13 @@ offline keys (in this case, the target keys).
 #### Interaction with the index tarball
 
 According to the official specification we should have a file `snapshot.json`,
-signed with the snapshot key, which lists the hashes of _all_ metadata files
-in the repo. In Hackage however we have the index tarball, which _contains_
-all metadata files in the repo (that is, it contains all the `.cabal` files,
-but it also contains all the `targets.json` files). The only thing that is
-missing from the index tarball, compared to the `snapshot.json` file from the
-TUF spec, is the version, expiry time, and signatures. Therefore our
-`snapshot.json` looks like
+signed with the snapshot key, which lists the hashes of _all_ metadata files in
+the repo. In Hackage however we have the index tarball, which _contains_ most of
+the metadata files in the repo (that is, it contains all the `.cabal` files, but
+it also contains all the `targets.json` files). The only thing that is missing
+from the index tarball, compared to the `snapshot.json` file from the TUF spec,
+is the version, expiry time, and signatures. Therefore our `snapshot.json` looks
+like
 
 ``` javascript
 { "signed" : {
@@ -323,55 +326,66 @@ recording it in the index tarball, so that we can check them for updates during
 the update process  (section 5.1, &ldquo;The Client Application&rdquo;, of the
 TUF spec) without downloading the entire index tarball.
 
-### Collections
+### Out-of-tarball targets
 
-Package collections are a new Hackage feature that's [currently in
-development](http://www.well-typed.com/blog/2015/06/cabal-hackage-hacking-at-zurihac/).
-We want package collections to be signed, just like anything else.
+All versions of all packages are listed, along with their full `.cabal` file, in
+the Hackage index. This is useful because the constraint solver needs most of
+this information anyway. However, when we add additional kinds of targets we may
+not wish to add these to the index: people who are not interested in these new
+targets should not, or only minimally, be affected. In particular, new releases
+of these new kinds of targets should not result in a linear increase in what
+clients who are not interested in these targets need to download.
 
-Collections will be stored under a prefix that is not a valid package name such
-as `/collections$`. Like packages, they are versioned and immutable, so we have
+To support these out-of-tarball targets we can use the regular TUF setup. Since
+the index does not serve as an exhaustive list of which targets (and which
+target versions) are available, it becomes important to have target metadata
+(`targets.json` files) that list all targets exhaustively, to avoid freeze
+attacks. The file information (hash and filesize) of all these target metadata
+files must, by the TUF spec, be listed in the top-level snapshot; we should thus
+avoid introducing too many of them (in particular, we should avoid requiring a
+new @targets.json@ for each new version of a particular kind of target).
+
+In order to avoid name clashes OOT targets should be stored in a
+location that is not a valid package name, such as `oot$`.
+
+#### Collections
+
+[Package collections][CabalHell1] are a new Hackage feature that's [currently in
+development][ZuriHac]. We want package collections to be signed, just like
+anything else.
+
+Like packages, collections are versioned and immutable, so we have
 
 ```
-/collections$/StackageNightly/2015.06.02/StackageNightly.collection
-/collections$/StackageNightly/2015.06.03/StackageNightly.collection
-/collections$/StackageNightly/...
-/collections$/DebianJessie/...
-/collections$/...
+oot$/collections/StackageNightly/2015.06.02/StackageNightly.collection
+oot$/collections/StackageNightly/2015.06.03/StackageNightly.collection
+oot$/collections/StackageNightly/...
+oot$/collections/DebianJessie/...
+oot$/collections/...
 ```
 
-Now we have to balance a few design constraints:
+As for packages, collections should be able to opt-in for author signing (once
+we support author signing), but we should also support not-author-signed
+(&ldquo;unsigned&rdquo;) collections. Moreover, it should be possible for people
+to create new unsigned collections without the involvement of the Hackage
+admins. This rules out listing all collections explicitly in the top-level
+`targets.json` (which is signed with offline target keys).
 
-1. As for packages, collections should be able to opt-in for author signing
-   (once we support author signing), but we should also support
-   not-author-signed (&ldquo;unsigned&rdquo;) collections. Moreover, it should
-   be possible for people to create new unsigned collections without the
-   involvement of the Hackage admins. This rules out listing all collections
-   explicitly in the top-level `targets.json` (which is signed with offline
-   target keys).
+##### Unsigned collections
 
-2. Even unsigned packages should be protected at least by the snapshot key so
-   that we can trust collections from untrusted mirrors. This means that we need
-   list of collections and (perhaps more importantly) lists of collections
-   versions which are, directly or indirectly, signed by the snapshot role.
-
-3. However, since new versions of collections may be released rather frequently
-   (e.g., consider the nightly [Stackage](http://www.stackage.org/) releases) we
-   do not want the index to change with every new collection version.
-
-#### Unsigned collections
-
-For unsigned collections we add a single delegation rule to the top-level `targets.json`:
+For unsigned collections we add a single delegation rule to the top-level
+`targets.json`:
 
 ``` javascript
-{ "name"      : "collections$/targets.json"
+{ "name"      : "oot$/collections/targets.json"
 , "keyids"    : /* snapshot key */
 , "threshold" : 1
-, "path"      : "collections$/*/*/*"
+, "path"      : "oot$/collections/*/*/*"
 }
 ```
 
-The middle-level `targets.json`, signed with the snapshot role, lists delegation rules for all available collections:
+The middle-level `targets.json`, signed with the snapshot role, lists delegation
+rules for all available collections:
 
 ``` javascript
 [ { "name"      : "StackageNightly/targets.json"
@@ -388,7 +402,11 @@ The middle-level `targets.json`, signed with the snapshot role, lists delegation
 ]
 ```
 
-These then finally lists all versions:
+where `StackageNightly` and `DebianJessie` are two package collection (the
+[Stackage Nightly][StackageNightly] collection and the set of Haskell package
+distributed with the [Debian Jessie][DebianJessie] Linux distribution).
+
+The final per-collection targets metadata finally lists all versions:
 
 ``` javascript
 { "signed" : {
@@ -405,38 +423,90 @@ These then finally lists all versions:
 }
 ```
 
-This is a slightly different approach from packages, because we cannot rely on
-the index to have the list of all versions; hence, we must list all versions
-explicitly here rather than using wildcards.
+Since we cannot rely on the index to have the list of all version we must list
+all versions explicitly here rather than using wildcards. Note that this means
+that the snapshot will get a new entry for each new collection introduced, but
+not for each new _version_ of each collection.
 
-All these target files (`collections$/targets.json` as well as
-`collections$/StackageNightly/targets.json`,
-`collections$/DebianJessie/targets.json`, etc.) must be listed with their hash
-in the top-level snapshot. This means that the snapshot will grow linearly with
-each new collection, but only with a small entry; and does not grow linearly
-with each new collection version. Unless we deviate from the TUF spec, this is
-unavoidable.
-
-#### Author-signed collections
+##### Author-signed collections
 
 For author-signed collections we only need to make a single change. Suppose that
 the `DebianJessie` collection is signed. Then we move the rule for
-`DebianJessie` from `collections$/targets.json` and instead list it in the
-top-level `targets.json` (introducing a signed collection necessarily requires
-the involvement of the Hackage admins):
+`DebianJessie` from `oot$/collections/targets.json` and instead list it in the
+top-level `targets.json` (as for packages, introducing a signed collection
+necessarily requires the involvement of the Hackage admins):
 
 ``` javascript
-{ "name"      : "collections$/DebianJessie/targets.json"
+{ "name"      : "oot$/collections/DebianJessie/targets.json"
 , "keyids"    : /* DebianJessie maintainer keys */
 , "threshold" : /* threshold */
-, "path"      : "collections$/DebianJessie/*/*"
+, "path"      : "oot$/collections/DebianJessie/*/*"
 }
 ```
 
 No other changes are required (apart from of course that
-`collections$/DebianJessie/targets.json` will now be signed with the
+`oot$/collections/DebianJessie/targets.json` will now be signed with the
 `DebianJessie` maintainer keys rather than the snapshot key). As for packages,
 this requires a priority scheme for delegation rules.
+
+Note that in a sense author-signed collections are snapshots of the server. As
+such, it would be good if these collections listed the file info (hashes and
+filesizes) of the packages the collection.
+
+## Project phases and shortcuts
+
+Phase 1 of the project will implement the basic TUF framework, but leave out
+author signing; support for author signed packages (and other targets) will
+added in phase 2.
+
+### Shortcuts taken in phase 1 (aka TODOs for phase 2)
+
+This list is currenty not exhaustive.
+
+#### Core library
+
+* Although the infrastructure is in place for [target metadata][Targetshs],
+  including typed data types representing [pattern matches and
+  replacements][Patternshs], we have not yet actually implementing target
+  delegation proper. We don't need to: we only support one kind of target
+  (not-author-signed packages), and we know statically where the target
+  information for packages can be found (in `/package/version/targets.json`).
+  This is currently hardcoded.  
+
+  Once we have author signing we need a proper implementation of delegation,
+  including a priority scheme between rules. This will also involve lazily
+  downloading additional target metadata.
+
+* Out-of-tarballs targets are not yet implemented. The main difficulty here is
+  that they require a proper implementation of delegation; once that is done
+  (required anyway for author signing) support for OOT targets should be
+  straightforward.
+
+#### Integration in `cabal-install`
+
+* The cabal integration uses the `hackage-security` library to check for updates
+  (that is, update the local copy of the index) and to download packages
+  (verifying the downloaded file against the file info that was recorded in
+  the package metadata, which itself is stored in the index). However, it does
+  not use the library to get a list of available packages, nor to access
+  `.cabal` files.
+
+  Once we have author signing however we may want to do additional checks:
+
+  * We should look at the top-level `targets.json` file (in addition to the
+    index) to figure out which packages are available. (The top-level targets
+    file, signed by offline keys, will enumerate all author-signed packages.)
+
+  * If we do allow package authors to sign list of package versions (as detailed
+    above) we should use these &ldquo;middle level&rdquo; target files to figure
+    out which versions are available for these packages.
+
+  * We might want to verify the `.cabal` files to make sure that they match the
+    file info listed in the now author-signed metadata.
+
+  Therefore `cabal-install` should be modified to go through the
+  `hackage-security`  library get the list of available packages, package
+  versions, and to access the actual `.cabal` files.
 
 ## Open questions / TODOs
 
@@ -449,3 +519,11 @@ this requires a priority scheme for delegation rules.
   (`Foo-1.0-rev1.cabal`), but in the tarball these entries actually _overwrite_
   each other (they all have the same filename). We need to define precisely
   how we deal with this.
+
+[TUF]: http://theupdateframework.com/
+[CabalHell1]: http://www.well-typed.com/blog/2014/09/how-we-might-abolish-cabal-hell-part-1/
+[ZuriHac]: http://www.well-typed.com/blog/2015/06/cabal-hackage-hacking-at-zurihac/
+[StackageNightly]: http://www.stackage.org/
+[DebianJessie]: https://wiki.debian.org/DebianJessie
+[Targetshs]: https://github.com/well-typed/hackage-security/blob/master/hackage-security/src/Hackage/Security/TUF/Targets.hs
+[Patternshs]: https://github.com/well-typed/hackage-security/blob/master/hackage-security/src/Hackage/Security/TUF/Patterns.hs
