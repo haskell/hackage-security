@@ -8,6 +8,7 @@ module Hackage.Security.Key.ExplicitSharing (
   , addKeys
   , withKeys
   , readKeyAsId
+  , lookupKey
     -- ** Utility
   , parseJSON
   , readCanonical

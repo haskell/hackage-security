@@ -6,6 +6,7 @@
 module Hackage.Security.TUF.Signed (
     -- * TUF types
     Signed(..)
+  , Signatures(..)
   , Signature(..)
     -- * Construction and verification
   , unsigned
@@ -21,6 +22,7 @@ module Hackage.Security.TUF.Signed (
 
 import qualified Data.ByteString      as BS
 import qualified Data.ByteString.Lazy as BS.L
+import qualified Data.Set             as Set
 
 import Hackage.Security.JSON
 import Hackage.Security.Key
@@ -31,8 +33,14 @@ import qualified Hackage.Security.Base64 as B64
 
 data Signed a = Signed {
     signed     :: a
-  , signatures :: [Signature]
+  , signatures :: Signatures
   }
+
+-- | A list of signatures
+--
+-- Invariant: each signature must be made with a different key.
+-- (We enforce this invariant only in the FromJSON instance.)
+newtype Signatures = Signatures [Signature]
 
 data Signature = Signature {
     signature    :: BS.ByteString
@@ -41,7 +49,7 @@ data Signature = Signature {
 
 -- | Create a new document without any signatures
 unsigned :: a -> Signed a
-unsigned a = Signed { signed = a, signatures = [] }
+unsigned a = Signed { signed = a, signatures = Signatures [] }
 
 withSignatures :: ToJSON a => [Some Key] -> a -> Signed a
 withSignatures []                = unsigned
@@ -49,10 +57,11 @@ withSignatures (Some key : keys) = addSignature key . withSignatures keys
 
 -- | Add a new signature to a signed document
 addSignature :: ToJSON a => Key typ -> Signed a -> Signed a
-addSignature key doc = doc { signatures = newSignature : signatures doc }
+addSignature key Signed{signatures = Signatures sigs, ..} =
+    Signed{signatures = Signatures (newSignature : sigs), ..}
   where
     newSignature = Signature {
-        signature    = sign (privateKey key) . renderJSON $ signed doc
+        signature    = sign (privateKey key) $ renderJSON signed
       , signatureKey = Some $ publicKey key
       }
 
@@ -66,6 +75,9 @@ instance ToJSON a => ToJSON (Signed a) where
        , ("signatures" , toJSON signatures)
        ]
 
+instance ToJSON Signatures where
+  toJSON (Signatures sigs) = toJSON sigs
+
 instance ToJSON Signature where
   toJSON Signature{..} = JSObject [
          ("keyid"  , writeKeyAsId signatureKey)
@@ -73,16 +85,53 @@ instance ToJSON Signature where
        , ("sig"    , toJSON $ B64.fromByteString signature)
        ]
 
-instance FromJSON ReadJSON Signature where
+instance FromJSON ReadJSON Signatures where
   fromJSON enc = do
-      key    <- readKeyAsId =<< fromJSField enc "keyid"
-      method <- fromJSField enc "method"
-      sig    <- fromJSField enc "sig"
-      validate "key type" $ typecheckSome key method
-      return Signature {
-          signature    = B64.toByteString sig
-        , signatureKey = key
-        }
+      preSigs <- fromJSON enc
+      validate "all signatures made with different keys" (check preSigs)
+      sigs <- mapM fromPreSignature preSigs
+      return $ Signatures sigs
+    where
+      -- Check that all (pre)signatures are made with different keys
+      --
+      -- We do this on the presignatures rather than the signatures to that
+      -- we can do the check on key IDs, rather than keys (the latter don't
+      -- have an Ord instance)
+      --
+      -- TODO: Should we attempt a more efficient implementation?
+      check :: [PreSignature] -> Bool
+      check sigs = Set.size (Set.fromList (map presigKeyId sigs)) == length sigs
+
+{-------------------------------------------------------------------------------
+  Auxiliary
+-------------------------------------------------------------------------------}
+
+-- | A signature with a key ID (rather than an actual key)
+data PreSignature = PreSignature {
+    presignature :: BS.ByteString
+  , presigMethod :: Some KeyType
+  , presigKeyId  :: KeyId
+  }
+
+instance ReportSchemaErrors m => FromJSON m PreSignature where
+  fromJSON enc = do
+    kId    <- fromJSField enc "keyid"
+    method <- fromJSField enc "method"
+    sig    <- fromJSField enc "sig"
+    return PreSignature {
+        presignature = B64.toByteString sig
+      , presigMethod = method
+      , presigKeyId  = KeyId kId
+      }
+
+fromPreSignature :: PreSignature -> ReadJSON Signature
+fromPreSignature PreSignature{..} = do
+    key <- lookupKey presigKeyId
+    validate "key type" $ typecheckSome key presigMethod
+    return Signature {
+        signature    = presignature
+      , signatureKey = key
+      }
 
 {-------------------------------------------------------------------------------
   JSON aids
@@ -117,8 +166,9 @@ signedFromJSON envelope = do
 --    that these signatures are signed with the right key, or that we
 --    have a sufficient number of signatures. This will be the
 --    responsibility of the calling code.
-verifySignatures :: JSValue -> [Signature] -> Bool
-verifySignatures = all . verifySignature . renderCanonicalJSON
+verifySignatures :: JSValue -> Signatures -> Bool
+verifySignatures parsed (Signatures sigs) =
+    all (verifySignature $ renderCanonicalJSON parsed) sigs
 
 {-------------------------------------------------------------------------------
   Ignoring signatures

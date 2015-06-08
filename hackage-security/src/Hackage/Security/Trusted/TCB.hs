@@ -145,7 +145,7 @@ verifyRole :: forall a. (HasHeader a, DescribeFile a)
 verifyRole (trusted -> RoleSpec{roleSpecThreshold = KeyThreshold threshold, ..})
            mPrev
            mNow
-           Signed{..} =
+           Signed{signatures = Signatures sigs, ..} =
     runExcept go
   where
     go :: Except VerificationError (SignaturesVerified a)
@@ -168,7 +168,9 @@ verifyRole (trusted -> RoleSpec{roleSpecThreshold = KeyThreshold threshold, ..})
       -- Verify signatures
       -- NOTE: We only need to verify the keys that were used; if the signature
       -- was invalid we would already have thrown an error constructing Signed.
-      unless (length (filter isRoleSpecKey signatures) >= threshold) $
+      -- (Similarly, if two signatures were made by the same key, the FromJSON
+      -- instance for Signatures would have thrown an error.)
+      unless (length (filter isRoleSpecKey sigs) >= threshold) $
         throwError VerificationErrorSignatures
 
       -- Everything is A-OK!
