@@ -12,6 +12,7 @@ module Hackage.Security.Trusted.TCB (
   , signaturesVerified
   , VerificationError(..)
   , verifyRole
+  , verifyFingerprints
 #if __GLASGOW_HASKELL__ >= 710
     -- * Re-exports
   , StaticPtr
@@ -27,6 +28,7 @@ import Control.Monad.Except
 import Data.Typeable
 import Data.Time
 import Hackage.Security.TUF
+import Hackage.Security.Key
 import qualified Hackage.Security.Util.Lens as Lens
 
 #if __GLASGOW_HASKELL__ >= 710
@@ -178,3 +180,22 @@ verifyRole (trusted -> RoleSpec{roleSpecThreshold = KeyThreshold threshold, ..})
 
     isRoleSpecKey :: Signature -> Bool
     isRoleSpecKey Signature{..} = signatureKey `elem` roleSpecKeys
+
+-- | Variation on 'verifyRole' that uses key IDs rather than keys
+--
+-- This is used during the bootstrap process.
+--
+-- See <http://en.wikipedia.org/wiki/Public_key_fingerprint>.
+verifyFingerprints :: [KeyId]
+                   -> KeyThreshold
+                   -> Signed Root
+                   -> Either VerificationError (SignaturesVerified Root)
+verifyFingerprints fingerprints
+                   (KeyThreshold threshold)
+                   Signed{signatures = Signatures sigs, ..} =
+    if length (filter isTrustedKey sigs) >= threshold
+      then Right $ SignaturesVerified signed
+      else Left $ VerificationErrorSignatures
+  where
+    isTrustedKey :: Signature -> Bool
+    isTrustedKey Signature{..} = someKeyId signatureKey `elem` fingerprints

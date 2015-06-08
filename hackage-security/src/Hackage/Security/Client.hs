@@ -9,6 +9,8 @@ module Hackage.Security.Client (
   , checkForUpdates
     -- * Downloading targets
   , downloadPackage
+    -- * Bootstrapping
+  , bootstrap
   ) where
 
 import Control.Exception
@@ -28,6 +30,7 @@ import Hackage.Security.Client.Repository (Repository)
 import Hackage.Security.Client.Repository hiding (Repository(..))
 import Hackage.Security.Client.Formats
 import Hackage.Security.JSON
+import Hackage.Security.Key
 import Hackage.Security.Key.Env (KeyEnv)
 import Hackage.Security.Key.ExplicitSharing
 import Hackage.Security.Trusted
@@ -394,6 +397,35 @@ data InvalidPackageException = InvalidPackageException PackageIdentifier
   deriving (Show, Typeable)
 
 instance Exception InvalidPackageException
+
+{-------------------------------------------------------------------------------
+  Bootstrapping
+-------------------------------------------------------------------------------}
+
+-- | Bootstrap the chain of trust
+--
+-- New clients might need to obtain a copy of the root metadata. This however
+-- represents a chicken-and-egg problem: how can we verify the root metadata
+-- we downloaded? The only possibility is to be provided with a set of an
+-- out-of-band set of root keys and an appropriate threshold.
+--
+-- Clients who provide a threshold of 0 can do an initial "unsafe" update
+-- of the root information, if they wish.
+--
+-- The downloaded root information will _only_ be verified against the
+-- provided keys, and _not_ against previously downloaded root info (if any).
+-- It is the responsibility of the client to call `bootstrap` only when this
+-- is the desired behaviour.
+bootstrap :: Repository -> [KeyId] -> KeyThreshold -> IO ()
+bootstrap rep trustedRootKeys keyThreshold = repWithMirror rep $ evalContT $ do
+    _newRoot :: Trusted Root
+       <- repGetRemote' rep (RemoteRoot Nothing)
+      >>= readJSON KeyEnv.empty
+      >>= liftM trustVerified . throwErrors . verifyFingerprints
+            trustedRootKeys
+            keyThreshold
+
+    repClearCache rep
 
 {-------------------------------------------------------------------------------
   Wrapper around the Repository functions (to avoid callback hell)

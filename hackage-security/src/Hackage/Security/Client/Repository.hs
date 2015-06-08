@@ -65,6 +65,7 @@ data RemoteFile :: * -> * where
     --   information has changed, we can use the file length from the snapshot.
     -- * If however we need to update the root metadata due to a verification
     --   exception we do not know the file length.
+    -- * We also do not know the file length during bootstrapping.
     RemoteRoot :: Maybe (Trusted FileLength)
                -> RemoteFile (FormatUncompressed :- ())
 

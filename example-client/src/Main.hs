@@ -7,8 +7,9 @@ import System.FilePath
 
 import Distribution.Package
 
-import Hackage.Security.Client
 import Hackage.Security.Client.Repository
+import Hackage.Security.TUF
+import qualified Hackage.Security.Client                              as Client
 import qualified Hackage.Security.Client.Repository.Local             as Local
 import qualified Hackage.Security.Client.Repository.Remote            as Remote
 import qualified Hackage.Security.Client.Repository.Remote.HTTP       as Remote.HTTP
@@ -21,26 +22,29 @@ main :: IO ()
 main = do
     opts@GlobalOpts{..} <- getOptions
     case globalCommand of
-      Check     -> check opts
-      Get pkgId -> get   opts pkgId
+      Bootstrap threshold -> bootstrap opts threshold
+      Check               -> check     opts
+      Get       pkgId     -> get       opts pkgId
 
 {-------------------------------------------------------------------------------
-  Checking for updates
+  The commands are just thin wrappers around the hackage-security Client API
 -------------------------------------------------------------------------------}
+
+bootstrap :: GlobalOpts -> KeyThreshold -> IO ()
+bootstrap opts threshold =
+    withRepo opts $ \rep -> do
+      Client.bootstrap rep (globalRootKeys opts) threshold
+      putStrLn "OK"
 
 check :: GlobalOpts -> IO ()
 check opts =
     withRepo opts $ \rep ->
-      print =<< checkForUpdates rep CheckExpiry
-
-{-------------------------------------------------------------------------------
-  Downloading packages
--------------------------------------------------------------------------------}
+      print =<< Client.checkForUpdates rep (globalCheckExpiry opts)
 
 get :: GlobalOpts -> PackageIdentifier -> IO ()
 get opts pkgId =
     withRepo opts $ \rep ->
-      downloadPackage rep pkgId $ \tempPath ->
+      Client.downloadPackage rep pkgId $ \tempPath ->
         copyFile tempPath localFile
   where
     localFile = "." </> pkgTarGz pkgId
