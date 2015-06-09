@@ -88,10 +88,14 @@ cacheRemoteFile cache tempPath (Some f) isCached = do
       return () -- Don't cache
     go FUn (Just localName) = do
       -- TODO: (here and elsewhere): use atomic file operation instead
-      copyFile tempPath (cache </> localName)
+      let fp = cache </> localName
+      createDirectoryIfMissing True (takeDirectory fp)
+      copyFile tempPath fp
     go FGz (Just localName) = do
+      let fp = cache </> localName
+      createDirectoryIfMissing True (takeDirectory fp)
       compressed <- BS.L.readFile tempPath
-      BS.L.writeFile (cache </> localName) $ GZip.decompress compressed
+      BS.L.writeFile fp $ GZip.decompress compressed
 
 -- | Rebuild the tarball index
 --
