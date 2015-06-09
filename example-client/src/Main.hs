@@ -59,25 +59,30 @@ withRepo GlobalOpts{..}
     | otherwise                         = withLocalRepo
   where
     withLocalRepo :: (Repository -> IO a) -> IO a
-    withLocalRepo = Local.withRepository globalRepo globalCache logger
+    withLocalRepo = Local.withRepository globalRepo globalCache logTUF
 
     withRemoteRepo :: (Repository -> IO a) -> IO a
     withRemoteRepo callback =
-        withClient putStrLn $ \httpClient ->
-          Remote.withRepository httpClient [baseURI] globalCache logger callback
+        withClient $ \httpClient ->
+          Remote.withRepository httpClient [baseURI] globalCache logTUF callback
       where
         baseURI :: URI
         baseURI = case parseURI globalRepo of
                     Nothing  -> error $ "Invalid URI: " ++ globalRepo
                     Just uri -> uri
 
-    withClient :: (String -> IO ()) -> (Remote.HttpClient -> IO a) -> IO a
+    withClient :: (Remote.HttpClient -> IO a) -> IO a
     withClient =
-      case globalHttpClient of
-        "HTTP"        -> Remote.HTTP.withClient
-        "http-client" -> Remote.HttpClient.withClient
-        "curl"        -> Remote.Curl.withClient
-        _otherwise    -> error "unsupported HTTP client"
+        case globalHttpClient of
+          "HTTP"        -> Remote.HTTP.withClient logHTTP logHTTP
+          "http-client" -> Remote.HttpClient.withClient logHTTP
+          "curl"        -> Remote.Curl.withClient logHTTP
+          _otherwise    -> error "unsupported HTTP client"
 
-    logger :: LogMessage -> IO ()
-    logger msg = putStrLn $ "# " ++ formatLogMessage msg
+    -- used for log messages from the Hackage.Security code
+    logTUF :: LogMessage -> IO ()
+    logTUF msg = putStrLn $ "# " ++ formatLogMessage msg
+
+    -- used for log messages from the HTTP clients
+    logHTTP :: String -> IO ()
+    logHTTP = putStrLn

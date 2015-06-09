@@ -21,13 +21,15 @@ import Hackage.Security.Client.Repository.Remote
   Top-level API
 -------------------------------------------------------------------------------}
 
-withClient :: (String -> IO ()) -> (HttpClient -> IO a) -> IO a
-withClient logger callback = do
+withClient :: (String -> IO ()) -- ^ stdout log handler
+           -> (String -> IO ()) -- ^ stderr log handler
+           -> (HttpClient -> IO a) -> IO a
+withClient outLog errLog callback = do
     caps <- newServerCapabilities
     bracket browserInit browserCleanup $ \browser ->
       callback HttpClient {
-          httpClientGet          = get      logger browser caps
-        , httpClientGetRange     = getRange logger browser caps
+          httpClientGet          = get      outLog errLog browser caps
+        , httpClientGetRange     = getRange outLog errLog browser caps
         , httpClientCapabilities = caps
         , httpWrapCustomEx       = id -- TODO
         }
@@ -38,24 +40,25 @@ withClient logger callback = do
 
 -- TODO: We should verify that the file we downloaded is the expected size
 -- (that it didn't get truncated); here and in getRange
-get :: (String -> IO ()) -> Browser -> ServerCapabilities
+get :: (String -> IO ()) -> (String -> IO ())
+    -> Browser -> ServerCapabilities
     -> URI -> (BodyReader -> IO a) -> IO a
-get logger browser caps uri callback = do
+get outLog errLog browser caps uri callback = do
     (_uri, response) <- withBrowser browser $ do
-      -- TODO: should probably distinguish between Out and Err
-      setOutHandler $ logger
-      setErrHandler $ logger
+      setOutHandler outLog
+      setErrHandler errLog
       request $ mkRequest GET uri
     case rspCode response of
       (2, 0, 0)  -> withResponse caps response callback
       _otherwise -> throwIO $ UnexpectedResponse (rspCode response)
 
-getRange :: (String -> IO ()) -> Browser -> ServerCapabilities
+getRange :: (String -> IO ()) -> (String -> IO ())
+         -> Browser -> ServerCapabilities
          -> URI -> (Int, Int) -> (BodyReader -> IO a) -> IO a
-getRange logger browser caps uri (from, to) callback = do
+getRange outLog errLog browser caps uri (from, to) callback = do
     (_uri, response) <- withBrowser browser $ do
-      setOutHandler $ logger
-      setErrHandler $ logger
+      setOutHandler outLog
+      setErrHandler errLog
       request $ insertHeader HdrRange rangeHeader
               $ mkRequest GET uri
     -- TODO: Should verify HdrContentRange in response
