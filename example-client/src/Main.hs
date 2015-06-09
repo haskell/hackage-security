@@ -7,9 +7,7 @@ import System.FilePath
 
 import Distribution.Package
 
-import Hackage.Security.Client.Repository
-import Hackage.Security.TUF
-import qualified Hackage.Security.Client                              as Client
+import Hackage.Security.Client
 import qualified Hackage.Security.Client.Repository.Local             as Local
 import qualified Hackage.Security.Client.Repository.Remote            as Remote
 import qualified Hackage.Security.Client.Repository.Remote.HTTP       as Remote.HTTP
@@ -22,29 +20,29 @@ main :: IO ()
 main = do
     opts@GlobalOpts{..} <- getOptions
     case globalCommand of
-      Bootstrap threshold -> bootstrap opts threshold
-      Check               -> check     opts
-      Get       pkgId     -> get       opts pkgId
+      Bootstrap threshold -> cmdBootstrap opts threshold
+      Check               -> cmdCheck     opts
+      Get       pkgId     -> cmdGet       opts pkgId
 
 {-------------------------------------------------------------------------------
   The commands are just thin wrappers around the hackage-security Client API
 -------------------------------------------------------------------------------}
 
-bootstrap :: GlobalOpts -> KeyThreshold -> IO ()
-bootstrap opts threshold =
+cmdBootstrap :: GlobalOpts -> KeyThreshold -> IO ()
+cmdBootstrap opts threshold =
     withRepo opts $ \rep -> do
-      Client.bootstrap rep (globalRootKeys opts) threshold
+      bootstrap rep (globalRootKeys opts) threshold
       putStrLn "OK"
 
-check :: GlobalOpts -> IO ()
-check opts =
+cmdCheck :: GlobalOpts -> IO ()
+cmdCheck opts =
     withRepo opts $ \rep ->
-      print =<< Client.checkForUpdates rep (globalCheckExpiry opts)
+      print =<< checkForUpdates rep (globalCheckExpiry opts)
 
-get :: GlobalOpts -> PackageIdentifier -> IO ()
-get opts pkgId =
+cmdGet :: GlobalOpts -> PackageIdentifier -> IO ()
+cmdGet opts pkgId =
     withRepo opts $ \rep ->
-      Client.downloadPackage rep pkgId $ \tempPath ->
+      downloadPackage rep pkgId $ \tempPath ->
         copyFile tempPath localFile
   where
     localFile = "." </> pkgTarGz pkgId

@@ -2,6 +2,7 @@
 #if __GLASGOW_HASKELL__ >= 710
 {-# LANGUAGE StaticPointers #-}
 #endif
+-- | Main entry point into the Hackage Security framework for clients
 module Hackage.Security.Client (
     -- * Checking for updates
     HasUpdates(..)
@@ -11,8 +12,13 @@ module Hackage.Security.Client (
   , downloadPackage
     -- * Bootstrapping
   , bootstrap
+    -- * Re-exports
+  , module Hackage.Security.TUF
+  , module Hackage.Security.Key
+  , module Hackage.Security.Client.Repository
   ) where
 
+import Prelude hiding (log)
 import Control.Exception
 import Control.Monad
 import Control.Monad.Cont
@@ -26,8 +32,7 @@ import qualified Data.ByteString.Lazy as BS.L
 import Distribution.Package (PackageIdentifier)
 import Distribution.Text
 
-import Hackage.Security.Client.Repository (Repository)
-import Hackage.Security.Client.Repository hiding (Repository(..))
+import Hackage.Security.Client.Repository
 import Hackage.Security.Client.Formats
 import Hackage.Security.JSON
 import Hackage.Security.Key
@@ -39,7 +44,6 @@ import Hackage.Security.TUF
 import Hackage.Security.Util.Stack
 import Hackage.Security.Util.Some
 import qualified Hackage.Security.Key.Env as KeyEnv
-import qualified Hackage.Security.Client.Repository as Repository
 
 {-------------------------------------------------------------------------------
   Checking for updates
@@ -67,7 +71,7 @@ data HasUpdates = HasUpdates | NoUpdates
 -- of the TUF spec.
 checkForUpdates :: Repository -> CheckExpiry -> IO HasUpdates
 checkForUpdates rep checkExpiry =
-    repWithMirror rep $ do
+    withMirror rep $ do
       -- more or less randomly chosen maximum iterations
       -- See <https://github.com/theupdateframework/tuf/issues/287>.
       limitIterations 5
@@ -89,15 +93,15 @@ checkForUpdates rep checkExpiry =
             -- This is intentional: if we get verification errors during the
             -- update process, _and_ we cannot update the main root info, then
             -- we cannot do anything.
-            repLog rep $ LogVerificationError ex
+            log rep $ LogVerificationError ex
             updateRoot rep mNow (Left ex)
             limitIterations (n - 1)
         , Handler $ \RootUpdated -> do
-            repLog rep $ LogRootUpdated
+            log rep $ LogRootUpdated
             limitIterations (n - 1)
         ]
 
-    -- NOTE: Every call to 'repGetRemote' in 'go' implicitly scopes over the
+    -- NOTE: Every call to 'getRemote' in 'go' implicitly scopes over the
     -- whole remainder of the function (through the use of ContT). This means
     -- that none of the downloaded files will be cached until the entire check
     -- for updates check completes successfully.
@@ -107,20 +111,20 @@ checkForUpdates rep checkExpiry =
       -- We need the cached root information in order to resolve key IDs and
       -- verify signatures
       cachedRoot :: Trusted Root
-         <- repGetCachedRoot rep
+         <- getCachedRoot rep
         >>= readJSON KeyEnv.empty
         >>= return . trustLocalFile
       let keyEnv = rootKeys (trusted cachedRoot)
 
       -- Get the old timestamp (if any)
       mOldTS :: Maybe (Trusted Timestamp)
-         <- repGetCached rep CachedTimestamp
+         <- getCached rep CachedTimestamp
         >>= traverse (readJSON keyEnv)
         >>= return . fmap trustLocalFile
 
       -- Get the new timestamp
       newTS :: Trusted Timestamp
-         <- repGetRemote' rep RemoteTimestamp
+         <- getRemote' rep RemoteTimestamp
         >>= readJSON keyEnv
         >>= liftM trustVerified . throwErrors . verifyTimestamp
               cachedRoot
@@ -136,7 +140,7 @@ checkForUpdates rep checkExpiry =
         else do
           -- Get the old snapshot (if any)
           mOldSS :: Maybe (Trusted Snapshot)
-             <- repGetCached rep CachedSnapshot
+             <- getCached rep CachedSnapshot
             >>= traverse (readJSON keyEnv)
             >>= return . fmap trustLocalFile
 
@@ -144,7 +148,7 @@ checkForUpdates rep checkExpiry =
           let expectedSnapshot =
                 RemoteSnapshot (static fileInfoLength <$$> newSnapshotInfo)
           newSS :: Trusted Snapshot
-             <- repGetRemote' rep expectedSnapshot
+             <- getRemote' rep expectedSnapshot
             >>= verifyFileInfo' (Just newSnapshotInfo)
             >>= readJSON keyEnv
             >>= liftM trustVerified . throwErrors . verifySnapshot
@@ -173,13 +177,13 @@ checkForUpdates rep checkExpiry =
           when (infoChanged mOldMirrorsInfo newMirrorsInfo) $ do
             -- Get the old mirrors file (so we can verify version numbers)
             mOldMirrors :: Maybe (Trusted Mirrors)
-               <- repGetCached rep CachedMirrors
+               <- getCached rep CachedMirrors
               >>= traverse (readJSON keyEnv)
               >>= return . fmap trustLocalFile
 
             -- Verify new mirrors
             _newMirrors :: Trusted Mirrors
-               <- repGetRemote' rep expectedMirrors
+               <- getRemote' rep expectedMirrors
               >>= verifyFileInfo' (Just newMirrorsInfo)
               >>= readJSON keyEnv
               >>= liftM trustVerified . throwErrors . verifyMirrors
@@ -207,7 +211,7 @@ checkForUpdates rep checkExpiry =
                       FsUnGz (static fileInfoLength <$$> newTarInfo)
                              (static fileInfoLength <$$> newTarGzInfo)
           when (infoChanged mOldTarGzInfo newTarGzInfo) $ do
-            (indexFormat, indexPath) <- repGetRemote rep expectedIndex
+            (indexFormat, indexPath) <- getRemote rep expectedIndex
 
             -- Check against the appropriate hash, depending on which file the
             -- 'Repository' decided to download. Note that we cannot ask the
@@ -284,19 +288,19 @@ updateRoot :: Repository
            -> IO ()
 updateRoot rep mNow eFileInfo = evalContT $ do
     oldRoot :: Trusted Root
-       <- repGetCachedRoot rep
+       <- getCachedRoot rep
       >>= readJSON KeyEnv.empty
       >>= return . trustLocalFile
 
     let mFileInfo    = eitherToMaybe eFileInfo
         expectedRoot = RemoteRoot (fmap (static fileInfoLength <$$>) mFileInfo)
     _newRoot :: Trusted Root
-       <- repGetRemote' rep expectedRoot
+       <- getRemote' rep expectedRoot
       >>= verifyFileInfo' mFileInfo
       >>= readJSON KeyEnv.empty
       >>= liftM trustVerified . throwErrors . verifyRoot oldRoot mNow
 
-    repClearCache rep
+    clearCache rep
 
 {-------------------------------------------------------------------------------
   Downloading target files
@@ -318,13 +322,13 @@ updateRoot rep mNow eFileInfo = evalContT $ do
 -- * May throw an InvalidPackageException if the requested package does not
 --   exist (this is a programmer error).
 downloadPackage :: Repository -> PackageIdentifier -> (TempPath -> IO a) -> IO a
-downloadPackage rep pkgId callback = repWithMirror rep $ evalContT $ do
+downloadPackage rep pkgId callback = withMirror rep $ evalContT $ do
     -- We need the cached root information in order to resolve key IDs and
     -- verify signatures. Note that whenever we read a JSON file, we verify
     -- signatures (even if we don't verify the keys); if this is a problem
     -- (for performance) we need to parameterize parseJSON.
     cachedRoot :: Trusted Root
-       <- repGetCachedRoot rep
+       <- getCachedRoot rep
       >>= readJSON KeyEnv.empty
       >>= return . trustLocalFile
     let keyEnv = rootKeys (trusted cachedRoot)
@@ -362,7 +366,7 @@ downloadPackage rep pkgId callback = repWithMirror rep $ evalContT $ do
     -- apply the delegation rules. Until we have author signing however this
     -- is unnecessary.
     targets :: Trusted Targets
-       <- repGetFromIndex rep (IndexPkgMetadata pkgId)
+       <- getFromIndex rep (IndexPkgMetadata pkgId)
       >>= packageMustExist
       >>= throwErrors . parseJSON keyEnv
       >>= return . trustIndex
@@ -381,7 +385,7 @@ downloadPackage rep pkgId callback = repWithMirror rep $ evalContT $ do
 
     -- TODO: should we check if cached package available? (spec says no)
     let expectedPkg = RemotePkgTarGz pkgId (static fileInfoLength <$$> targetMetaData)
-    tarGz <- repGetRemote' rep expectedPkg
+    tarGz <- getRemote' rep expectedPkg
          >>= verifyFileInfo' (Just targetMetaData)
     lift $ callback tarGz
   where
@@ -417,72 +421,72 @@ instance Exception InvalidPackageException
 -- It is the responsibility of the client to call `bootstrap` only when this
 -- is the desired behaviour.
 bootstrap :: Repository -> [KeyId] -> KeyThreshold -> IO ()
-bootstrap rep trustedRootKeys keyThreshold = repWithMirror rep $ evalContT $ do
+bootstrap rep trustedRootKeys keyThreshold = withMirror rep $ evalContT $ do
     _newRoot :: Trusted Root
-       <- repGetRemote' rep (RemoteRoot Nothing)
+       <- getRemote' rep (RemoteRoot Nothing)
       >>= readJSON KeyEnv.empty
       >>= liftM trustVerified . throwErrors . verifyFingerprints
             trustedRootKeys
             keyThreshold
 
-    repClearCache rep
+    clearCache rep
 
 {-------------------------------------------------------------------------------
   Wrapper around the Repository functions (to avoid callback hell)
 -------------------------------------------------------------------------------}
 
-repGetRemote :: Repository -> Some RemoteFile -> ContT r IO (Some Format, TempPath)
-repGetRemote r (Some file) = ContT aux
+getRemote :: Repository -> Some RemoteFile -> ContT r IO (Some Format, TempPath)
+getRemote r (Some file) = ContT aux
   where
     aux :: ((Some Format, TempPath) -> IO r) -> IO r
-    aux k = Repository.repWithRemote r file (wrapK k)
+    aux k = repWithRemote r file (wrapK k)
 
     wrapK :: ((Some Format, TempPath) -> IO r)
           -> (SelectedFormat fs -> TempPath -> IO r)
     wrapK k format tempPath = k (selectedFormatSome format, tempPath)
 
--- | Variation on repGetRemote where we only expect one type of result
-repGetRemote' :: Repository -> RemoteFile (f :- ()) -> ContT r IO TempPath
-repGetRemote' r file = ContT aux
+-- | Variation on getRemote where we only expect one type of result
+getRemote' :: Repository -> RemoteFile (f :- ()) -> ContT r IO TempPath
+getRemote' r file = ContT aux
   where
     aux :: (TempPath -> IO r) -> IO r
-    aux k = Repository.repWithRemote r file (wrapK k)
+    aux k = repWithRemote r file (wrapK k)
 
     wrapK :: (TempPath -> IO r)
           -> (SelectedFormat fs -> TempPath -> IO r)
     wrapK k _format tempPath = k tempPath
 
-repGetCached :: MonadIO m => Repository -> CachedFile -> m (Maybe FilePath)
-repGetCached r file = liftIO $ Repository.repGetCached r file
+getCached :: MonadIO m => Repository -> CachedFile -> m (Maybe FilePath)
+getCached r file = liftIO $ repGetCached r file
 
-repGetCachedRoot :: MonadIO m => Repository -> m FilePath
-repGetCachedRoot r = liftIO $ Repository.repGetCachedRoot r
+getCachedRoot :: MonadIO m => Repository -> m FilePath
+getCachedRoot r = liftIO $ repGetCachedRoot r
 
-repClearCache :: MonadIO m => Repository -> m ()
-repClearCache r = liftIO $ Repository.repClearCache r
+clearCache :: MonadIO m => Repository -> m ()
+clearCache r = liftIO $ repClearCache r
 
-repLog :: MonadIO m => Repository -> LogMessage -> m ()
-repLog r msg = liftIO $ Repository.repLog r msg
+log :: MonadIO m => Repository -> LogMessage -> m ()
+log r msg = liftIO $ repLog r msg
 
 -- We translate to a lazy bytestring here for convenience
-repGetFromIndex :: MonadIO m
-                => Repository
-                -> IndexFile
-                -> m (Maybe BS.L.ByteString)
-repGetFromIndex r file = liftIO $
-    fmap tr <$> Repository.repGetFromIndex r file
+getFromIndex :: MonadIO m
+             => Repository
+             -> IndexFile
+             -> m (Maybe BS.L.ByteString)
+getFromIndex r file = liftIO $
+    fmap tr <$> repGetFromIndex r file
   where
     tr :: BS.ByteString -> BS.L.ByteString
     tr = BS.L.fromChunks . (:[])
 
 -- Tries to load the cached mirrors file
-repWithMirror :: Repository -> IO a -> IO a
-repWithMirror rep callback = do
+withMirror :: Repository -> IO a -> IO a
+withMirror rep callback = do
     mMirrors <- repGetCached rep CachedMirrors
     mirrors  <- case mMirrors of
       Nothing -> return Nothing
       Just fp -> filterMirrors <$> (throwErrors =<< readNoKeys fp)
-    Repository.repWithMirror rep mirrors $ callback
+    repWithMirror rep mirrors $ callback
   where
     filterMirrors :: IgnoreSigned Mirrors -> Maybe [Mirror]
     filterMirrors = Just

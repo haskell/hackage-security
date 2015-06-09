@@ -12,7 +12,7 @@ import Network.HTTP.Types
 import qualified Data.CaseInsensitive  as CI
 import qualified Data.ByteString.Char8 as BS.C8
 
-import Hackage.Security.Client.Repository
+import Hackage.Security.Client
 import Hackage.Security.Client.Repository.Remote
 
 {-------------------------------------------------------------------------------

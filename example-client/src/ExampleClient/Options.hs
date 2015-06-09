@@ -9,9 +9,7 @@ import Options.Applicative
 import Distribution.Package
 import Distribution.Text
 
-import Hackage.Security.Key
-import Hackage.Security.TUF
-import Hackage.Security.Client (CheckExpiry(..))
+import Hackage.Security.Client
 
 {-------------------------------------------------------------------------------
   Datatypes

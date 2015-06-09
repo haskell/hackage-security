@@ -17,10 +17,7 @@ import Distribution.Package
 import Distribution.Text
 
 -- hackage-security
-import Hackage.Security.JSON
-import Hackage.Security.Key hiding (sign)
-import Hackage.Security.Key.ExplicitSharing
-import Hackage.Security.TUF
+import Hackage.Security.Server
 import Hackage.Security.Util.Some
 import Hackage.Security.Util.IO
 import qualified Hackage.Security.Key.Env             as KeyEnv
@@ -242,7 +239,7 @@ bootstrapOrUpdate opts@GlobalOpts{..} isBootstrap = do
         logInfo $ "Writing " ++ globalRepo </> "00-index.tar"
       WriteIfNecessary -> do
         logInfo $ "Appending to " ++ globalRepo </> "00-index.tar"
-    Index.appendToTarball
+    Index.append
       (globalRepo </> "00-index.tar")
       globalRepo
       addToIndex
@@ -458,25 +455,25 @@ updateFile :: (ToJSON (Signed a), HasHeader a)
            -> (a -> Signed a)  -- ^ Signing function
            -> a                -- ^ Unsigned object
            -> IO (Maybe FilePath)
-updateFile whenWrite baseDir file sign a = do
+updateFile whenWrite baseDir file signPayload a = do
     mOldHeader :: Maybe (Either DeserializationError (IgnoreSigned Header)) <-
       handleDoesNotExist $ readNoKeys fp
 
     case (whenWrite, mOldHeader) of
       (WriteAlways, _) -> do
         logInfo $ "Writing " ++ file
-        writeCanonical fp (sign a)
+        writeCanonical fp (signPayload a)
         return $ Just file
       (WriteIfNecessary, Nothing) -> do
         -- If there is no previous version of the file, or the old file is
         -- broken just create the new file
         logInfo $ "Creating " ++ file
-        writeCanonical fp (sign a)
+        writeCanonical fp (signPayload a)
         return $ Just file
       (WriteIfNecessary, Just (Left _err)) -> do
         -- If the old file is corrupted, warn and overwrite
         logWarn $ "Overwriting " ++ file ++ " (old file corrupted)"
-        writeCanonical fp (sign a)
+        writeCanonical fp (signPayload a)
         return $ Just file
       (WriteIfNecessary, Just (Right (IgnoreSigned oldHeader))) -> do
         -- We cannot quite read the entire old file, because we don't know
@@ -493,7 +490,7 @@ updateFile whenWrite baseDir file sign a = do
 
         withSystemTempFile (takeFileName file) $ \tempPath h -> do
           -- Write new file, but using old file version
-          BS.L.hPut h $ renderJSON (sign wOldVersion)
+          BS.L.hPut h $ renderJSON (signPayload wOldVersion)
           hClose h
 
           -- Compare file hashes
@@ -506,7 +503,7 @@ updateFile whenWrite baseDir file sign a = do
             else do
               -- If changed, write file using incremented file version
               logInfo $ "Updating " ++ file
-              writeCanonical fp (sign wIncVersion)
+              writeCanonical fp (signPayload wIncVersion)
               return $ Just file
   where
     fp = baseDir </> file

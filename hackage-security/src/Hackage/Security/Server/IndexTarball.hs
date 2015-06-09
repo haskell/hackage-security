@@ -1,7 +1,7 @@
 -- | Server-side funtionality for creating index tarballs
 {-# LANGUAGE BangPatterns #-}
 module Hackage.Security.Server.IndexTarball (
-    appendToTarball
+    append
   ) where
 
 import Control.Exception
@@ -12,8 +12,8 @@ import qualified Codec.Archive.Tar.Index as Tar
 import qualified Data.ByteString.Lazy    as BS.L
 
 -- | Append (or create) some files to tarball
-appendToTarball :: FilePath -> FilePath -> [FilePath] -> IO ()
-appendToTarball tar baseDir newFiles =
+append :: FilePath -> FilePath -> [FilePath] -> IO ()
+append tar baseDir newFiles =
     seekTarball tar $ \h -> do
       newEntries <- Tar.pack baseDir newFiles
       BS.L.hPut h $ Tar.write newEntries
