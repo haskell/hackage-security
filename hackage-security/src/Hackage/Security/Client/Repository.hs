@@ -235,7 +235,13 @@ data Repository = Repository {
 
     -- | Logging
   , repLog :: LogMessage -> IO ()
+
+    -- | Description of the repository (used in the show instance)
+  , repDescription :: String
   }
+
+instance Show Repository where
+  show = repDescription
 
 -- | Helper function to implement 'repWithMirrors'.
 mirrorsUnsupported :: Maybe [Mirror] -> IO a -> IO a

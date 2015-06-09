@@ -166,6 +166,7 @@ withRepository http outOfBandMirrors cache logger callback = do
       , repGetFromIndex  = Local.getFromIndex  cache
       , repWithMirror    = withMirror http selectedMirror outOfBandMirrors logger
       , repLog           = logger
+      , repDescription   = "Remote repository at " ++ show outOfBandMirrors
       }
 
 {-------------------------------------------------------------------------------

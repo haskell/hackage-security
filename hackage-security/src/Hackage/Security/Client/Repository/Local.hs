@@ -51,6 +51,7 @@ withRepository repo cache logger callback = callback Repository {
   , repGetFromIndex  = getFromIndex  cache
   , repWithMirror    = mirrorsUnsupported
   , repLog           = logger
+  , repDescription   = "Local repository at " ++ repo
   }
 
 {-------------------------------------------------------------------------------
