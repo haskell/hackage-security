@@ -288,6 +288,7 @@ bootstrapOrUpdate opts@GlobalOpts{..} isBootstrap = do
 createPackageMetadata :: GlobalOpts -> WhenWrite -> PackageIdentifier -> IO [FilePath]
 createPackageMetadata GlobalOpts{..} whenWrite pkgId = do
     fileMapEntries <- computeFileMapEntries
+    checkEntries fileMapEntries
     let targets = Targets {
             targetsVersion     = versionInitial
           , targetsExpires     = expiresNever
@@ -322,6 +323,19 @@ createPackageMetadata GlobalOpts{..} whenWrite pkgId = do
               ".cabal"   -> Just <$> computeFileMapEntry file
               _otherwise -> do logWarn $ "Skipping unrecognized " ++ path
                                return Nothing
+
+    checkEntries :: [(FilePath, a)] -> IO ()
+    checkEntries entries = do
+        unless (has ".gz") $
+          logWarn $ "No .gz file for package " ++ display pkgId
+        unless (has ".cabal") $
+          logWarn $ "No .cabal file for package " ++ display pkgId
+      where
+        has :: String -> Bool
+        has ext = not . null $ filter (matchesExt ext . fst) entries
+
+        matchesExt :: String -> FilePath -> Bool
+        matchesExt ext fp = let (_, ext') = splitExtension fp in ext == ext'
 
     computeFileMapEntry :: FilePath -> IO (FilePath, FileInfo)
     computeFileMapEntry file = do
