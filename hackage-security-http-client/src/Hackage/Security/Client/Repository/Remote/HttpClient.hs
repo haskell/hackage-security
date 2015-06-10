@@ -46,7 +46,7 @@ get manager caps uri callback = do
       callback (responseBody response)
 
 getRange :: Manager -> ServerCapabilities
-         -> URI -> (Int, Int) -> (BodyReader -> IO a) -> IO a
+         -> URI -> (Int, Int) -> (DownloadedRange -> BodyReader -> IO a) -> IO a
 getRange manager caps uri (from, to) callback = do
     request' <- setUri def uri
     let request = request' {
@@ -55,7 +55,12 @@ getRange manager caps uri (from, to) callback = do
           }
     withResponse request manager $ \response -> do
       updateCapabilities caps response
-      callback (responseBody response)
+      let br = responseBody response
+      case responseStatus response of
+        s | s == partialContent206 -> callback DownloadedRange      br
+        s | s == ok200             -> callback DownloadedEntireFile br
+        s -> throwIO $ StatusCodeException s (responseHeaders response)
+                                             (responseCookieJar response)
   where
     -- Content-Range header uses inclusive rather than exclusive bounds
     -- See <http://www.w3.org/Protocols/rfc2616/rfc2616-sec14.html>

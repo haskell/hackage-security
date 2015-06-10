@@ -23,6 +23,7 @@ module Hackage.Security.Client.Repository.Remote (
   , setServerSupportsAcceptBytes
     -- * Abstracting over HTTP libraries
   , BodyReader
+  , DownloadedRange(..)
   , HttpClient(..)
   , FileSize(..)
   , Cache
@@ -107,6 +108,8 @@ fileSizeWithinBounds sz (FileSizeExact sz') = sz <= sz'
 fileSizeWithinBounds sz (FileSizeBound sz') = sz <= sz'
 fileSizeWithinBounds _  FileSizeUnknown     = True
 
+data DownloadedRange = DownloadedRange | DownloadedEntireFile
+
 -- | Abstraction over HTTP clients
 --
 -- This avoids insisting on a particular implementation (such as the HTTP
@@ -118,7 +121,14 @@ data HttpClient = HttpClient {
     -- | Download a byte range
     --
     -- Range is starting and (exclusive) end offset in bytes.
-  , httpClientGetRange :: forall a. URI -> (Int, Int) -> (BodyReader -> IO a) -> IO a
+    --
+    -- Servers can respond to a range request by sending the entire file
+    -- instead. We tell the callback if it got the range of the entire file.
+  , httpClientGetRange :: forall a.
+                          URI
+                       -> (Int, Int)
+                       -> (DownloadedRange -> BodyReader -> IO a)
+                       -> IO a
 
     -- | Server capabilities
     --
@@ -308,14 +318,27 @@ incTar HttpClient{..} baseURI cache callback len cachedFile = do
     -- TODO: Once we have a local tarball index, this is not necessary
     currentSize <- getFileSize cachedFile
     let currentMinusTrailer = currentSize - 1024
-        range   = (fromInteger currentMinusTrailer, fileLength (trusted len))
+        fileSz  = fileLength (trusted len)
+        range   = (fromInteger currentMinusTrailer, fileSz)
         rangeSz = FileSizeExact (snd range - fst range)
+        totalSz = FileSizeExact fileSz
     withSystemTempFile (takeFileName (uriPath uri)) $ \tempPath h -> do
       BS.L.hPut h =<< BS.L.readFile cachedFile
       hSeek h AbsoluteSeek currentMinusTrailer
       -- As in 'getFile', make sure we don't scope the remainder of the
       -- computation underneath the httpClientGetRange
-      httpClientGetRange uri range $ execBodyReader "index" rangeSz h
+      httpClientGetRange uri range $ \downloadedRange br -> do
+        case downloadedRange of
+          DownloadedRange ->
+            execBodyReader "index" rangeSz h br
+          DownloadedEntireFile -> do
+            -- If we downloaded the entire file we wasted some work here. The
+            -- alternative is to only copy in the file once we know for sure
+            -- that we did get the range we requested, but this would require
+            -- keeping the connection to the server open for longer. Not sure
+            -- what the best tradeoff is here. Either way, this should be rare.
+            hSeek h AbsoluteSeek 0
+            execBodyReader "index" totalSz h br
       hClose h
       result <- callback tempPath
       Local.cacheRemoteFile cache tempPath (Some FUn) CacheIndex

@@ -54,7 +54,7 @@ get outLog errLog browser caps uri callback = do
 
 getRange :: (String -> IO ()) -> (String -> IO ())
          -> Browser -> ServerCapabilities
-         -> URI -> (Int, Int) -> (BodyReader -> IO a) -> IO a
+         -> URI -> (Int, Int) -> (DownloadedRange -> BodyReader -> IO a) -> IO a
 getRange outLog errLog browser caps uri (from, to) callback = do
     (_uri, response) <- withBrowser browser $ do
       setOutHandler outLog
@@ -64,7 +64,8 @@ getRange outLog errLog browser caps uri (from, to) callback = do
     -- TODO: Should verify HdrContentRange in response
     -- which will look like "bytes 734-1233/1234"
     case rspCode response of
-      (2, 0, 6)  -> withResponse caps response callback
+      (2, 0, 6)  -> withResponse caps response (callback DownloadedRange)
+      (2, 0, 0)  -> withResponse caps response (callback DownloadedEntireFile)
       _otherwise -> throwIO $ UnexpectedResponse (rspCode response)
   where
     -- Content-Range header uses inclusive rather than exclusive bounds
