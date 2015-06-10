@@ -218,7 +218,8 @@ withRemote httpClient selectedMirror cache logger callback = \remoteFile -> do
           Right (sf, len, fp) -> do
             logger $ LogUpdating (describeRemoteFile remoteFile)
             let incr = incTar httpClient baseURI cache (callback sf) len fp
-            catchRecoverable (Just <$> incr) $ \ex -> do
+                wrapCustomEx = httpWrapCustomEx httpClient
+            catchRecoverable wrapCustomEx (Just <$> incr) $ \ex -> do
               let failure = UpdateFailed ex
               logger $ LogUpdateFailed (describeRemoteFile remoteFile) failure
               return Nothing
@@ -370,7 +371,7 @@ withMirror HttpClient{..} selectedMirror outOfBandMirrors logger tufMirrors call
     -- mirror
     go (m:ms) = do
       logger $ LogSelectedMirror (show m)
-      catchRecoverable (httpWrapCustomEx $ select m callback) $ \ex -> do
+      catchRecoverable httpWrapCustomEx (select m callback) $ \ex -> do
         logger $ LogMirrorFailed (show m) ex
         go ms
 

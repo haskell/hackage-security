@@ -21,7 +21,6 @@ module Hackage.Security.Client.Repository (
   , RecoverableException(..)
   , CustomException(..)
   , catchRecoverable
-  , handleRecoverable
     -- * Utility
   , IsCached(..)
   , mustCache
@@ -330,15 +329,15 @@ formatRecoverableException = go
     go (RecoverVerificationError e) = formatVerificationError e
     go (RecoverCustom            e) = show e
 
-catchRecoverable :: IO a -> (RecoverableException -> IO a) -> IO a
-catchRecoverable act handler = catches act [
+catchRecoverable :: (IO a -> IO a)                  -- ^ Wrap custom exceptions
+                 -> IO a                            -- ^ Action to execute
+                 -> (RecoverableException -> IO a)  -- ^ Exception handler
+                 -> IO a
+catchRecoverable wrapCustom act handler = catches (wrapCustom act) [
       Handler $ handler . RecoverIOException
     , Handler $ handler . RecoverVerificationError
     , Handler $ handler . RecoverCustom
     ]
-
-handleRecoverable :: (RecoverableException -> IO a) -> IO a -> IO a
-handleRecoverable = flip catchRecoverable
 
 {-------------------------------------------------------------------------------
   Paths

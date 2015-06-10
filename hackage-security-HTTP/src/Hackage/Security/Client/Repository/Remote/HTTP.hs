@@ -15,6 +15,7 @@ import qualified Data.ByteString      as BS
 import qualified Data.ByteString.Lazy as BS.L
 import qualified Control.Monad.State  as State
 
+import Hackage.Security.Client
 import Hackage.Security.Client.Repository.Remote
 
 {-------------------------------------------------------------------------------
@@ -31,7 +32,7 @@ withClient outLog errLog callback = do
           httpClientGet          = get      outLog errLog browser caps
         , httpClientGetRange     = getRange outLog errLog browser caps
         , httpClientCapabilities = caps
-        , httpWrapCustomEx       = id -- TODO
+        , httpWrapCustomEx       = wrapCustomEx
         }
 
 {-------------------------------------------------------------------------------
@@ -101,6 +102,14 @@ updateCapabilities caps response =
     -- and <http://www.w3.org/Protocols/rfc2616/rfc2616-sec3.html#sec3.12>
     when ("bytes" `elem` map hdrValue (retrieveHeaders hAcceptRanges response)) $
       setServerSupportsAcceptBytes caps True
+
+-- | Wrap custom exceptions
+--
+-- TODO: Does the HTTP library define some custom exceptions?
+wrapCustomEx :: IO a -> IO a
+wrapCustomEx act = catches act [
+      Handler $ \(ex :: UnexpectedResponse) -> throwIO (CustomException ex)
+    ]
 
 data UnexpectedResponse = UnexpectedResponse (Int, Int, Int)
   deriving (Show, Typeable)
