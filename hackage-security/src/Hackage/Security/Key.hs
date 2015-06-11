@@ -1,10 +1,10 @@
 module Hackage.Security.Key (
     -- * Key types
     Ed25519
-    -- * Opaque types abstracting over key types
-  , Key
-  , PublicKey
-  , PrivateKey
+    -- * Types abstracting over key types
+  , Key(..)
+  , PublicKey(..)
+  , PrivateKey(..)
     -- * Key types in isolation
   , KeyType(..)
     -- * Hiding key types

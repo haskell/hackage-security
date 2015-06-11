@@ -3,8 +3,8 @@ module Hackage.Security.TUF.Header (
     HasHeader(..)
   , FileDescription
   , DescribeFile(..)
-  , FileVersion  -- opaque
-  , FileExpires  -- opaque
+  , FileVersion(..)
+  , FileExpires(..)
   , Header(..)
     -- ** Utility
   , expiresInDays
@@ -15,6 +15,7 @@ module Hackage.Security.TUF.Header (
   ) where
 
 import Data.Time
+import Data.Typeable (Typeable)
 
 import Hackage.Security.JSON
 import Hackage.Security.Util.Lens
@@ -41,7 +42,7 @@ class DescribeFile a where
 -- The file version is a flat integer which must monotonically increase on
 -- every file update.
 newtype FileVersion = FileVersion Int
-  deriving (Eq, Ord, Show)
+  deriving (Eq, Ord, Show, Typeable)
 
 -- | File expiry date
 --
@@ -50,7 +51,7 @@ newtype FileVersion = FileVersion Int
 -- allows that, because you could set an expiry date 2000 years into the future.
 -- By having the Maybe here we avoid the _need_ for such encoding issues.)
 newtype FileExpires = FileExpires (Maybe UTCTime)
-  deriving (Eq, Ord, Show)
+  deriving (Eq, Ord, Show, Typeable)
 
 -- | Occassionally it is useful to read only a header from a file.
 --

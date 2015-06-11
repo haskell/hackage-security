@@ -19,6 +19,8 @@ module Hackage.Security.Key.ExplicitSharing (
     -- * Reading without keys
   , parseNoKeys
   , readNoKeys
+    -- * Utility
+  , formatDeserializationError
   ) where
 
 import Control.Exception
@@ -169,3 +171,17 @@ readNoKeys fp = do
     withFile fp ReadMode $ \h -> do
       bs <- BS.L.hGetContents h
       evaluate $ parseNoKeys bs
+
+{-------------------------------------------------------------------------------
+  Util
+-------------------------------------------------------------------------------}
+
+formatDeserializationError :: DeserializationError -> String
+formatDeserializationError (DeserializationErrorMalformed str) =
+    "Malformed: " ++ str
+formatDeserializationError (DeserializationErrorSchema str) =
+    "Schema error: " ++ str
+formatDeserializationError (DeserializationErrorUnknownKey kId) =
+    "Unknown key: " ++ keyIdString kId
+formatDeserializationError (DeserializationErrorValidation str) =
+    "Invalid: " ++ str

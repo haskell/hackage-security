@@ -16,7 +16,9 @@ import Hackage.Security.TUF
 import Hackage.Security.Key.ExplicitSharing (
     DeserializationError(..)
   , readNoKeys
+  , parseNoKeys
   , readCanonical
   , renderJSON
   , writeCanonical
+  , formatDeserializationError
   )
