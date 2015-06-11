@@ -1,5 +1,5 @@
 -- | Smooth over differences between various ghc versions by making older
--- preludes look like 4.6.0
+-- preludes look like 4.8.0
 {-# LANGUAGE PackageImports #-}
 {-# LANGUAGE CPP #-}
 module Prelude (
