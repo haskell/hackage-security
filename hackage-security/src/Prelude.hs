@@ -16,7 +16,11 @@ module Prelude (
 #if MIN_VERSION_base(4,8,0)
 import "base" Prelude as P
 #else
+#if MIN_VERSION_base(4,7,0)
+import "base" Prelude as P
+#else
 import "base" Prelude as P hiding (catch)
+#endif
 import Control.Applicative
 import Data.Monoid
 import Data.Traversable (traverse)
