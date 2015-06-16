@@ -520,6 +520,128 @@ This list is currenty not exhaustive.
   each other (they all have the same filename). We need to define precisely
   how we deal with this.
 
+## Footnotes
+
+### Footnote: Paths
+
+The situation with paths in cabal/hackage is a bit of a mess. In this footnote
+we describe the situation before the work on the Hackage Security library.
+
+#### The index tarball
+
+The index tarball contains paths of the form
+
+```
+<package-name>/<package-version>/<package-name>.cabal
+```
+
+For example:
+
+```
+mtl/1.0/mtl.cabal
+```
+
+as well as a single top-level `preferred-versions` file.
+
+#### Package resources offered by Hackage
+
+Hackage offers a number of resources for package tarballs: one
+&ldquo;official&rdquo; one and a few redirects.
+
+1.  The official location of package tarballs on a Hackage server is
+
+    ```
+    /package/<package-id>/<package-id>.tar.gz
+    ```
+
+    for example
+
+    ```
+    /package/mtl-2.2.1/mtl-2.2.1.tar.gz
+    ```
+
+    (This was the official location from [very early on][63a8c728]).
+
+2.  It [provides a redirect][3cfe4de] for
+
+    ```
+    /package/<package-id>.tar.gz
+    ```
+
+    for example
+
+    ```
+    /package/mtl-2.2.1.tar.gz
+    ```
+
+    (that is, a request for `/package/mtl-2.2.1.tar.gz` will get a 301 Moved
+    Permanently response, and is redirected to
+    `/package/mtl-2.2.1/mtl-2.2.1.tar.gz`).
+
+3.  It provides a redirect for Hackage-1 style URLs of the form
+
+    ```
+    /packages/archive/<package-name>/<package-version>/<package-id>.tar.gz
+    ```
+
+    for example
+
+    ```
+    /packages/archive/mtl/2.2.1/mtl-2.2.1.tar.gz
+    ```
+
+#### Locations used by cabal-install to find packages
+
+There are two kinds of repositories supported by `cabal-install`: local and
+remote.
+
+1.  For a local repository `cabal-install` looks for packages at
+
+    ```
+    <local-dir>/<package-name>/<package-version>/<package-id>.tar.gz
+    ```
+
+2.  For remote repositories however `cabal-install` looks for packages in one of
+    two locations.
+
+    a.  If the remote repository is
+        `http://hackage.haskell.org/packages/archive` (this value is hardcoded)
+        then it looks for the package at
+
+        <repo>/<package-name>/<package-version>/<package-id>.tar.gz
+
+    b.  For any other repository it looks for the package at
+
+        <repo>/package/<package-id>.tar.gz
+
+Some notes:
+
+1.  Files downloaded from a remote repository are cached locally as
+
+    ```
+    <cache>/<package-name>/<package-version>/<package-id>.tar.gz
+    ```
+
+    I.e., the layout of the local cache matches the layout of a local
+    repository (and matches the structure of the index tarball too).
+
+2.  Somewhat bizarrely, when `cabal-install` creates a new initial `config`
+    file it uses `http://hackage.haskell.org/packages/archive` as the repo base
+    URI (even in newer versions of `cabal-install`; this was [changed only very
+    recently][bfeb01f]).
+
+3.  However, notice that _even when we give `cabal` a &ldquo;new-style&rdquo;
+    URI_ the address used by `cabal` _still_ causes a redirect (from
+    `/package/<package-id>.tar.gz` to
+    `/package/<package-id>/<package-id>.tar.gz`).
+
+The most important observation however is the following: **It is not possible to
+serve a local repository as a remote repository** (by poining a webserver at a
+local repository) because the layouts are completely different. (Note that the
+location of packages on Hackage-1 _did_ match the layout of local repositories,
+but that doesn't help because the _only_ repository that `cabal-install` will
+regard as a Hackage-1 repository is one hosted on `hackage.haskell.org`).
+
 [TUF]: http://theupdateframework.com/
 [CabalHell1]: http://www.well-typed.com/blog/2014/09/how-we-might-abolish-cabal-hell-part-1/
 [ZuriHac]: http://www.well-typed.com/blog/2015/06/cabal-hackage-hacking-at-zurihac/
@@ -527,3 +649,6 @@ This list is currenty not exhaustive.
 [DebianJessie]: https://wiki.debian.org/DebianJessie
 [Targetshs]: https://github.com/well-typed/hackage-security/blob/master/hackage-security/src/Hackage/Security/TUF/Targets.hs
 [Patternshs]: https://github.com/well-typed/hackage-security/blob/master/hackage-security/src/Hackage/Security/TUF/Patterns.hs
+[bfeb01f]: https://github.com/haskell/cabal/commit/bfeb01f
+[63a8c728]: https://github.com/haskell/hackage-server/commit/63a8c728
+[3cfe4de]: https://github.com/haskell/hackage-server/commit/3cfe4de
