@@ -51,7 +51,7 @@ get outLog errLog browser caps uri callback = do
       request $ mkRequest GET uri
     case rspCode response of
       (2, 0, 0)  -> withResponse caps response callback
-      _otherwise -> throwIO $ UnexpectedResponse (rspCode response)
+      _otherwise -> throwIO $ UnexpectedResponse uri (rspCode response)
 
 getRange :: (String -> IO ()) -> (String -> IO ())
          -> Browser -> ServerCapabilities
@@ -67,7 +67,7 @@ getRange outLog errLog browser caps uri (from, to) callback = do
     case rspCode response of
       (2, 0, 6)  -> withResponse caps response (callback DownloadedRange)
       (2, 0, 0)  -> withResponse caps response (callback DownloadedEntireFile)
-      _otherwise -> throwIO $ UnexpectedResponse (rspCode response)
+      _otherwise -> throwIO $ UnexpectedResponse uri (rspCode response)
   where
     -- Content-Range header uses inclusive rather than exclusive bounds
     -- See <http://www.w3.org/Protocols/rfc2616/rfc2616-sec14.html>
@@ -111,7 +111,7 @@ wrapCustomEx act = catches act [
       Handler $ \(ex :: UnexpectedResponse) -> throwIO (CustomException ex)
     ]
 
-data UnexpectedResponse = UnexpectedResponse (Int, Int, Int)
+data UnexpectedResponse = UnexpectedResponse URI (Int, Int, Int)
   deriving (Show, Typeable)
 
 instance Exception UnexpectedResponse
