@@ -23,9 +23,10 @@ author signing (or not).
 
 ##### Package specific metadata
 
-Version 1.0 of package `Foo` will be stored in `/Foo/1.0`. This directory will
-contain a single metadata file `/Foo/1.0/targets.json` containing the hash and
-size of the package tarball:
+Version 1.0 of package `Foo` will be stored in ``/package/Foo-1.0` (see
+[Footnote: Paths](#paths)). This directory will contain a single metadata file
+`/package/Foo-1.0/targets.json` containing the hash and size of the package
+tarball:
 
 ``` javascript
 { "signed" : {
@@ -63,10 +64,10 @@ information:
     , "delegations" : {
           "keys"  : []
         , "roles" : [
-               { "name"      : "*/*/targets.json"
+               { "name"      : "package/*/targets.json"
                , "keyids"    : []
                , "threshold" : 0
-               , "path"      : "*/*/*"
+               , "path"      : "package/*/*"
                }
              ]
        }
@@ -92,7 +93,7 @@ offline target keys are not required).
 
 ##### Security
 
-This setup is sufficient to allow for untrusted mirrors: since they do not  have
+This setup is sufficient to allow for untrusted mirrors: since they do not have
 access to the snapshot key, they (or a man-in-the-middle) cannot change which
 packages are visible or change the packages themselves.
 
@@ -170,26 +171,26 @@ top-level targets file to
                , "path"      : "*/*/*"
                }
              // Delegation for package Bar
-             , { "name"      : "Bar/targets.json"
-               , "keyids"    : <top-level target keys>
+             , { "name"      : "package/Bar.json"
+               , "keyids"    : /* top-level target keys */
                , "threshold" : THRESHOLD
-               , "path"      : "Bar/*/*"
+               , "path"      : "package/Bar-*/*"
                }
-             , { "name"      : "Bar/*/revisions.json"
-               , "keyids"    : <Hackage trustee key IDs>
+             , { "name"      : "package/Bar-*/revisions.json"
+               , "keyids"    : /* Hackage trustee key IDs */
                , "threshold" : THRESHOLD
-               , "path"      : "Bar/*/*.cabal"
+               , "path"      : "package/Bar-*/*.cabal"
                }
              // Delegation for package Baz
-             , { "name"      : "Baz/targets.json"
-               , "keyids"    : <top-level target keys>
+             , { "name"      : "package/Baz.json"
+               , "keyids"    : /* top-level target keys */
                , "threshold" : THRESHOLD
-               , "path"      : "Baz/*/*"
+               , "path"      : "package/Baz-*/*"
                }
-             , { "name"      : "Baz/*/revisions.json"
-               , "keyids"    : <Hackage trustee key IDs>
+             , { "name"      : "package/Baz-*/revisions.json"
+               , "keyids"    : /* Hackage trustee key IDs */
                , "threshold" : THRESHOLD
-               , "path"      : "Baz/*/*.cabal"
+               , "path"      : "package/Baz-*/*.cabal"
                }
              // .. delegation for other signed packages ..
              ]
@@ -204,15 +205,15 @@ attackers cannot mount freeze attacks (although this is somewhat less of an
 issue here as freezing this list would make en entire new package, rather than
 a new package version, invisible).
 
-This says that the delegation information for package `Bar-`_x.y_ is found in
-`/Bar/targets.json` as well as `/Bar/`_x.y_`/revisions.json`, where the latter
+This says that the delegation information for package `Bar-x.y` is found in
+`/package/Bar.json` as well as `/package/Bar-x.y/revisions.json`, where the latter
 can only contain information about the `.cabal` files, not the package itself.
 Note that these rules overlap with the rule for unsigned packages, and so we
 need a priority scheme between rules. The TUF specification leaves this quite
 open; in our case, we can implement a very simple rule: more specific rules
 (rules with fewer wildcards) take precedence over less specific rules.
 
-This &ldquo;middle level&rdquo; targets file `/Bar/targets.json` introduces the
+This &ldquo;middle level&rdquo; targets file `/package/Bar.json` introduces the
 author keys and contains further delegation information:
 
 ``` javascript
@@ -224,15 +225,15 @@ author keys and contains further delegation information:
     , "delegations" : {
           "keys"  : /* package maintainer keys */
         , "roles" : [
-              { "name"      : "*/targets.json"
+              { "name"      : "Bar-*/targets.json"
               , "keyids"    : /* package maintainer key IDs */
               , "threshold" : THRESHOLD
-              , "path"      : "*/*"
+              , "path"      : "Bar-*/*"
               }
-            , { "name"      : "*/revisions.json"
+            , { "name"      : "Bar-*/revisions.json"
               , "keyids"    : /* package maintainer key IDs */
               , "threshold" : THRESHOLD
-              , "path"      : "*/*.cabal"
+              , "path"      : "Bar-*/*.cabal"
               }
             ]
     }
@@ -345,8 +346,8 @@ files must, by the TUF spec, be listed in the top-level snapshot; we should thus
 avoid introducing too many of them (in particular, we should avoid requiring a
 new @targets.json@ for each new version of a particular kind of target).
 
-In order to avoid name clashes OOT targets should be stored in a
-location that is not a valid package name, such as `oot$`.
+OOT targets will be stored under a prefix such as `oot/` to avoid name clashes
+with packages.
 
 #### Collections
 
@@ -357,11 +358,11 @@ anything else.
 Like packages, collections are versioned and immutable, so we have
 
 ```
-oot$/collections/StackageNightly/2015.06.02/StackageNightly.collection
-oot$/collections/StackageNightly/2015.06.03/StackageNightly.collection
-oot$/collections/StackageNightly/...
-oot$/collections/DebianJessie/...
-oot$/collections/...
+oot/collections/StackageNightly/2015.06.02/StackageNightly.collection
+oot/collections/StackageNightly/2015.06.03/StackageNightly.collection
+oot/collections/StackageNightly/...
+oot/collections/DebianJessie/...
+oot/collections/...
 ```
 
 As for packages, collections should be able to opt-in for author signing (once
@@ -377,10 +378,10 @@ For unsigned collections we add a single delegation rule to the top-level
 `targets.json`:
 
 ``` javascript
-{ "name"      : "oot$/collections/targets.json"
+{ "name"      : "oot/collections/targets.json"
 , "keyids"    : /* snapshot key */
 , "threshold" : 1
-, "path"      : "oot$/collections/*/*/*"
+, "path"      : "oot/collections/*/*/*"
 }
 ```
 
@@ -432,20 +433,20 @@ not for each new _version_ of each collection.
 
 For author-signed collections we only need to make a single change. Suppose that
 the `DebianJessie` collection is signed. Then we move the rule for
-`DebianJessie` from `oot$/collections/targets.json` and instead list it in the
+`DebianJessie` from `oot/collections/targets.json` and instead list it in the
 top-level `targets.json` (as for packages, introducing a signed collection
 necessarily requires the involvement of the Hackage admins):
 
 ``` javascript
-{ "name"      : "oot$/collections/DebianJessie/targets.json"
+{ "name"      : "oot/collections/DebianJessie/targets.json"
 , "keyids"    : /* DebianJessie maintainer keys */
 , "threshold" : /* threshold */
-, "path"      : "oot$/collections/DebianJessie/*/*"
+, "path"      : "oot/collections/DebianJessie/*/*"
 }
 ```
 
 No other changes are required (apart from of course that
-`oot$/collections/DebianJessie/targets.json` will now be signed with the
+`oot/collections/DebianJessie/targets.json` will now be signed with the
 `DebianJessie` maintainer keys rather than the snapshot key). As for packages,
 this requires a priority scheme for delegation rules.
 
@@ -520,7 +521,7 @@ This list is currenty not exhaustive.
   each other (they all have the same filename). We need to define precisely
   how we deal with this.
 
-## Footnotes
+## <a name="paths">Footnotes</a>
 
 ### Footnote: Paths
 
@@ -604,7 +605,7 @@ remote.
 2.  For remote repositories however `cabal-install` looks for packages in one of
     two locations.
 
-    a.  If the remote repository is
+    a.  If the remote repository (`<repo>`) is
         `http://hackage.haskell.org/packages/archive` (this value is hardcoded)
         then it looks for the package at
 
@@ -641,6 +642,104 @@ local repository) because the layouts are completely different. (Note that the
 location of packages on Hackage-1 _did_ match the layout of local repositories,
 but that doesn't help because the _only_ repository that `cabal-install` will
 regard as a Hackage-1 repository is one hosted on `hackage.haskell.org`).
+
+#### Conclusions for TUF integration
+
+In this document we have assumed that we will leave Hackage's package path
+unchanged. This has a number of repercussions:
+
+1.  It is somewhat awkward to set up delegation rules for a package, as opposed
+    to a package version. For example, consider delegation for author-signed
+    packages. At the top-level we have a rule
+
+    ``` javascript
+    { "name"      : "package/Bar.json"
+    , "keyids"    : /* top-level target keys */
+    , "threshold" : THRESHOLD
+    , "path"      : "package/Bar-*/*"
+    }
+    ```
+
+    and the middle level file `/package/Bar.json` contains
+
+    ``` javascript
+    { "name"      : "Bar-*/targets.json"
+    , "keyids"    : /* package maintainer key IDs */
+    , "threshold" : THRESHOLD
+    , "path"      : "Bar-*/*"
+    }
+    ```
+
+    This works, but if we organized packages by version (`/package/Bar/x.y/..`)
+    we could have the following more obvious delegation setup instead:
+
+    ``` javascript
+    { "name"      : "package/Bar/targets.json"
+    , "keyids"    : /* top-level target keys */
+    , "threshold" : THRESHOLD
+    , "path"      : "package/Bar/*/*"
+    }
+    ```
+
+    with the middle level file `/package/Bar/targets.json` containing
+
+    ``` javascript
+    { "name"      : "*/targets.json"
+    , "keyids"    : /* package maintainer key IDs */
+    , "threshold" : THRESHOLD
+    , "path"      : "*/*"
+    }
+    ```
+
+    This is somewhat more satisfactory for two reasons: the middle level file
+    for a package is now stored with that package (`/package/Bar/targets.json`)
+    rather than having a single directory `/package/` containing middle-level
+    files for all author-signed packages (`/package/Bar.json`,
+    `/package/Baz.json`, ...).
+
+    Secondly, in the current setup the middle level file `/package/Bar.json`
+    needs to explicitly mention `Bar` again. If we organize by version this is
+    not necessary.
+
+2.  The above rules assume that the `.cabal` file for `Bar-x.y` is stored at
+    `/package/Bar-x.y/Bar.cabal`, along with the package. Hackage does in fact
+    provide this; for instance, the `.cabal` file for `mtl-2.1.1` can be
+    downloaded from
+
+    ```
+    http://hackage.haskell.org/package/mtl-2.1.1/mtl.cabal
+    ```
+
+    However, `cabal-install` will not in fact download `.cabal` files from
+    the server, but instead extract them from the index tarball. The index
+    tarball however uses a different layout; the `.cabal` file for mtl-2.1.1
+    in the tarball is found at `mtl/2.1.1/mtl.cabal`.
+
+    This leaves us with two options, neither of which is particularly appealing.
+
+    a.  We can change the delegation rule so that the delegation rules for
+        `.cabal` files match the layout in the index (while the delegation rules
+        for the packages continue to match the layout on the server).
+
+    b.  We can provide a mapping from in-index URIs to on-server URIs, and then
+        apply that mapping before applying delegation rules.
+
+    Admittedly, even if we do organize packages by version on the server we
+    _still_ have to provide such a mapping, but then writing that mapping is a
+    simple matter of prepending `package/` to the URI.
+
+If we do decide to change the layout on the server, we will of course have to
+provide redirects for legacy clients. Note however that this does not affect
+`cabal-install`, because `cabal-install` _already_ gets redirected on every
+package download, irrespective of whether it's using old-Hackage style URIs or
+not (see above).
+
+However, none of these problems are problems in Phase 1 of the project, where
+we have no author signing and do not need to verify individual `.cabal` files.
+
+(One minor advantage of changing the layout of the server is that it also
+re-enables serving a local repository as a remote repository, provided that
+packages are stored under `package/` prefix.)
 
 [TUF]: http://theupdateframework.com/
 [CabalHell1]: http://www.well-typed.com/blog/2014/09/how-we-might-abolish-cabal-hell-part-1/
