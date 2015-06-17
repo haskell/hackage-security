@@ -741,6 +741,34 @@ we have no author signing and do not need to verify individual `.cabal` files.
 re-enables serving a local repository as a remote repository, provided that
 packages are stored under `package/` prefix.)
 
+#### Location of the index tarball itself
+
+For local repositories, `cabal-install` never makes a copy of the index tarball,
+but simply accesses it directly from `<local-dir>/00-index.tar`. For remote
+repositories it downloads it from `<repo>/00-index.tar.gz`, then stores it as
+`<cache>/00-index.tar.gz` and decompresses it to `<cache>/00-index.tar`. Most
+code in `cabal-install` that accesses the index then doesn't make a
+distinction between local or remote repositories, treating `<local-dir>` and
+`<cache>` as one and the same thing (`repoLocalDir`).
+
+The official location of the tarball on Hackage however is
+
+```
+<repo>/packages/index.tar.gz
+```
+
+and accessing `<repo>/00-index.tar.gz` will result again in a 301 Moved
+Permanently response.
+
+We can change `cabal` to access the index from `/packages/index.tar.gz` instead
+(if only for secure repos, where backwards compatibility is not applicable
+anyway), but if we do then the layouts of local and remote repositories diverge
+further. I don't know if we care about that. Alternative, we could make this
+configurable.
+
+
+
+
 [TUF]: http://theupdateframework.com/
 [CabalHell1]: http://www.well-typed.com/blog/2014/09/how-we-might-abolish-cabal-hell-part-1/
 [ZuriHac]: http://www.well-typed.com/blog/2015/06/cabal-hackage-hacking-at-zurihac/
