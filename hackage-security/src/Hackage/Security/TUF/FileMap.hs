@@ -32,7 +32,7 @@ import Hackage.Security.Util.Path
   Datatypes
 -------------------------------------------------------------------------------}
 
-newtype FileMap = FileMap { fileMap :: Map Path FileInfo }
+newtype FileMap = FileMap { fileMap :: Map UnrootedPath FileInfo }
 
 {-------------------------------------------------------------------------------
   Standard accessors
@@ -41,23 +41,23 @@ newtype FileMap = FileMap { fileMap :: Map Path FileInfo }
 empty :: FileMap
 empty = FileMap Map.empty
 
-lookup :: Path -> FileMap -> Maybe FileInfo
+lookup :: UnrootedPath -> FileMap -> Maybe FileInfo
 lookup fp = Map.lookup fp . fileMap
 
-(!) :: FileMap -> Path -> FileInfo
+(!) :: FileMap -> UnrootedPath -> FileInfo
 fm ! fp = fileMap fm Map.! fp
 
-insert :: Path -> FileInfo -> FileMap -> FileMap
+insert :: UnrootedPath -> FileInfo -> FileMap -> FileMap
 insert fp nfo = FileMap . Map.insert fp nfo . fileMap
 
-fromList :: [(Path, FileInfo)] -> FileMap
+fromList :: [(UnrootedPath, FileInfo)] -> FileMap
 fromList = FileMap . Map.fromList
 
 {-------------------------------------------------------------------------------
   Convenience accessors
 -------------------------------------------------------------------------------}
 
-lookupM :: Monad m => FileMap -> Path -> m FileInfo
+lookupM :: Monad m => FileMap -> UnrootedPath -> m FileInfo
 lookupM m fp =
     case lookup fp m of
       Nothing  -> fail $ "Could not find entry for " ++ show fp ++ " in filemap"
@@ -77,15 +77,15 @@ data FileChange =
 
 fileMapChanges :: FileMap  -- ^ Old
                -> FileMap  -- ^ New
-               -> Map Path FileChange
+               -> Map UnrootedPath FileChange
 fileMapChanges (FileMap a) (FileMap b) =
     Map.fromList $ go (Map.toList a) (Map.toList b)
   where
     -- Assumes the old and new lists are sorted alphabetically
     -- (Map.toList guarantees this)
-    go :: [(Path, FileInfo)]
-       -> [(Path, FileInfo)]
-       -> [(Path, FileChange)]
+    go :: [(UnrootedPath, FileInfo)]
+       -> [(UnrootedPath, FileInfo)]
+       -> [(UnrootedPath, FileChange)]
     go [] new = map (second FileChanged) new
     go old [] = map (second (const FileDeleted)) old
     go old@((fp, nfo):old') new@((fp', nfo'):new')

@@ -10,17 +10,20 @@ import System.IO.Error
 
 import Hackage.Security.Util.Path
 
-withSystemTempFile :: forall a. Path -> (Path -> Handle -> IO a) -> IO a
+withSystemTempFile :: forall a.
+                      Fragment -- ^ Template
+                   -> (AbsolutePath -> Handle -> IO a)
+                   -> IO a
 withSystemTempFile template callback = do
     tmpDir <- getTemporaryDirectory
     bracket (openTempFile tmpDir template) closeAndDelete (uncurry callback)
   where
-    closeAndDelete :: (Path, Handle) -> IO ()
+    -- closeAndDelete :: (Path, Handle) -> IO ()
     closeAndDelete (fp, h) = do
       hClose h
       void $ handleDoesNotExist $ removeFile fp
 
-getFileSize :: Path -> IO Integer
+getFileSize :: IsFileSystemRoot root => Path (Rooted root) -> IO Integer
 getFileSize fp = withFile fp ReadMode hFileSize
 
 handleDoesNotExist :: IO a -> IO (Maybe a)

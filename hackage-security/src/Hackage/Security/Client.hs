@@ -390,8 +390,8 @@ downloadPackage rep pkgId callback = withMirror rep $ evalContT $ do
     lift $ callback tarGz
   where
     -- TODO: Is there a standard function in Cabal to do this?
-    packageFileName :: Path
-    packageFileName = path (display pkgId) <.> "tar.gz"
+    packageFileName :: UnrootedPath
+    packageFileName = fragment (display pkgId) <.> "tar.gz"
 
     packageMustExist :: MonadIO m => Maybe a -> m a
     packageMustExist (Just fp) = return fp
@@ -456,10 +456,10 @@ getRemote' r file = ContT aux
           -> (SelectedFormat fs -> TempPath -> IO r)
     wrapK k _format tempPath = k tempPath
 
-getCached :: MonadIO m => Repository -> CachedFile -> m (Maybe Path)
+getCached :: MonadIO m => Repository -> CachedFile -> m (Maybe AbsolutePath)
 getCached r file = liftIO $ repGetCached r file
 
-getCachedRoot :: MonadIO m => Repository -> m Path
+getCachedRoot :: MonadIO m => Repository -> m AbsolutePath
 getCachedRoot r = liftIO $ repGetCachedRoot r
 
 clearCache :: MonadIO m => Repository -> m ()
@@ -518,14 +518,18 @@ trustLocalFile Signed{..} = DeclareTrusted signed
 --
 -- Throws a VerificationError if verification failed. For convenience in
 -- composition returns the argument Path otherwise.
-verifyFileInfo' :: MonadIO m => Maybe (Trusted FileInfo) -> Path -> m Path
+verifyFileInfo' :: (MonadIO m, IsFileSystemRoot root)
+                => Maybe (Trusted FileInfo)
+                -> Path (Rooted root)
+                -> m (Path (Rooted root))
 verifyFileInfo' Nothing     fp = return fp
 verifyFileInfo' (Just info) fp = liftIO $ do
     verified <- verifyFileInfo fp info
     unless verified $ throw $ VerificationErrorFileInfo (show fp)
     return fp
 
-readJSON :: (MonadIO m, FromJSON ReadJSON a) => KeyEnv -> Path -> m a
+readJSON :: (MonadIO m, IsFileSystemRoot root, FromJSON ReadJSON a)
+         => KeyEnv -> Path (Rooted root) -> m a
 readJSON keyEnv fpath = liftIO $ do
     result <- readCanonical keyEnv fpath
     case result of

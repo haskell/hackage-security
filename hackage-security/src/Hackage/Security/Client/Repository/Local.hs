@@ -31,8 +31,8 @@ import Hackage.Security.Util.Some
   Top-level
 -------------------------------------------------------------------------------}
 
-type LocalRepo = Path
-type Cache     = Path
+type LocalRepo = Path (Rooted Absolute)
+type Cache     = Path (Rooted Absolute)
 
 -- | Initialize the repository (and cleanup resources afterwards)
 withRepository
@@ -81,7 +81,7 @@ cacheRemoteFile cache tempPath (Some f) isCached = do
     -- could delete the index here and then it will be rebuilt on first access.
     when (isCached == CacheIndex) $ rebuildTarIndex cache
   where
-    go :: Format f -> Maybe Path -> IO ()
+    go :: Format f -> Maybe UnrootedPath -> IO ()
     go _ Nothing =
       return () -- Don't cache
     go FUn (Just localName) = do
@@ -100,11 +100,11 @@ cacheRemoteFile cache tempPath (Some f) isCached = do
 -- TODO: Should we attempt to rebuild this incrementally?
 rebuildTarIndex :: Cache -> IO ()
 rebuildTarIndex cache = do
-    entries <- Tar.read <$> readLazyByteString (cache </> path "00-index.tar")
+    entries <- Tar.read <$> readLazyByteString (cache </> fragment "00-index.tar")
     case TarIndex.build entries of
       Left  ex    -> throwIO ex
       Right index ->
-        withBinaryFile (cache </> path "00-index.tar.idx") WriteMode $ \h -> do
+        withBinaryFile (cache </> fragment "00-index.tar.idx") WriteMode $ \h -> do
           hSetBuffering h (BlockBuffering Nothing)
           BS.hPutBuilder h $ TarIndex.serialise index
 
@@ -115,13 +115,13 @@ rebuildTarIndex cache = do
 -- NOTE: We always cache files locally in uncompressed format. This is a
 -- policy of this implementation of 'Repository', however, and other policies
 -- are possible; that's why this lives here rather than in @Client.Repository@.
-cachedFileName :: IsCached -> Maybe Path
+cachedFileName :: IsCached -> Maybe UnrootedPath
 cachedFileName (CacheAs cachedFile) = Just $ cachedFilePath cachedFile
-cachedFileName CacheIndex           = Just $ path "00-index.tar"
+cachedFileName CacheIndex           = Just $ fragment "00-index.tar"
 cachedFileName DontCache            = Nothing
 
 -- | Get a cached file (if available)
-getCached :: Cache -> CachedFile -> IO (Maybe Path)
+getCached :: Cache -> CachedFile -> IO (Maybe AbsolutePath)
 getCached cache cachedFile = do
     exists <- doesFileExist localPath
     if exists then return $ Just localPath
@@ -130,16 +130,16 @@ getCached cache cachedFile = do
     localPath = cache </> cachedFilePath cachedFile
 
 -- | Get the cached index (if available)
-getCachedIndex :: Cache -> IO (Maybe Path)
+getCachedIndex :: Cache -> IO (Maybe AbsolutePath)
 getCachedIndex cache = do
     exists <- doesFileExist localPath
     if exists then return $ Just localPath
               else return $ Nothing
   where
-    localPath = cache </> path "00-index.tar"
+    localPath = cache </> fragment "00-index.tar"
 
 -- | Get the cached root
-getCachedRoot :: Cache -> IO Path
+getCachedRoot :: Cache -> IO AbsolutePath
 getCachedRoot cache = do
     mPath <- getCached cache CachedRoot
     case mPath of
@@ -149,7 +149,7 @@ getCachedRoot cache = do
 -- | Get a file from the index
 getFromIndex :: Cache -> IndexFile -> IO (Maybe BS.ByteString)
 getFromIndex cache indexFile = do
-    mIndex <- tryReadIndex (cache </> path "00-index.tar.idx")
+    mIndex <- tryReadIndex (cache </> fragment "00-index.tar.idx")
     case mIndex of
       Left _err -> do
         -- If index is corrupted, rebuild and try again
@@ -159,7 +159,7 @@ getFromIndex cache indexFile = do
         case tarIndexLookup index (indexFilePath indexFile) of
           Just (TarIndex.TarFileEntry offset) ->
             -- TODO: We might want to keep this handle open
-            withFile (cache </> path "00-index.tar") ReadMode $ \h -> do
+            withFile (cache </> fragment "00-index.tar") ReadMode $ \h -> do
               entry <- TarIndex.hReadEntry h offset
               case Tar.entryContent entry of
                 Tar.NormalFile lbs _size -> do
@@ -171,7 +171,7 @@ getFromIndex cache indexFile = do
             return Nothing
   where
     -- TODO: How come 'deserialise' uses _strict_ ByteStrings?
-    tryReadIndex :: Path -> IO (Either (Maybe IOException) TarIndex)
+    tryReadIndex :: AbsolutePath -> IO (Either (Maybe IOException) TarIndex)
     tryReadIndex fp =
         aux <$> try (TarIndex.deserialise <$> readStrictByteString fp)
       where

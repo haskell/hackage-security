@@ -40,7 +40,7 @@ instance ToJSON Timestamp where
       ]
     where
       timestampMeta = FileMap.fromList [
-          (path "snapshot.json", timestampInfoSnapshot)
+          (fragment "snapshot.json", timestampInfoSnapshot)
         ]
 
 instance ReportSchemaErrors m => FromJSON m Timestamp where
@@ -49,7 +49,7 @@ instance ReportSchemaErrors m => FromJSON m Timestamp where
     timestampVersion      <- fromJSField enc "version"
     timestampExpires      <- fromJSField enc "expires"
     timestampMeta         <- fromJSField enc "meta"
-    timestampInfoSnapshot <- FileMap.lookupM timestampMeta (path "snapshot.json")
+    timestampInfoSnapshot <- FileMap.lookupM timestampMeta (fragment "snapshot.json")
     return Timestamp{..}
 
 instance FromJSON ReadJSON (Signed Timestamp) where

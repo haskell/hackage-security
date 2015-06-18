@@ -69,7 +69,7 @@ instance DescribeFile Targets where
   Utility
 -------------------------------------------------------------------------------}
 
-targetsLookup :: Path -> Targets -> Maybe FileInfo
+targetsLookup :: UnrootedPath -> Targets -> Maybe FileInfo
 targetsLookup fp Targets{..} = FileMap.lookup fp targetsTargets
 
 {-------------------------------------------------------------------------------

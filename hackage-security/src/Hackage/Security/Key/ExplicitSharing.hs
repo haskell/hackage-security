@@ -117,9 +117,9 @@ parseJSON env bs =
       Left  err -> Left (DeserializationErrorMalformed err)
       Right val -> runReadJSON env (fromJSON val)
 
-readCanonical :: FromJSON ReadJSON a
+readCanonical :: (IsFileSystemRoot root, FromJSON ReadJSON a)
               => KeyEnv
-              -> Path
+              -> Path (Rooted root)
               -> IO (Either DeserializationError a)
 readCanonical env fp = do
     withFile fp ReadMode $ \h -> do
@@ -140,7 +140,8 @@ writeKeyAsId = JSString . keyIdString . someKeyId
 renderJSON :: ToJSON a => a -> BS.L.ByteString
 renderJSON = renderCanonicalJSON . toJSON
 
-writeCanonical :: ToJSON a => Path -> a -> IO ()
+writeCanonical :: (IsFileSystemRoot root, ToJSON a)
+               => Path (Rooted root) -> a -> IO ()
 writeCanonical fp = writeLazyByteString fp . renderJSON
 
 {-------------------------------------------------------------------------------
@@ -165,8 +166,8 @@ parseNoKeys bs =
       Left  err -> Left (DeserializationErrorMalformed err)
       Right val -> runNoKeys (fromJSON val)
 
-readNoKeys :: FromJSON NoKeys a
-           => Path -> IO (Either DeserializationError a)
+readNoKeys :: (IsFileSystemRoot root, FromJSON NoKeys a)
+           => Path (Rooted root) -> IO (Either DeserializationError a)
 readNoKeys fp = do
     withFile fp ReadMode $ \h -> do
       bs <- BS.L.hGetContents h

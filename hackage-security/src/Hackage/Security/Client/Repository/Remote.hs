@@ -36,7 +36,7 @@ module Hackage.Security.Client.Repository.Remote (
 import Control.Concurrent
 import Control.Exception
 import Control.Monad.Except
-import Network.URI hiding (uriPath, path)
+import Network.URI hiding (uriPath, path, fragment)
 import System.IO
 import qualified Data.ByteString      as BS
 import qualified Data.ByteString.Lazy as BS.L
@@ -238,7 +238,7 @@ withRemote httpClient selectedMirror cache logger callback = \remoteFile -> do
 shouldDoIncremental
   :: forall fs. HttpClient -> Cache -> RemoteFile fs
   -> IO (Either (Maybe UpdateFailure)
-                (SelectedFormat fs, Trusted FileLength, Path))
+                (SelectedFormat fs, Trusted FileLength, AbsolutePath))
 shouldDoIncremental HttpClient{..} cache remoteFile = runExceptT $ do
     -- Currently the only file which we download incrementally is the index
     formats :: Formats fs (Trusted FileLength) <-
@@ -312,9 +312,10 @@ getFile' HttpClient{..} uri sz description callback =
 -- | Get a tar file incrementally
 --
 -- Sadly, this has some tar-specific functionality
-incTar :: HttpClient -> URI -> Cache
+incTar :: IsFileSystemRoot root
+       => HttpClient -> URI -> Cache
        -> (TempPath -> IO a)
-       -> Trusted FileLength -> Path -> IO a
+       -> Trusted FileLength -> Path (Rooted root) -> IO a
 incTar HttpClient{..} baseURI cache callback len cachedFile = do
     -- TODO: Once we have a local tarball index, this is not necessary
     currentSize <- getFileSize cachedFile
@@ -347,7 +348,7 @@ incTar HttpClient{..} baseURI cache callback len cachedFile = do
   where
     -- TODO: There are hardcoded references to "00-index.tar" and
     -- "00-index.tar.gz" everwhere. We should probably abstract over that.
-    uri = modifyUriPath baseURI $ \p -> p </> path "00-index.tar"
+    uri = modifyUriPath baseURI $ \p -> p </> fragment "00-index.tar"
 
 -- | Mirror selection
 withMirror :: forall a.
@@ -424,7 +425,7 @@ execBodyReader file mlen h br = go 0
 remoteFileURI :: URI -> RemoteFile fs -> Formats fs URI
 remoteFileURI baseURI = fmap aux . remoteFilePath
   where
-    aux :: Path -> URI
+    aux :: UnrootedPath -> URI
     aux remotePath = modifyUriPath baseURI $ \p -> p </> remotePath
 
 -- | Extracting or estimating file sizes

@@ -8,12 +8,31 @@
 -- Note that his module does not import any other modules from Hackage.Security;
 -- everywhere else we use Path instead of FilePath directly.
 module Hackage.Security.Util.Path (
-    Path -- Opaque
-  , filePath
-  , path
+    Path              -- opaque
+  , Rooted            -- opaque
+  , IsRoot            -- opaque
+  , IsFileSystemRoot  -- opaque
+  , Unrooted          -- empty type
+  , LocalDir          -- empty type
+  , Absolute          -- empty type
+  , WebRoot           -- empty type
+  , Fragment
+    -- ** Synonyms for convenience
+  , AbsolutePath
+  , UnrootedPath
+    -- * Constructing and deconstructing Paths
+  , fragment
+  , rootPath
   , (</>)
   , (<.>)
-  , joinPath
+    -- * Conversion between Path and FilePath
+  , toFilePath
+  , fromFilePath
+  , toUnrootedFilePath
+  , fromUnrootedFilePath
+    -- * FilePath-like operations
+  , splitFragments
+  , joinFragments
   , takeDirectory
   , takeFileName
     -- * Wrappers around standard functions
@@ -46,6 +65,7 @@ module Hackage.Security.Util.Path (
   , IO.hFileSize
   ) where
 
+import Data.Function (on)
 import qualified Data.ByteString         as BS
 import qualified Data.ByteString.Lazy    as BS.L
 import qualified System.FilePath         as FilePath
@@ -55,98 +75,216 @@ import qualified Codec.Archive.Tar       as Tar
 import qualified Codec.Archive.Tar.Index as TarIndex
 import qualified Network.URI             as URI
 
-newtype Path = Path { filePath :: FilePath }
-  deriving (Eq, Ord)
+{-------------------------------------------------------------------------------
+  Types
+-------------------------------------------------------------------------------}
 
-instance Show Path where
-  show = filePath
+data Unrooted
+data LocalDir
+data Absolute
+data WebRoot
 
-path :: FilePath -> Path
-path = Path
+data Rooted a where
+    RootLocalDir :: Rooted LocalDir
+    RootAbsolute :: Rooted Absolute
+    RootWebRoot  :: Rooted WebRoot
 
-(</>) :: Path -> Path -> Path
-Path p </> Path q = Path (p FilePath.</> q)
+deriving instance Show (Rooted root)
 
-(<.>) :: Path -> String -> Path
-Path p <.> ext = Path (p FilePath.<.> ext)
+class IsRoot root where
+  singRoot :: Rooted root
 
-joinPath :: [Path] -> Path
-joinPath = Path . FilePath.joinPath . map filePath
+instance IsRoot LocalDir where singRoot = RootLocalDir
+instance IsRoot Absolute where singRoot = RootAbsolute
+instance IsRoot WebRoot  where singRoot = RootWebRoot
 
-takeDirectory :: Path -> Path
-takeDirectory (Path p) = Path $ FilePath.takeDirectory p
+class IsRoot root => IsFileSystemRoot root where
+  rootFilePath :: Rooted root -> FilePath -> FilePath
 
-takeFileName :: Path -> Path
-takeFileName (Path p) = Path $ FilePath.takeFileName p
+instance IsFileSystemRoot LocalDir where rootFilePath _ = ("." FilePath.</>)
+instance IsFileSystemRoot Absolute where rootFilePath _ = ("/" FilePath.</>)
+
+type Fragment = String
+
+-- | Paths
+--
+-- A path consists of an optional root and a list of fragments.
+-- Alternatively, think of it as a list with two kinds of nil-constructors.
+data Path a where
+    PathRoot :: IsRoot root => Path (Rooted root)
+    PathNil  :: Path Unrooted
+    PathSnoc :: Path a -> Fragment -> Path a
+
+deriving instance Show (Path a)
+
+instance Eq UnrootedPath where
+  (==) = (==) `on` splitFragments
+
+instance Ord UnrootedPath where
+  (<=) = (<=) `on` splitFragments
+
+type AbsolutePath = Path (Rooted Absolute)
+type UnrootedPath = Path Unrooted
+
+{-------------------------------------------------------------------------------
+  Constructing and deconstructing Paths
+-------------------------------------------------------------------------------}
+
+fragment :: Fragment -> UnrootedPath
+fragment = PathSnoc PathNil
+
+(</>) :: Path a -> UnrootedPath -> Path a
+ps </> PathNil       = ps
+ps </> PathSnoc qs q = PathSnoc (ps </> qs) q
+
+rootPath :: IsRoot root => UnrootedPath -> Path (Rooted root)
+rootPath PathNil         = PathRoot
+rootPath (PathSnoc qs q) = PathSnoc (rootPath qs) q
+
+unrootPath :: Path (Rooted root) -> UnrootedPath
+unrootPath PathRoot        = PathNil
+unrootPath (PathSnoc ps p) = PathSnoc (unrootPath ps) p
+
+(<.>) :: Path a -> String -> Path a
+PathRoot      <.> _   = error "(<.>): empty path"
+PathNil       <.> _   = error "(<.>): empty path"
+PathSnoc ps p <.> ext = PathSnoc ps (p FilePath.<.> ext)
+
+{-------------------------------------------------------------------------------
+  FilePath-like operations
+-------------------------------------------------------------------------------}
+
+joinFragments :: [Fragment] -> UnrootedPath
+joinFragments = go PathNil
+  where
+    go :: UnrootedPath -> [Fragment] -> UnrootedPath
+    go acc []     = acc
+    go acc (p:ps) = go (PathSnoc acc p) ps
+
+splitFragments :: UnrootedPath -> [Fragment]
+splitFragments = go []
+  where
+    go :: [Fragment] -> UnrootedPath -> [Fragment]
+    go acc PathNil         = acc
+    go acc (PathSnoc ps p) = go (p:acc) ps
+
+takeDirectory :: Path a -> Path a
+takeDirectory PathRoot        = PathRoot
+takeDirectory PathNil         = PathNil
+takeDirectory (PathSnoc ps _) = ps
+
+takeFileName :: Path a -> Fragment
+takeFileName PathRoot       = error "takeFileName: empty path"
+takeFileName PathNil        = error "takeFileName: empty path"
+takeFileName (PathSnoc _ p) = p
+
+{-------------------------------------------------------------------------------
+  Converting between Paths and FilePaths
+-------------------------------------------------------------------------------}
+
+toUnrootedFilePath :: UnrootedPath -> FilePath
+toUnrootedFilePath = FilePath.joinPath . splitFragments
+
+fromUnrootedFilePath :: FilePath -> UnrootedPath
+fromUnrootedFilePath = joinFragments . FilePath.splitPath
+
+-- | Translate to a raw FilePath
+--
+-- This only makes sense for rooted paths
+toFilePath :: forall root. IsFileSystemRoot root
+           => Path (Rooted root) -> FilePath
+toFilePath = rootFilePath (singRoot :: Rooted root)
+           . toUnrootedFilePath
+           . unrootPath
+
+-- | Translate from a raw FilePath
+--
+-- Invariant: @fromFilePath . toFilePath == id@
+--
+-- TODO: We should do some error checking here
+-- TODO: If we introduce trickier file systme roots (like home directory)
+-- then we need to do more manipulation of the FilePath here
+fromFilePath :: IsRoot root => FilePath -> Path (Rooted root)
+fromFilePath = rootPath . fromUnrootedFilePath
 
 {-------------------------------------------------------------------------------
   Wrappers around System.IO
 -------------------------------------------------------------------------------}
 
-withFile :: Path -> IO.IOMode -> (IO.Handle -> IO r) -> IO r
-withFile = IO.withFile . filePath
+withFile :: IsFileSystemRoot root
+         => Path (Rooted root) -> IO.IOMode -> (IO.Handle -> IO r) -> IO r
+withFile = IO.withFile . toFilePath
 
-withBinaryFile :: Path -> IO.IOMode -> (IO.Handle -> IO r) -> IO r
-withBinaryFile = IO.withBinaryFile . filePath
+withBinaryFile :: IsFileSystemRoot root
+               => Path (Rooted root) -> IO.IOMode -> (IO.Handle -> IO r) -> IO r
+withBinaryFile = IO.withBinaryFile . toFilePath
 
-openTempFile :: Path -> Path -> IO (Path, IO.Handle)
-openTempFile (Path dir) (Path template) = aux <$> IO.openTempFile dir template
+openTempFile :: forall root. IsFileSystemRoot root
+             => Path (Rooted root) -> Fragment -> IO (Path (Rooted root), IO.Handle)
+openTempFile dir template = aux <$> IO.openTempFile (toFilePath dir) template
   where
-    aux :: (FilePath, IO.Handle) -> (Path, IO.Handle)
-    aux (fp, h) = (Path fp, h)
+    aux :: (FilePath, IO.Handle) -> (Path (Rooted root), IO.Handle)
+    aux (fp, h) = (fromFilePath fp, h)
 
 {-------------------------------------------------------------------------------
   Wrappers around Data.ByteString.*
 -------------------------------------------------------------------------------}
 
-writeLazyByteString :: Path -> BS.L.ByteString -> IO ()
-writeLazyByteString = BS.L.writeFile . filePath
+writeLazyByteString :: IsFileSystemRoot root
+                    => Path (Rooted root) -> BS.L.ByteString -> IO ()
+writeLazyByteString = BS.L.writeFile . toFilePath
 
-readLazyByteString :: Path -> IO BS.L.ByteString
-readLazyByteString (Path p) = BS.L.readFile p
+readLazyByteString :: IsFileSystemRoot root
+                   => Path (Rooted root) -> IO BS.L.ByteString
+readLazyByteString = BS.L.readFile . toFilePath
 
-readStrictByteString :: Path -> IO BS.ByteString
-readStrictByteString (Path p) = BS.readFile p
+readStrictByteString :: IsFileSystemRoot root
+                     => Path (Rooted root) -> IO BS.ByteString
+readStrictByteString = BS.readFile . toFilePath
 
 {-------------------------------------------------------------------------------
   Wrappers around System.Directory
 -------------------------------------------------------------------------------}
 
-createDirectoryIfMissing :: Bool -> Path -> IO ()
-createDirectoryIfMissing createParents (Path p) =
-    Dir.createDirectoryIfMissing createParents p
+createDirectoryIfMissing :: IsFileSystemRoot root
+                         => Bool -> Path (Rooted root) -> IO ()
+createDirectoryIfMissing createParents =
+    Dir.createDirectoryIfMissing createParents . toFilePath
 
-copyFile :: Path -> Path -> IO ()
-copyFile (Path p) (Path q) = Dir.copyFile p q
+copyFile :: (IsFileSystemRoot root, IsFileSystemRoot root')
+         => Path (Rooted root) -> Path (Rooted root') -> IO ()
+copyFile p q = Dir.copyFile (toFilePath p) (toFilePath q)
 
-doesFileExist :: Path -> IO Bool
-doesFileExist (Path p) = Dir.doesFileExist p
+doesFileExist :: IsFileSystemRoot root => Path (Rooted root) -> IO Bool
+doesFileExist = Dir.doesFileExist . toFilePath
 
-removeFile :: Path -> IO ()
-removeFile (Path p) = Dir.removeFile p
+removeFile :: IsFileSystemRoot root => Path (Rooted root) -> IO ()
+removeFile = Dir.removeFile . toFilePath
 
-getTemporaryDirectory :: IO Path
-getTemporaryDirectory = path <$> Dir.getTemporaryDirectory
+getTemporaryDirectory :: IO AbsolutePath
+getTemporaryDirectory = fromFilePath <$> Dir.getTemporaryDirectory
 
 {-------------------------------------------------------------------------------
   Wrappers around Codec.Archive.Tar.*
 -------------------------------------------------------------------------------}
 
-tarPack :: Path -> [Path] -> IO [Tar.Entry]
-tarPack baseDir paths = Tar.pack (filePath baseDir) (map filePath paths)
+tarPack :: IsFileSystemRoot root
+        => Path (Rooted root) -> [UnrootedPath] -> IO [Tar.Entry]
+tarPack baseDir paths =
+    Tar.pack (toFilePath baseDir) (map toUnrootedFilePath paths)
 
-tarIndexLookup :: TarIndex.TarIndex -> Path -> Maybe TarIndex.TarIndexEntry
-tarIndexLookup index (Path p) = TarIndex.lookup index p
+tarIndexLookup :: TarIndex.TarIndex -> UnrootedPath -> Maybe TarIndex.TarIndexEntry
+tarIndexLookup index = TarIndex.lookup index . toUnrootedFilePath
 
 {-------------------------------------------------------------------------------
   Wrappers around Network.URI
 -------------------------------------------------------------------------------}
 
-uriPath :: URI.URI -> Path
-uriPath uri = Path $ URI.uriPath uri
+uriPath :: URI.URI -> Path (Rooted WebRoot)
+uriPath = fromFilePath . URI.uriPath
 
-modifyUriPath :: URI.URI -> (Path -> Path) -> URI.URI
+modifyUriPath :: URI.URI -> (Path (Rooted WebRoot) -> Path (Rooted WebRoot)) -> URI.URI
 modifyUriPath uri f = uri { URI.uriPath = f' (URI.uriPath uri) }
   where
     f' :: FilePath -> FilePath
-    f' = filePath . f . path
+    f' = toUnrootedFilePath . unrootPath . f . fromFilePath

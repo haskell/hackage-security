@@ -75,7 +75,8 @@ verifyMirrors root =
 -------------------------------------------------------------------------------}
 
 -- | Verify 'FileInfo'
-verifyFileInfo :: Path -> Trusted FileInfo -> IO Bool
+verifyFileInfo :: IsFileSystemRoot root
+               => Path (Rooted root) -> Trusted FileInfo -> IO Bool
 verifyFileInfo fp info = (== trusted info) <$> computeFileInfo fp
 
 {-------------------------------------------------------------------------------

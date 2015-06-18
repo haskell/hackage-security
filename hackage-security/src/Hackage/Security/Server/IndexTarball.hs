@@ -13,7 +13,11 @@ import qualified Data.ByteString.Lazy    as BS.L
 import Hackage.Security.Util.Path
 
 -- | Append (or create) some files to tarball
-append :: Path -> Path -> [Path] -> IO ()
+append :: (IsFileSystemRoot root, IsFileSystemRoot root')
+       => Path (Rooted root)  -- ^ Location of the tar-file
+       -> Path (Rooted root') -- ^ Base directory of new files to be added
+       -> [UnrootedPath]   -- ^ Files to be added
+       -> IO ()
 append tar baseDir newFiles =
     seekTarball tar $ \h -> do
       newEntries <- tarPack baseDir newFiles
@@ -21,7 +25,8 @@ append tar baseDir newFiles =
 
 -- | Open (or create) a tarball and seek it to the end so we can start
 -- writing new entries.
-seekTarball :: Path -> (Handle -> IO a) -> IO a
+seekTarball :: IsFileSystemRoot root
+            => Path (Rooted root) -> (Handle -> IO a) -> IO a
 seekTarball tar callback = do
     withFile tar ReadWriteMode $ \h -> do
       isEmpty <- (== 0) <$> hFileSize h

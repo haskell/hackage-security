@@ -58,7 +58,7 @@ fileInfo bs = FileInfo {
     }
 
 -- | Compute 'FileInfo'
-computeFileInfo :: Path -> IO FileInfo
+computeFileInfo :: IsFileSystemRoot root => Path (Rooted root) -> IO FileInfo
 computeFileInfo fp = fileInfo <$> readLazyByteString fp
 
 {-------------------------------------------------------------------------------

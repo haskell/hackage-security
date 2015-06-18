@@ -57,11 +57,11 @@ instance ToJSON Snapshot where
       ]
     where
       snapshotMeta = FileMap.fromList $ [
-          (path "root.json"    , snapshotInfoRoot)
-        , (path "mirrors.json" , snapshotInfoMirrors)
-        , (path "index.tar.gz" , snapshotInfoTarGz)
+          (fragment "root.json"    , snapshotInfoRoot)
+        , (fragment "mirrors.json" , snapshotInfoMirrors)
+        , (fragment "index.tar.gz" , snapshotInfoTarGz)
         ] ++
-        [ (path "index.tar" , infoTar) | Just infoTar <- [snapshotInfoTar] ]
+        [ (fragment "index.tar" , infoTar) | Just infoTar <- [snapshotInfoTar] ]
 
 instance ReportSchemaErrors m => FromJSON m Snapshot where
   fromJSON enc = do
@@ -69,10 +69,10 @@ instance ReportSchemaErrors m => FromJSON m Snapshot where
     snapshotVersion     <- fromJSField enc "version"
     snapshotExpires     <- fromJSField enc "expires"
     snapshotMeta        <- fromJSField enc "meta"
-    snapshotInfoRoot    <- FileMap.lookupM snapshotMeta $ path "root.json"
-    snapshotInfoMirrors <- FileMap.lookupM snapshotMeta $ path "mirrors.json"
-    snapshotInfoTarGz   <- FileMap.lookupM snapshotMeta $ path "index.tar.gz"
-    let snapshotInfoTar = FileMap.lookup (path "index.tar") snapshotMeta
+    snapshotInfoRoot    <- FileMap.lookupM snapshotMeta $ fragment "root.json"
+    snapshotInfoMirrors <- FileMap.lookupM snapshotMeta $ fragment "mirrors.json"
+    snapshotInfoTarGz   <- FileMap.lookupM snapshotMeta $ fragment "index.tar.gz"
+    let snapshotInfoTar = FileMap.lookup (fragment "index.tar") snapshotMeta
     return Snapshot{..}
 
 instance FromJSON ReadJSON (Signed Snapshot) where
