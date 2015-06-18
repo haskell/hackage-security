@@ -27,6 +27,7 @@ library
                        Hackage.Security.TUF.FileMap
                        Hackage.Security.Util.IO
                        Hackage.Security.Util.Lens
+                       Hackage.Security.Util.Path
                        Hackage.Security.Util.Some
   other-modules:       Hackage.Security.Base64
                        Hackage.Security.Client.Formats

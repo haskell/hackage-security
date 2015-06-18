@@ -16,6 +16,7 @@ import qualified Data.ByteString.Lazy as BS.L
 
 import Hackage.Security.JSON
 import Hackage.Security.TUF.Common
+import Hackage.Security.Util.Path
 
 {-------------------------------------------------------------------------------
   Datatypes
@@ -57,8 +58,8 @@ fileInfo bs = FileInfo {
     }
 
 -- | Compute 'FileInfo'
-computeFileInfo :: FilePath -> IO FileInfo
-computeFileInfo fp = fileInfo <$> BS.L.readFile fp
+computeFileInfo :: Path -> IO FileInfo
+computeFileInfo fp = fileInfo <$> readLazyByteString fp
 
 {-------------------------------------------------------------------------------
   JSON

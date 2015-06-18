@@ -19,6 +19,7 @@ import Hackage.Security.TUF.Header
 import Hackage.Security.TUF.Patterns
 import Hackage.Security.TUF.Signed
 import Hackage.Security.Util.Some
+import Hackage.Security.Util.Path
 import qualified Hackage.Security.TUF.FileMap as FileMap
 
 {-------------------------------------------------------------------------------
@@ -68,7 +69,7 @@ instance DescribeFile Targets where
   Utility
 -------------------------------------------------------------------------------}
 
-targetsLookup :: FilePath -> Targets -> Maybe FileInfo
+targetsLookup :: Path -> Targets -> Maybe FileInfo
 targetsLookup fp Targets{..} = FileMap.lookup fp targetsTargets
 
 {-------------------------------------------------------------------------------
@@ -76,11 +77,11 @@ targetsLookup fp Targets{..} = FileMap.lookup fp targetsTargets
 -------------------------------------------------------------------------------}
 
 instance ToJSON DelegationSpec where
-  toJSON DelegationSpec{delegation = Delegation path name, ..} = JSObject [
+  toJSON DelegationSpec{delegation = Delegation fp name, ..} = JSObject [
         ("name"      , toJSON name)
       , ("keyids"    , JSArray $ map writeKeyAsId delegationSpecKeys)
       , ("threshold" , toJSON delegationSpecThreshold)
-      , ("path"      , toJSON path)
+      , ("path"      , toJSON fp)
       ]
 
 instance FromJSON ReadJSON DelegationSpec where

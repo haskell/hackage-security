@@ -7,6 +7,7 @@ import Hackage.Security.Key.ExplicitSharing
 import Hackage.Security.TUF.Header
 import Hackage.Security.TUF.FileInfo
 import Hackage.Security.TUF.Signed
+import Hackage.Security.Util.Path
 import qualified Hackage.Security.TUF.FileMap as FileMap
 
 {-------------------------------------------------------------------------------
@@ -56,11 +57,11 @@ instance ToJSON Snapshot where
       ]
     where
       snapshotMeta = FileMap.fromList $ [
-          ("root.json"    , snapshotInfoRoot)
-        , ("mirrors.json" , snapshotInfoMirrors)
-        , ("index.tar.gz" , snapshotInfoTarGz)
+          (path "root.json"    , snapshotInfoRoot)
+        , (path "mirrors.json" , snapshotInfoMirrors)
+        , (path "index.tar.gz" , snapshotInfoTarGz)
         ] ++
-        [ ("index.tar" , infoTar) | Just infoTar <- [snapshotInfoTar] ]
+        [ (path "index.tar" , infoTar) | Just infoTar <- [snapshotInfoTar] ]
 
 instance ReportSchemaErrors m => FromJSON m Snapshot where
   fromJSON enc = do
@@ -68,10 +69,10 @@ instance ReportSchemaErrors m => FromJSON m Snapshot where
     snapshotVersion     <- fromJSField enc "version"
     snapshotExpires     <- fromJSField enc "expires"
     snapshotMeta        <- fromJSField enc "meta"
-    snapshotInfoRoot    <- FileMap.lookupM snapshotMeta "root.json"
-    snapshotInfoMirrors <- FileMap.lookupM snapshotMeta "mirrors.json"
-    snapshotInfoTarGz   <- FileMap.lookupM snapshotMeta "index.tar.gz"
-    let snapshotInfoTar = FileMap.lookup "index.tar" snapshotMeta
+    snapshotInfoRoot    <- FileMap.lookupM snapshotMeta $ path "root.json"
+    snapshotInfoMirrors <- FileMap.lookupM snapshotMeta $ path "mirrors.json"
+    snapshotInfoTarGz   <- FileMap.lookupM snapshotMeta $ path "index.tar.gz"
+    let snapshotInfoTar = FileMap.lookup (path "index.tar") snapshotMeta
     return Snapshot{..}
 
 instance FromJSON ReadJSON (Signed Snapshot) where

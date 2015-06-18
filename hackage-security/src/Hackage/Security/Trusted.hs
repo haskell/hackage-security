@@ -20,6 +20,7 @@ module Hackage.Security.Trusted (
 import Data.Time
 import Hackage.Security.TUF
 import Hackage.Security.Trusted.TCB hiding (DeclareTrusted)
+import Hackage.Security.Util.Path
 
 {-------------------------------------------------------------------------------
   Combinators on trusted values
@@ -74,7 +75,7 @@ verifyMirrors root =
 -------------------------------------------------------------------------------}
 
 -- | Verify 'FileInfo'
-verifyFileInfo :: FilePath -> Trusted FileInfo -> IO Bool
+verifyFileInfo :: Path -> Trusted FileInfo -> IO Bool
 verifyFileInfo fp info = (== trusted info) <$> computeFileInfo fp
 
 {-------------------------------------------------------------------------------

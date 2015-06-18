@@ -7,6 +7,7 @@ import Hackage.Security.Key.ExplicitSharing
 import Hackage.Security.TUF.FileInfo
 import Hackage.Security.TUF.Header
 import Hackage.Security.TUF.Signed
+import Hackage.Security.Util.Path
 import qualified Hackage.Security.TUF.FileMap as FileMap
 
 {-------------------------------------------------------------------------------
@@ -39,7 +40,7 @@ instance ToJSON Timestamp where
       ]
     where
       timestampMeta = FileMap.fromList [
-          ("snapshot.json", timestampInfoSnapshot)
+          (path "snapshot.json", timestampInfoSnapshot)
         ]
 
 instance ReportSchemaErrors m => FromJSON m Timestamp where
@@ -48,7 +49,7 @@ instance ReportSchemaErrors m => FromJSON m Timestamp where
     timestampVersion      <- fromJSField enc "version"
     timestampExpires      <- fromJSField enc "expires"
     timestampMeta         <- fromJSField enc "meta"
-    timestampInfoSnapshot <- FileMap.lookupM timestampMeta "snapshot.json"
+    timestampInfoSnapshot <- FileMap.lookupM timestampMeta (path "snapshot.json")
     return Timestamp{..}
 
 instance FromJSON ReadJSON (Signed Timestamp) where

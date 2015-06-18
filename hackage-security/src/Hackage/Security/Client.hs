@@ -25,7 +25,6 @@ import Control.Monad.Cont
 import Control.Monad.Trans.Cont
 import Data.Time
 import Data.Typeable (Typeable)
-import System.FilePath
 import qualified Data.ByteString      as BS
 import qualified Data.ByteString.Lazy as BS.L
 
@@ -41,6 +40,7 @@ import Hackage.Security.Key.ExplicitSharing
 import Hackage.Security.Trusted
 import Hackage.Security.Trusted.TCB
 import Hackage.Security.TUF
+import Hackage.Security.Util.Path
 import Hackage.Security.Util.Stack
 import Hackage.Security.Util.Some
 import qualified Hackage.Security.Key.Env as KeyEnv
@@ -379,7 +379,7 @@ downloadPackage rep pkgId callback = withMirror rep $ evalContT $ do
     targetMetaData :: Trusted FileInfo
       <- case mTargetMetaData of
            Nothing -> liftIO $
-             throwIO $ VerificationErrorUnknownTarget packageFileName
+             throwIO $ VerificationErrorUnknownTarget (show packageFileName)
            Just nfo ->
              return nfo
 
@@ -390,8 +390,8 @@ downloadPackage rep pkgId callback = withMirror rep $ evalContT $ do
     lift $ callback tarGz
   where
     -- TODO: Is there a standard function in Cabal to do this?
-    packageFileName :: FilePath
-    packageFileName = display pkgId <.> "tar.gz"
+    packageFileName :: Path
+    packageFileName = path (display pkgId) <.> "tar.gz"
 
     packageMustExist :: MonadIO m => Maybe a -> m a
     packageMustExist (Just fp) = return fp
@@ -456,10 +456,10 @@ getRemote' r file = ContT aux
           -> (SelectedFormat fs -> TempPath -> IO r)
     wrapK k _format tempPath = k tempPath
 
-getCached :: MonadIO m => Repository -> CachedFile -> m (Maybe FilePath)
+getCached :: MonadIO m => Repository -> CachedFile -> m (Maybe Path)
 getCached r file = liftIO $ repGetCached r file
 
-getCachedRoot :: MonadIO m => Repository -> m FilePath
+getCachedRoot :: MonadIO m => Repository -> m Path
 getCachedRoot r = liftIO $ repGetCachedRoot r
 
 clearCache :: MonadIO m => Repository -> m ()
@@ -517,15 +517,15 @@ trustLocalFile Signed{..} = DeclareTrusted signed
 -- | Just a simple wrapper around 'verifyFileInfo'
 --
 -- Throws a VerificationError if verification failed. For convenience in
--- composition returns the argument FilePath otherwise.
-verifyFileInfo' :: MonadIO m => Maybe (Trusted FileInfo) -> FilePath -> m FilePath
+-- composition returns the argument Path otherwise.
+verifyFileInfo' :: MonadIO m => Maybe (Trusted FileInfo) -> Path -> m Path
 verifyFileInfo' Nothing     fp = return fp
 verifyFileInfo' (Just info) fp = liftIO $ do
     verified <- verifyFileInfo fp info
-    unless verified $ throw $ VerificationErrorFileInfo fp
+    unless verified $ throw $ VerificationErrorFileInfo (show fp)
     return fp
 
-readJSON :: (MonadIO m, FromJSON ReadJSON a) => KeyEnv -> FilePath -> m a
+readJSON :: (MonadIO m, FromJSON ReadJSON a) => KeyEnv -> Path -> m a
 readJSON keyEnv fpath = liftIO $ do
     result <- readCanonical keyEnv fpath
     case result of

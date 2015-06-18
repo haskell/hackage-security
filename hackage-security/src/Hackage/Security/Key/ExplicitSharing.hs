@@ -27,12 +27,12 @@ import Control.Exception
 import Control.Monad.Except
 import Control.Monad.Reader
 import Data.Typeable (Typeable)
-import System.IO
 import qualified Data.ByteString.Lazy as BS.L
 
 import Hackage.Security.Key
 import Hackage.Security.Key.Env (KeyEnv)
 import Hackage.Security.JSON
+import Hackage.Security.Util.Path
 import Hackage.Security.Util.Some
 import Text.JSON.Canonical
 import qualified Hackage.Security.Key.Env as KeyEnv
@@ -119,7 +119,7 @@ parseJSON env bs =
 
 readCanonical :: FromJSON ReadJSON a
               => KeyEnv
-              -> FilePath
+              -> Path
               -> IO (Either DeserializationError a)
 readCanonical env fp = do
     withFile fp ReadMode $ \h -> do
@@ -140,8 +140,8 @@ writeKeyAsId = JSString . keyIdString . someKeyId
 renderJSON :: ToJSON a => a -> BS.L.ByteString
 renderJSON = renderCanonicalJSON . toJSON
 
-writeCanonical :: ToJSON a => FilePath -> a -> IO ()
-writeCanonical fp = BS.L.writeFile fp . renderJSON
+writeCanonical :: ToJSON a => Path -> a -> IO ()
+writeCanonical fp = writeLazyByteString fp . renderJSON
 
 {-------------------------------------------------------------------------------
   Reading datatypes that do not require keys
@@ -166,7 +166,7 @@ parseNoKeys bs =
       Right val -> runNoKeys (fromJSON val)
 
 readNoKeys :: FromJSON NoKeys a
-           => FilePath -> IO (Either DeserializationError a)
+           => Path -> IO (Either DeserializationError a)
 readNoKeys fp = do
     withFile fp ReadMode $ \h -> do
       bs <- BS.L.hGetContents h

@@ -31,7 +31,6 @@ module Hackage.Security.Client.Repository (
 
 import Control.Exception
 import Data.Typeable
-import System.FilePath
 import qualified Data.ByteString as BS
 
 import Distribution.Package
@@ -40,6 +39,7 @@ import Distribution.Text
 import Hackage.Security.Client.Formats
 import Hackage.Security.Trusted
 import Hackage.Security.TUF
+import Hackage.Security.Util.Path
 import Hackage.Security.Util.Stack
 
 {-------------------------------------------------------------------------------
@@ -132,7 +132,7 @@ data IndexFile =
   deriving Show
 
 -- | Path to temporary file
-type TempPath = FilePath
+type TempPath = Path
 
 -- | Proof that remote files must always have at least one format
 remoteFileNonEmpty :: RemoteFile fs -> NonEmpty fs
@@ -184,13 +184,13 @@ data Repository = Repository {
                   -> IO a
 
     -- | Get a cached file (if available)
-  , repGetCached :: CachedFile -> IO (Maybe FilePath)
+  , repGetCached :: CachedFile -> IO (Maybe Path)
 
     -- | Get the cached root
     --
     -- This is a separate method only because clients must ALWAYS have root
     -- information available.
-  , repGetCachedRoot :: IO FilePath
+  , repGetCachedRoot :: IO Path
 
     -- | Clear all cached data
     --
@@ -343,33 +343,34 @@ catchRecoverable wrapCustom act handler = catches (wrapCustom act) [
   Paths
 -------------------------------------------------------------------------------}
 
-remoteFilePath :: RemoteFile fs -> Formats fs FilePath
-remoteFilePath RemoteTimestamp        = FsUn "timestamp.json"
-remoteFilePath (RemoteRoot _)         = FsUn "root.json"
-remoteFilePath (RemoteSnapshot _)     = FsUn "snapshot.json"
-remoteFilePath (RemoteMirrors _)      = FsUn "mirrors.json"
+remoteFilePath :: RemoteFile fs -> Formats fs Path
+remoteFilePath RemoteTimestamp        = FsUn (path "timestamp.json")
+remoteFilePath (RemoteRoot _)         = FsUn (path "root.json")
+remoteFilePath (RemoteSnapshot _)     = FsUn (path "snapshot.json")
+remoteFilePath (RemoteMirrors _)      = FsUn (path "mirrors.json")
 remoteFilePath (RemotePkgTarGz pId _) = FsGz (pkgLoc pId </> pkgTarGz pId)
 remoteFilePath (RemoteIndex _ lens)   = formatsMap aux lens
   where
-    aux :: Format f -> a -> FilePath
-    aux FUn _ = "00-index.tar"
-    aux FGz _ = "00-index.tar.gz"
+    aux :: Format f -> a -> Path
+    aux FUn _ = path "00-index.tar"
+    aux FGz _ = path "00-index.tar.gz"
 
-cachedFilePath :: CachedFile -> FilePath
-cachedFilePath CachedTimestamp = "timestamp.json"
-cachedFilePath CachedRoot      = "root.json"
-cachedFilePath CachedSnapshot  = "snapshot.json"
-cachedFilePath CachedMirrors   = "mirrors.json"
+cachedFilePath :: CachedFile -> Path
+cachedFilePath CachedTimestamp = path "timestamp.json"
+cachedFilePath CachedRoot      = path "root.json"
+cachedFilePath CachedSnapshot  = path "snapshot.json"
+cachedFilePath CachedMirrors   = path "mirrors.json"
 
-indexFilePath :: IndexFile -> FilePath
-indexFilePath (IndexPkgMetadata pkgId) = pkgLoc pkgId </> "targets.json"
+indexFilePath :: IndexFile -> Path
+indexFilePath (IndexPkgMetadata pkgId) = pkgLoc pkgId </> path "targets.json"
 
-pkgLoc :: PackageIdentifier -> FilePath
-pkgLoc pkgId = display (packageName pkgId) </> display (packageVersion pkgId)
+pkgLoc :: PackageIdentifier -> Path
+pkgLoc pkgId =  path (display (packageName    pkgId))
+            </> path (display (packageVersion pkgId))
 
 -- TODO: Are we hardcoding information here that's available from Cabal somewhere?
-pkgTarGz :: PackageIdentifier -> FilePath
-pkgTarGz pkgId = concat [
+pkgTarGz :: PackageIdentifier -> Path
+pkgTarGz pkgId = (joinPath . map path) [
       display (packageName pkgId)
     , "-"
     , display (packageVersion pkgId)

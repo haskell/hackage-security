@@ -1,4 +1,7 @@
 -- | Patterns and replacements
+--
+-- TODO: We probably want to update this to work with 'File's
+-- (rather than 'String's).
 {-# LANGUAGE TemplateHaskell #-}
 module Hackage.Security.TUF.Patterns (
     -- * Patterns and replacements

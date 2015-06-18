@@ -36,8 +36,7 @@ module Hackage.Security.Client.Repository.Remote (
 import Control.Concurrent
 import Control.Exception
 import Control.Monad.Except
-import Network.URI
-import System.FilePath
+import Network.URI hiding (uriPath, path)
 import System.IO
 import qualified Data.ByteString      as BS
 import qualified Data.ByteString.Lazy as BS.L
@@ -48,6 +47,7 @@ import Hackage.Security.Client.Repository.Local (Cache)
 import Hackage.Security.Trusted
 import Hackage.Security.TUF
 import Hackage.Security.Util.IO
+import Hackage.Security.Util.Path
 import Hackage.Security.Util.Some
 import qualified Hackage.Security.Client.Repository.Local as Local
 
@@ -238,7 +238,7 @@ withRemote httpClient selectedMirror cache logger callback = \remoteFile -> do
 shouldDoIncremental
   :: forall fs. HttpClient -> Cache -> RemoteFile fs
   -> IO (Either (Maybe UpdateFailure)
-                (SelectedFormat fs, Trusted FileLength, FilePath))
+                (SelectedFormat fs, Trusted FileLength, Path))
 shouldDoIncremental HttpClient{..} cache remoteFile = runExceptT $ do
     -- Currently the only file which we download incrementally is the index
     formats :: Formats fs (Trusted FileLength) <-
@@ -314,7 +314,7 @@ getFile' HttpClient{..} uri sz description callback =
 -- Sadly, this has some tar-specific functionality
 incTar :: HttpClient -> URI -> Cache
        -> (TempPath -> IO a)
-       -> Trusted FileLength -> FilePath -> IO a
+       -> Trusted FileLength -> Path -> IO a
 incTar HttpClient{..} baseURI cache callback len cachedFile = do
     -- TODO: Once we have a local tarball index, this is not necessary
     currentSize <- getFileSize cachedFile
@@ -324,7 +324,7 @@ incTar HttpClient{..} baseURI cache callback len cachedFile = do
         rangeSz = FileSizeExact (snd range - fst range)
         totalSz = FileSizeExact fileSz
     withSystemTempFile (takeFileName (uriPath uri)) $ \tempPath h -> do
-      BS.L.hPut h =<< BS.L.readFile cachedFile
+      BS.L.hPut h =<< readLazyByteString cachedFile
       hSeek h AbsoluteSeek currentMinusTrailer
       -- As in 'getFile', make sure we don't scope the remainder of the
       -- computation underneath the httpClientGetRange
@@ -347,7 +347,7 @@ incTar HttpClient{..} baseURI cache callback len cachedFile = do
   where
     -- TODO: There are hardcoded references to "00-index.tar" and
     -- "00-index.tar.gz" everwhere. We should probably abstract over that.
-    uri = baseURI { uriPath = uriPath baseURI </> "00-index.tar" }
+    uri = modifyUriPath baseURI $ \p -> p </> path "00-index.tar"
 
 -- | Mirror selection
 withMirror :: forall a.
@@ -424,8 +424,8 @@ execBodyReader file mlen h br = go 0
 remoteFileURI :: URI -> RemoteFile fs -> Formats fs URI
 remoteFileURI baseURI = fmap aux . remoteFilePath
   where
-    aux :: FilePath -> URI
-    aux remotePath = baseURI { uriPath = uriPath baseURI </> remotePath }
+    aux :: Path -> URI
+    aux remotePath = modifyUriPath baseURI $ \p -> p </> remotePath
 
 -- | Extracting or estimating file sizes
 --

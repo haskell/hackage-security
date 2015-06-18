@@ -30,6 +30,8 @@ import qualified Data.Map as Map
 import System.Locale
 #endif
 
+import qualified Hackage.Security.Util.Path as Path
+
 {-------------------------------------------------------------------------------
   ToJSON and FromJSON classes
 
@@ -80,6 +82,12 @@ instance ToObjectKey String where
 
 instance Monad m => FromObjectKey m String where
   fromObjectKey = return
+
+instance ToObjectKey Path.Path where
+  toObjectKey = Path.filePath
+
+instance Monad m => FromObjectKey m Path.Path where
+  fromObjectKey = return . Path.path
 
 {-------------------------------------------------------------------------------
   ToJSON and FromJSON instances

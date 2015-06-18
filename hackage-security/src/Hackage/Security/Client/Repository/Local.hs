@@ -13,9 +13,6 @@ module Hackage.Security.Client.Repository.Local (
 
 import Control.Exception
 import Control.Monad
-import System.Directory
-import System.FilePath
-import System.IO
 import Codec.Archive.Tar.Index (TarIndex)
 import qualified Codec.Archive.Tar       as Tar
 import qualified Codec.Archive.Tar.Index as TarIndex
@@ -27,14 +24,15 @@ import qualified Data.ByteString.Lazy    as BS.L
 import Hackage.Security.Client.Repository
 import Hackage.Security.Client.Formats
 import Hackage.Security.Util.IO
+import Hackage.Security.Util.Path
 import Hackage.Security.Util.Some
 
 {-------------------------------------------------------------------------------
   Top-level
 -------------------------------------------------------------------------------}
 
-type LocalRepo = FilePath
-type Cache     = FilePath
+type LocalRepo = Path
+type Cache     = Path
 
 -- | Initialize the repository (and cleanup resources afterwards)
 withRepository
@@ -51,7 +49,7 @@ withRepository repo cache logger callback = callback Repository {
   , repGetFromIndex  = getFromIndex  cache
   , repWithMirror    = mirrorsUnsupported
   , repLog           = logger
-  , repDescription   = "Local repository at " ++ repo
+  , repDescription   = "Local repository at " ++ show repo
   }
 
 {-------------------------------------------------------------------------------
@@ -83,7 +81,7 @@ cacheRemoteFile cache tempPath (Some f) isCached = do
     -- could delete the index here and then it will be rebuilt on first access.
     when (isCached == CacheIndex) $ rebuildTarIndex cache
   where
-    go :: Format f -> Maybe FilePath -> IO ()
+    go :: Format f -> Maybe Path -> IO ()
     go _ Nothing =
       return () -- Don't cache
     go FUn (Just localName) = do
@@ -94,19 +92,19 @@ cacheRemoteFile cache tempPath (Some f) isCached = do
     go FGz (Just localName) = do
       let fp = cache </> localName
       createDirectoryIfMissing True (takeDirectory fp)
-      compressed <- BS.L.readFile tempPath
-      BS.L.writeFile fp $ GZip.decompress compressed
+      compressed <- readLazyByteString tempPath
+      writeLazyByteString fp $ GZip.decompress compressed
 
 -- | Rebuild the tarball index
 --
 -- TODO: Should we attempt to rebuild this incrementally?
 rebuildTarIndex :: Cache -> IO ()
 rebuildTarIndex cache = do
-    entries <- Tar.read <$> BS.L.readFile (cache </> "00-index.tar")
+    entries <- Tar.read <$> readLazyByteString (cache </> path "00-index.tar")
     case TarIndex.build entries of
       Left  ex    -> throwIO ex
       Right index ->
-        withBinaryFile (cache </> "00-index.tar.idx") WriteMode $ \h -> do
+        withBinaryFile (cache </> path "00-index.tar.idx") WriteMode $ \h -> do
           hSetBuffering h (BlockBuffering Nothing)
           BS.hPutBuilder h $ TarIndex.serialise index
 
@@ -117,13 +115,13 @@ rebuildTarIndex cache = do
 -- NOTE: We always cache files locally in uncompressed format. This is a
 -- policy of this implementation of 'Repository', however, and other policies
 -- are possible; that's why this lives here rather than in @Client.Repository@.
-cachedFileName :: IsCached -> Maybe FilePath
+cachedFileName :: IsCached -> Maybe Path
 cachedFileName (CacheAs cachedFile) = Just $ cachedFilePath cachedFile
-cachedFileName CacheIndex           = Just "00-index.tar"
+cachedFileName CacheIndex           = Just $ path "00-index.tar"
 cachedFileName DontCache            = Nothing
 
 -- | Get a cached file (if available)
-getCached :: Cache -> CachedFile -> IO (Maybe FilePath)
+getCached :: Cache -> CachedFile -> IO (Maybe Path)
 getCached cache cachedFile = do
     exists <- doesFileExist localPath
     if exists then return $ Just localPath
@@ -132,36 +130,36 @@ getCached cache cachedFile = do
     localPath = cache </> cachedFilePath cachedFile
 
 -- | Get the cached index (if available)
-getCachedIndex :: Cache -> IO (Maybe FilePath)
+getCachedIndex :: Cache -> IO (Maybe Path)
 getCachedIndex cache = do
     exists <- doesFileExist localPath
     if exists then return $ Just localPath
               else return $ Nothing
   where
-    localPath = cache </> "00-index.tar"
+    localPath = cache </> path "00-index.tar"
 
 -- | Get the cached root
-getCachedRoot :: Cache -> IO FilePath
+getCachedRoot :: Cache -> IO Path
 getCachedRoot cache = do
     mPath <- getCached cache CachedRoot
     case mPath of
-      Just path -> return path
-      Nothing   -> throwIO $ userError "Client missing root info"
+      Just p  -> return p
+      Nothing -> throwIO $ userError "Client missing root info"
 
 -- | Get a file from the index
 getFromIndex :: Cache -> IndexFile -> IO (Maybe BS.ByteString)
 getFromIndex cache indexFile = do
-    mIndex <- tryReadIndex (cache </> "00-index.tar.idx")
+    mIndex <- tryReadIndex (cache </> path "00-index.tar.idx")
     case mIndex of
       Left _err -> do
         -- If index is corrupted, rebuild and try again
         rebuildTarIndex cache
         getFromIndex cache indexFile
       Right index ->
-        case TarIndex.lookup index (indexFilePath indexFile) of
+        case tarIndexLookup index (indexFilePath indexFile) of
           Just (TarIndex.TarFileEntry offset) ->
             -- TODO: We might want to keep this handle open
-            withFile (cache </> "00-index.tar") ReadMode $ \h -> do
+            withFile (cache </> path "00-index.tar") ReadMode $ \h -> do
               entry <- TarIndex.hReadEntry h offset
               case Tar.entryContent entry of
                 Tar.NormalFile lbs _size -> do
@@ -173,8 +171,9 @@ getFromIndex cache indexFile = do
             return Nothing
   where
     -- TODO: How come 'deserialise' uses _strict_ ByteStrings?
-    tryReadIndex :: FilePath -> IO (Either (Maybe IOException) TarIndex)
-    tryReadIndex fp = aux <$> try (TarIndex.deserialise <$> BS.readFile fp)
+    tryReadIndex :: Path -> IO (Either (Maybe IOException) TarIndex)
+    tryReadIndex fp =
+        aux <$> try (TarIndex.deserialise <$> readStrictByteString fp)
       where
         aux :: Either e (Maybe (a, leftover)) -> Either (Maybe e) a
         aux (Left e)              = Left (Just e)

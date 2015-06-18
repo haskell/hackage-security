@@ -6,21 +6,22 @@ module Hackage.Security.Server.IndexTarball (
 
 import Control.Exception
 import Control.Monad
-import System.IO
 import qualified Codec.Archive.Tar       as Tar
 import qualified Codec.Archive.Tar.Index as Tar
 import qualified Data.ByteString.Lazy    as BS.L
 
+import Hackage.Security.Util.Path
+
 -- | Append (or create) some files to tarball
-append :: FilePath -> FilePath -> [FilePath] -> IO ()
+append :: Path -> Path -> [Path] -> IO ()
 append tar baseDir newFiles =
     seekTarball tar $ \h -> do
-      newEntries <- Tar.pack baseDir newFiles
+      newEntries <- tarPack baseDir newFiles
       BS.L.hPut h $ Tar.write newEntries
 
 -- | Open (or create) a tarball and seek it to the end so we can start
 -- writing new entries.
-seekTarball :: FilePath -> (Handle -> IO a) -> IO a
+seekTarball :: Path -> (Handle -> IO a) -> IO a
 seekTarball tar callback = do
     withFile tar ReadWriteMode $ \h -> do
       isEmpty <- (== 0) <$> hFileSize h

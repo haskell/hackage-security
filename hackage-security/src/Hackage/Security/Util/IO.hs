@@ -6,21 +6,21 @@ module Hackage.Security.Util.IO (
 
 import Control.Exception
 import Control.Monad
-import System.Directory
-import System.IO
 import System.IO.Error
 
-withSystemTempFile :: String -> (FilePath -> Handle -> IO a) -> IO a
+import Hackage.Security.Util.Path
+
+withSystemTempFile :: forall a. Path -> (Path -> Handle -> IO a) -> IO a
 withSystemTempFile template callback = do
     tmpDir <- getTemporaryDirectory
     bracket (openTempFile tmpDir template) closeAndDelete (uncurry callback)
   where
-    closeAndDelete :: (FilePath, Handle) -> IO ()
+    closeAndDelete :: (Path, Handle) -> IO ()
     closeAndDelete (fp, h) = do
       hClose h
       void $ handleDoesNotExist $ removeFile fp
 
-getFileSize :: FilePath -> IO Integer
+getFileSize :: Path -> IO Integer
 getFileSize fp = withFile fp ReadMode hFileSize
 
 handleDoesNotExist :: IO a -> IO (Maybe a)
