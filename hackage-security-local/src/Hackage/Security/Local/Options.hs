@@ -4,8 +4,11 @@ module Hackage.Security.Local.Options (
   , getOptions
   ) where
 
-import Network.URI
+import Network.URI (URI, parseURI)
 import Options.Applicative
+import System.IO.Unsafe (unsafePerformIO)
+
+import Hackage.Security.Util.Path
 
 {-------------------------------------------------------------------------------
   Types
@@ -25,7 +28,7 @@ data GlobalOpts = GlobalOpts {
     -- > bar/..
     -- > baz/..
     -- > ..
-    globalRepo :: FilePath
+    globalRepo :: AbsolutePath
 
     -- | Root directory of the keys
     --
@@ -39,7 +42,7 @@ data GlobalOpts = GlobalOpts {
     -- timestamp/..
     --
     -- The @create-keys@ option can be used to create this directory.
-  , globalKeys :: FilePath
+  , globalKeys :: AbsolutePath
 
     -- | Mirrors (to add to @mirrors.json@)
   , globalMirrors :: [URI]
@@ -74,17 +77,17 @@ getOptions = execParser opts
 
 parseGlobalOptions :: Parser GlobalOpts
 parseGlobalOptions = GlobalOpts
-  <$> (strOption $ mconcat [
+  <$> (option (str >>= readAbsolutePath) $ mconcat [
           long "repo"
         , metavar "PATH"
         , help "Path to local repository"
         ])
-  <*> (strOption $ mconcat [
+  <*> (option (str >>= readAbsolutePath) $ mconcat [
           long "keys"
         , metavar "PATH"
         , help "Path to key store"
         ])
-  <*> (many . option readURI $ mconcat [
+  <*> (many . option (str >>= readURI) $ mconcat [
           long "mirror"
         , metavar "URI"
         , help "Mirror (to add to mirrors.json)"
@@ -98,9 +101,14 @@ parseGlobalOptions = GlobalOpts
             (progDesc "Update a (previously bootstrapped) local repository"))
         ])
 
-readURI :: ReadM URI
-readURI = do
-   uriStr <- str
+readURI :: String -> ReadM URI
+readURI uriStr =
    case parseURI uriStr of
      Nothing  -> fail $ "Invalid URI " ++ show uriStr
      Just uri -> return uri
+
+readAbsolutePath :: String -> ReadM AbsolutePath
+readAbsolutePath filePath =
+   case fromFilePath filePath of
+     -- Sadly, cannot do I/O actions inside ReadM
+     FileSystemPath path -> return $ unsafePerformIO $ makeAbsolute path

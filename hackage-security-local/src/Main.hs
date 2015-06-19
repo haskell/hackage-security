@@ -5,12 +5,12 @@ import Control.Exception
 import Control.Monad
 import Data.Maybe (catMaybes)
 import Data.Time
-import System.Directory
-import System.FilePath
+import System.Directory ()
 import System.IO
 import System.IO.Error
 import qualified Codec.Compression.GZip as GZip
 import qualified Data.ByteString.Lazy   as BS.L
+import qualified System.FilePath        as FilePath
 
 -- Cabal
 import Distribution.Package
@@ -20,6 +20,7 @@ import Distribution.Text
 import Hackage.Security.Server
 import Hackage.Security.Util.Some
 import Hackage.Security.Util.IO
+import Hackage.Security.Util.Path
 import qualified Hackage.Security.Key.Env             as KeyEnv
 import qualified Hackage.Security.Server.IndexTarball as Index
 import qualified Hackage.Security.TUF.FileMap         as FileMap
@@ -67,11 +68,11 @@ data PrivateKeys = PrivateKeys {
 
 readKeys :: GlobalOpts -> IO PrivateKeys
 readKeys GlobalOpts{..} =
-    PrivateKeys <$> readKeysAt (globalKeys </> "root")
-                <*> readKeysAt (globalKeys </> "target")
-                <*> readKeysAt (globalKeys </> "timestamp")
-                <*> readKeysAt (globalKeys </> "snapshot")
-                <*> readKeysAt (globalKeys </> "mirrors")
+    PrivateKeys <$> readKeysAt (globalKeys </> fragment "root")
+                <*> readKeysAt (globalKeys </> fragment "target")
+                <*> readKeysAt (globalKeys </> fragment "timestamp")
+                <*> readKeysAt (globalKeys </> fragment "snapshot")
+                <*> readKeysAt (globalKeys </> fragment "mirrors")
 
 writeKeys :: GlobalOpts -> PrivateKeys -> IO ()
 writeKeys opts PrivateKeys{..} = do
@@ -81,30 +82,30 @@ writeKeys opts PrivateKeys{..} = do
     forM_ privateSnapshot  $ writeKey opts "snapshot"
     forM_ privateMirrors   $ writeKey opts "mirrors"
 
-readKeysAt :: FilePath -> IO [Some Key]
+readKeysAt :: AbsolutePath -> IO [Some Key]
 readKeysAt dir = catMaybes <$> do
     contents <- getDirectoryContents dir
     forM (filter (not . skip) contents) $ \file -> do
-      let path = dir </> file
+      let path = dir </> fragment file
       mKey <- readCanonical KeyEnv.empty path
       case mKey of
-        Left _err -> do logWarn $ "Skipping unrecognized " ++ path
+        Left _err -> do logWarn $ "Skipping unrecognized " ++ show path
                         return Nothing
         Right key -> return $ Just key
   where
-    skip :: FilePath -> Bool
-    skip "."            = True
-    skip ".."           = True
-    skip _              = False
+    skip :: Fragment -> Bool
+    skip "."  = True
+    skip ".." = True
+    skip _    = False
 
-writeKey :: GlobalOpts -> FilePath -> Some Key -> IO ()
+writeKey :: GlobalOpts -> Fragment -> Some Key -> IO ()
 writeKey GlobalOpts{..} prefix key = do
-    logInfo $ "Writing " ++ path
+    logInfo $ "Writing " ++ show path
     createDirectoryIfMissing True (takeDirectory path)
     writeCanonical path key
   where
     kId  = keyIdString (someKeyId key)
-    path = globalKeys </> prefix </> kId <.> "private"
+    path = globalKeys </> fragment prefix </> fragment kId <.> "private"
 
 {-------------------------------------------------------------------------------
   Bootstrapping / updating
@@ -167,7 +168,7 @@ bootstrapOrUpdate opts@GlobalOpts{..} isBootstrap = do
                 }
           void $ updateFile whenWrite
                             globalRepo
-                            "root.json"
+                            (fragment "root.json")
                             (withSignatures (privateRoot keys))
                             root
 
@@ -180,7 +181,7 @@ bootstrapOrUpdate opts@GlobalOpts{..} isBootstrap = do
                 }
           void $ updateFile whenWrite
                             globalRepo
-                            "mirrors.json"
+                            (fragment "mirrors.json")
                             (withSignatures (privateMirrors keys))
                             mirrors
 
@@ -205,7 +206,7 @@ bootstrapOrUpdate opts@GlobalOpts{..} isBootstrap = do
                 }
           newGlobalTargets <- updateFile whenWrite
                                          globalRepo
-                                         "targets.json"
+                                         (fragment "targets.json")
                                          (withSignatures (privateTarget keys))
                                          globalTargets
 
@@ -216,7 +217,7 @@ bootstrapOrUpdate opts@GlobalOpts{..} isBootstrap = do
     newPackageMetadata <- forM pkgs $ createPackageMetadata opts whenWrite
 
     -- New files to be added to the index
-    let newFiles :: [FilePath]
+    let newFiles :: [UnrootedPath]
         newFiles = concat [
             catMaybes newBootstrapped
           , concat newPackageMetadata
@@ -235,24 +236,24 @@ bootstrapOrUpdate opts@GlobalOpts{..} isBootstrap = do
     case whenWrite of
       WriteAlways -> do
         -- If we are recreating all files, also recreate the index
-        removeFile (globalRepo </> "00-index.tar")
-        logInfo $ "Writing " ++ globalRepo </> "00-index.tar"
+        removeFile pathIndexTar
+        logInfo $ "Writing " ++ show pathIndexTar
       WriteIfNecessary -> do
-        logInfo $ "Appending to " ++ globalRepo </> "00-index.tar"
+        logInfo $ "Appending to " ++ show pathIndexTar
     Index.append
-      (globalRepo </> "00-index.tar")
+      pathIndexTar
       globalRepo
       addToIndex
-    BS.L.writeFile (globalRepo </> "00-index.tar.gz") =<<
-      GZip.compress <$> BS.L.readFile (globalRepo </> "00-index.tar")
+    writeLazyByteString pathIndexTarGz =<<
+      GZip.compress <$> readLazyByteString pathIndexTar
 
     -- Create snapshot
     -- TODO: If we are updating we should be incrementing the version, not
     -- keeping it the same
-    rootInfo    <- computeFileInfo $ globalRepo </> "root.json"
-    mirrorsInfo <- computeFileInfo $ globalRepo </> "mirrors.json"
-    tarInfo     <- computeFileInfo $ globalRepo </> "00-index.tar"
-    tarGzInfo   <- computeFileInfo $ globalRepo </> "00-index.tar.gz"
+    rootInfo    <- computeFileInfo pathRoot
+    mirrorsInfo <- computeFileInfo pathMirrors
+    tarInfo     <- computeFileInfo pathIndexTar
+    tarGzInfo   <- computeFileInfo pathIndexTarGz
     let snapshot = Snapshot {
             snapshotVersion     = versionInitial
           , snapshotExpires     = expiresInDays now 3
@@ -263,12 +264,12 @@ bootstrapOrUpdate opts@GlobalOpts{..} isBootstrap = do
           }
     void $ updateFile whenWrite
                       globalRepo
-                      "snapshot.json"
+                      (fragment "snapshot.json")
                       (withSignatures (privateSnapshot keys))
                       snapshot
 
     -- Finally, create the timestamp
-    snapshotInfo <- computeFileInfo $ globalRepo </> "snapshot.json"
+    snapshotInfo <- computeFileInfo pathSnapshot
     let timestamp = Timestamp {
             timestampVersion      = versionInitial
           , timestampExpires      = expiresInDays now 3
@@ -276,16 +277,22 @@ bootstrapOrUpdate opts@GlobalOpts{..} isBootstrap = do
           }
     void $ updateFile whenWrite
                       globalRepo
-                      "timestamp.json"
+                      (fragment "timestamp.json")
                       (withSignatures (privateTimestamp keys))
                       timestamp
+  where
+    pathRoot       = globalRepo </> fragment "root.json"
+    pathMirrors    = globalRepo </> fragment "mirrors.json"
+    pathSnapshot   = globalRepo </> fragment "snapshot.json"
+    pathIndexTar   = globalRepo </> fragment "00-index.tar"
+    pathIndexTarGz = globalRepo </> fragment "00-index.tar.gz"
 
 -- | Create package metadata
 --
 -- If we find that the package metadata has changed, we return the path of the
 -- new @target.json@ as well as the path of the @.cabal@ file so that we know
 -- to include it in the index. If nothing changed, we return the empty list.
-createPackageMetadata :: GlobalOpts -> WhenWrite -> PackageIdentifier -> IO [FilePath]
+createPackageMetadata :: GlobalOpts -> WhenWrite -> PackageIdentifier -> IO [UnrootedPath]
 createPackageMetadata GlobalOpts{..} whenWrite pkgId = do
     fileMapEntries <- computeFileMapEntries
     checkEntries fileMapEntries
@@ -305,26 +312,26 @@ createPackageMetadata GlobalOpts{..} whenWrite pkgId = do
       Nothing      -> return []
       Just updated -> return [updated, pathPkgCabal pkgId]
   where
-    computeFileMapEntries :: IO [(FilePath, FileInfo)]
+    computeFileMapEntries :: IO [(UnrootedPath, FileInfo)]
     computeFileMapEntries = catMaybes <$> do
       contents <- getDirectoryContents fullPkgPath
       forM (filter (not . skip) contents) $ \file -> do
-        let path = fullPkgPath </> file
+        let path = fullPkgPath </> fragment file
         isDir <- doesDirectoryExist path
         if isDir
           then do
-            logWarn $ "Skipping unrecognized " ++ path
+            logWarn $ "Skipping unrecognized " ++ show path
             return Nothing
           else do
-            let (_, ext) = splitExtension file
+            let (_, ext) = FilePath.splitExtension file
             -- TODO: Not sure how (or if) cabal revisions are stored
             case ext of
               ".gz"      -> Just <$> computeFileMapEntry file
               ".cabal"   -> Just <$> computeFileMapEntry file
-              _otherwise -> do logWarn $ "Skipping unrecognized " ++ path
+              _otherwise -> do logWarn $ "Skipping unrecognized " ++ show path
                                return Nothing
 
-    checkEntries :: [(FilePath, a)] -> IO ()
+    checkEntries :: [(UnrootedPath, a)] -> IO ()
     checkEntries entries = do
         unless (has ".gz") $
           logWarn $ "No .gz file for package " ++ display pkgId
@@ -334,18 +341,18 @@ createPackageMetadata GlobalOpts{..} whenWrite pkgId = do
         has :: String -> Bool
         has ext = not . null $ filter (matchesExt ext . fst) entries
 
-        matchesExt :: String -> FilePath -> Bool
+        matchesExt :: String -> UnrootedPath -> Bool
         matchesExt ext fp = let (_, ext') = splitExtension fp in ext == ext'
 
-    computeFileMapEntry :: FilePath -> IO (FilePath, FileInfo)
+    computeFileMapEntry :: Fragment -> IO (UnrootedPath, FileInfo)
     computeFileMapEntry file = do
-      info <- computeFileInfo (fullPkgPath </> file)
-      return (file, info)
+      info <- computeFileInfo (fullPkgPath </> fragment file)
+      return (fragment file, info)
 
-    fullPkgPath :: FilePath
+    fullPkgPath :: AbsolutePath
     fullPkgPath = globalRepo </> pathPkg pkgId
 
-    skip :: FilePath -> Bool
+    skip :: Fragment -> Bool
     skip "."            = True
     skip ".."           = True
     skip "targets.json" = True
@@ -362,7 +369,7 @@ findPackages :: GlobalOpts -> IO [PackageIdentifier]
 findPackages GlobalOpts{..} = do
     contents <- getDirectoryContents globalRepo
     pkgs <- forM (filter (not . skipPkg) contents) $ \pkg -> do
-      let path = globalRepo </> pkg
+      let path = globalRepo </> fragment pkg
       isDir <- doesDirectoryExist path
       if isDir
         then
@@ -372,20 +379,20 @@ findPackages GlobalOpts{..} = do
           return []
     return $ concat pkgs
   where
-    findVersions :: FilePath -> IO [PackageIdentifier]
+    findVersions :: Fragment -> IO [PackageIdentifier]
     findVersions pkg = catMaybes <$> do
-        contents <- getDirectoryContents (globalRepo </> pkg)
+        contents <- getDirectoryContents (globalRepo </> fragment pkg)
         forM (filter (not . skipVersion) contents) $ \version -> do
-          let path = globalRepo </> pkg </> version
+          let path = globalRepo </> fragment pkg </> fragment version
           isDir <- doesDirectoryExist path
           if isDir
              then
                case simpleParse (pkg ++ "-" ++ version) of
                  Just pkgId -> return $ Just pkgId
-                 Nothing    -> do logWarn $ "Skipping unrecognized " ++ path
+                 Nothing    -> do logWarn $ "Skipping unrecognized " ++ show path
                                   return Nothing
              else do
-               logWarn $ "Skipping unrecognized " ++ path
+               logWarn $ "Skipping unrecognized " ++ show path
                return Nothing
 
     skipPkg :: FilePath -> Bool
@@ -408,14 +415,15 @@ findPackages GlobalOpts{..} = do
     skipVersion _    = False
 
 -- | Find additional files that should be added to the index
-findExtraIndexFiles :: GlobalOpts -> IO [FilePath]
+findExtraIndexFiles :: GlobalOpts -> IO [UnrootedPath]
 findExtraIndexFiles GlobalOpts{..} = catMaybes <$> do
     forM extraIndexFiles $ \file -> do
-      let path = globalRepo </> file
+      let path = globalRepo </> fragment file
       isFile <- doesFileExist path
-      if isFile then return $ Just file
+      if isFile then return $ Just (fragment file)
                 else return Nothing
   where
+    extraIndexFiles :: [Fragment]
     extraIndexFiles = [
         "preferred-versions"
       ]
@@ -424,14 +432,18 @@ findExtraIndexFiles GlobalOpts{..} = catMaybes <$> do
   Paths
 -------------------------------------------------------------------------------}
 
-pathPkg :: PackageIdentifier -> FilePath
-pathPkg pkgId = display (packageName pkgId) </> display (packageVersion pkgId)
+pathPkg :: PackageIdentifier -> UnrootedPath
+pathPkg pkgId =  fragment (display (packageName    pkgId))
+             </> fragment (display (packageVersion pkgId))
 
-pathPkgCabal :: PackageIdentifier -> FilePath
-pathPkgCabal pkgId = pathPkg pkgId </> display (packageName pkgId) <.> "cabal"
+pathPkgCabal :: PackageIdentifier -> UnrootedPath
+pathPkgCabal pkgId =  pathPkg pkgId
+                  </> fragment (display (packageName pkgId))
+                  <.> "cabal"
 
-pathPkgMetadata :: PackageIdentifier -> FilePath
-pathPkgMetadata pkgId = pathPkg pkgId </> "targets.json"
+pathPkgMetadata :: PackageIdentifier -> UnrootedPath
+pathPkgMetadata pkgId =  pathPkg pkgId
+                     </> fragment "targets.json"
 
 {-------------------------------------------------------------------------------
   Logging
@@ -464,29 +476,29 @@ data WhenWrite = WriteIfNecessary | WriteAlways
 -- directory on the same file system. A worry for later.
 updateFile :: (ToJSON (Signed a), HasHeader a)
            => WhenWrite        -- ^ When should we overwrite the existing file?
-           -> FilePath         -- ^ Base directory
-           -> FilePath         -- ^ Path relative to base directory
+           -> AbsolutePath     -- ^ Base directory
+           -> UnrootedPath     -- ^ Path relative to base directory
            -> (a -> Signed a)  -- ^ Signing function
            -> a                -- ^ Unsigned object
-           -> IO (Maybe FilePath)
+           -> IO (Maybe UnrootedPath)
 updateFile whenWrite baseDir file signPayload a = do
     mOldHeader :: Maybe (Either DeserializationError (IgnoreSigned Header)) <-
       handleDoesNotExist $ readNoKeys fp
 
     case (whenWrite, mOldHeader) of
       (WriteAlways, _) -> do
-        logInfo $ "Writing " ++ file
+        logInfo $ "Writing " ++ show file
         writeCanonical fp (signPayload a)
         return $ Just file
       (WriteIfNecessary, Nothing) -> do
         -- If there is no previous version of the file, or the old file is
         -- broken just create the new file
-        logInfo $ "Creating " ++ file
+        logInfo $ "Creating " ++ show file
         writeCanonical fp (signPayload a)
         return $ Just file
       (WriteIfNecessary, Just (Left _err)) -> do
         -- If the old file is corrupted, warn and overwrite
-        logWarn $ "Overwriting " ++ file ++ " (old file corrupted)"
+        logWarn $ "Overwriting " ++ show file ++ " (old file corrupted)"
         writeCanonical fp (signPayload a)
         return $ Just file
       (WriteIfNecessary, Just (Right (IgnoreSigned oldHeader))) -> do
@@ -512,17 +524,17 @@ updateFile whenWrite baseDir file signPayload a = do
           newFileInfo <- computeFileInfo tempPath
           if oldFileInfo == Just newFileInfo
             then do
-              logInfo $ "Unchanged " ++ file
+              logInfo $ "Unchanged " ++ show file
               return $ Nothing
             else do
               -- If changed, write file using incremented file version
-              logInfo $ "Updating " ++ file
+              logInfo $ "Updating " ++ show file
               writeCanonical fp (signPayload wIncVersion)
               return $ Just file
   where
     fp = baseDir </> file
 
-computeFileInfo' :: FilePath -> IO (Maybe FileInfo)
+computeFileInfo' :: AbsolutePath -> IO (Maybe FileInfo)
 computeFileInfo' fp =
     handle doesNotExist $ Just <$> computeFileInfo fp
   where

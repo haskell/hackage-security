@@ -2,25 +2,31 @@ module ExampleClient.Options (
     GlobalOpts(..)
   , Command(..)
   , getOptions
+    -- * Re-exports
+  , URI
   ) where
 
+import Data.List (isPrefixOf)
+import Network.URI (URI, parseURI)
 import Options.Applicative
+import System.IO.Unsafe (unsafePerformIO)
 
 import Distribution.Package
 import Distribution.Text
 
 import Hackage.Security.Client
+import Hackage.Security.Util.Path
 
 {-------------------------------------------------------------------------------
   Datatypes
 -------------------------------------------------------------------------------}
 
 data GlobalOpts = GlobalOpts {
-    -- | Root directory of the repository
-    globalRepo :: FilePath
+    -- | Path to the repository (local or remote)
+    globalRepo :: Either AbsolutePath URI
 
     -- | Directory to store the client cache
-  , globalCache :: FilePath
+  , globalCache :: AbsolutePath
 
     -- | HTTP client to use
   , globalHttpClient :: String
@@ -61,12 +67,12 @@ getOptions = execParser opts
 
 parseGlobalOptions :: Parser GlobalOpts
 parseGlobalOptions = GlobalOpts
-  <$> (strOption $ mconcat [
+  <$> (option (str >>= readRepo) $ mconcat [
           long "repo"
         , metavar "URL"
-        , help "Path to local repository"
+        , help "Location of the repository"
         ])
-  <*> (strOption $ mconcat [
+  <*> (option (str >>= readAbsolutePath) $ mconcat [
           long "cache"
         , metavar "PATH"
         , help "Path to client cache"
@@ -111,3 +117,21 @@ readPackageIdentifier = do
     case simpleParse raw of
       Just pkgId -> return pkgId
       Nothing    -> fail $ "Invalid package ID " ++ show raw
+
+readAbsolutePath :: String -> ReadM AbsolutePath
+readAbsolutePath filePath =
+   case fromFilePath filePath of
+     -- Sadly, cannot do I/O actions inside ReadM
+     FileSystemPath path -> return $ unsafePerformIO $ makeAbsolute path
+
+readRepo :: String -> ReadM (Either AbsolutePath URI)
+readRepo filePath =
+    if "http://" `isPrefixOf` filePath
+      then Right <$> readURI filePath
+      else Left <$> readAbsolutePath filePath
+
+readURI :: String -> ReadM URI
+readURI uriStr =
+   case parseURI uriStr of
+     Nothing  -> fail $ "Invalid URI " ++ show uriStr
+     Just uri -> return uri

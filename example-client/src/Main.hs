@@ -1,13 +1,9 @@
 module Main where
 
-import Data.List (isPrefixOf)
-import Network.URI
-import System.Directory
-import System.FilePath
-
 import Distribution.Package
 
 import Hackage.Security.Client
+import Hackage.Security.Util.Path
 import qualified Hackage.Security.Client.Repository.Local             as Local
 import qualified Hackage.Security.Client.Repository.Remote            as Remote
 import qualified Hackage.Security.Client.Repository.Remote.HTTP       as Remote.HTTP
@@ -45,29 +41,26 @@ cmdGet opts pkgId =
       downloadPackage rep pkgId $ \tempPath ->
         copyFile tempPath localFile
   where
-    localFile = "." </> pkgTarGz pkgId
+    localFile :: RelativePath
+    localFile = rootPath Rooted (pkgTarGz pkgId)
 
 {-------------------------------------------------------------------------------
   Common functionality
 -------------------------------------------------------------------------------}
 
 withRepo :: GlobalOpts -> (Repository -> IO a) -> IO a
-withRepo GlobalOpts{..}
-    | "http://" `isPrefixOf` globalRepo = withRemoteRepo
-    | otherwise                         = withLocalRepo
+withRepo GlobalOpts{..} =
+    case globalRepo of
+      Left  local  -> withLocalRepo  local
+      Right remote -> withRemoteRepo remote
   where
-    withLocalRepo :: (Repository -> IO a) -> IO a
-    withLocalRepo = Local.withRepository globalRepo globalCache logTUF
+    withLocalRepo :: AbsolutePath -> (Repository -> IO a) -> IO a
+    withLocalRepo repo = Local.withRepository repo globalCache logTUF
 
-    withRemoteRepo :: (Repository -> IO a) -> IO a
-    withRemoteRepo callback =
+    withRemoteRepo :: URI -> (Repository -> IO a) -> IO a
+    withRemoteRepo baseURI callback =
         withClient $ \httpClient ->
           Remote.withRepository httpClient [baseURI] globalCache logTUF callback
-      where
-        baseURI :: URI
-        baseURI = case parseURI globalRepo of
-                    Nothing  -> error $ "Invalid URI: " ++ globalRepo
-                    Just uri -> uri
 
     withClient :: (Remote.HttpClient -> IO a) -> IO a
     withClient =
