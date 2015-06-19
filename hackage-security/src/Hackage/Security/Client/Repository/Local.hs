@@ -18,7 +18,7 @@ import qualified Codec.Archive.Tar       as Tar
 import qualified Codec.Archive.Tar.Index as TarIndex
 import qualified Codec.Compression.GZip  as GZip
 import qualified Data.ByteString         as BS
-import qualified Data.ByteString.Builder as BS
+import qualified Data.ByteString.Builder as BS.Builder
 import qualified Data.ByteString.Lazy    as BS.L
 
 import Hackage.Security.Client.Repository
@@ -106,7 +106,7 @@ rebuildTarIndex cache = do
       Right index ->
         withBinaryFile (cache </> fragment "00-index.tar.idx") WriteMode $ \h -> do
           hSetBuffering h (BlockBuffering Nothing)
-          BS.hPutBuilder h $ TarIndex.serialise index
+          BS.Builder.hPutBuilder h $ TarIndex.serialise index
 
 -- | The name of the file as cached
 --

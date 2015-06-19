@@ -1,3 +1,4 @@
+{-# LANGUAGE CPP #-}
 module Main where
 
 import Distribution.Package
@@ -7,8 +8,11 @@ import Hackage.Security.Util.Path
 import qualified Hackage.Security.Client.Repository.Local             as Local
 import qualified Hackage.Security.Client.Repository.Remote            as Remote
 import qualified Hackage.Security.Client.Repository.Remote.HTTP       as Remote.HTTP
-import qualified Hackage.Security.Client.Repository.Remote.HttpClient as Remote.HttpClient
 import qualified Hackage.Security.Client.Repository.Remote.Curl       as Remote.Curl
+
+#if MIN_VERSION_base(4,5,0)
+import qualified Hackage.Security.Client.Repository.Remote.HttpClient as Remote.HttpClient
+#endif
 
 import ExampleClient.Options
 
@@ -66,8 +70,10 @@ withRepo GlobalOpts{..} =
     withClient =
         case globalHttpClient of
           "HTTP"        -> Remote.HTTP.withClient logHTTP logHTTP
-          "http-client" -> Remote.HttpClient.withClient logHTTP
           "curl"        -> Remote.Curl.withClient logHTTP
+#if MIN_VERSION_base(4,5,0)
+          "http-client" -> Remote.HttpClient.withClient logHTTP
+#endif          
           _otherwise    -> error "unsupported HTTP client"
 
     -- used for log messages from the Hackage.Security code

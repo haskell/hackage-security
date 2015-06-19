@@ -12,7 +12,7 @@ build-type:          Simple
 cabal-version:       >=1.10
 
 flag base48
-  description: Are we using base 4.8 or higher?
+  description: Are we using base 4.8 or later?
   manual: False
 
 library
@@ -56,7 +56,12 @@ library
   -- Upper bounds deliberately omitted during development
   build-depends:       base              >= 4.4,
                        base64-bytestring >= 1.0,
-                       bytestring        >= 0.9,
+                       -- we need Data.ByteString.Builder to build tar indices,
+                       -- which is only available from bytestring-0.10.2 and up
+                       -- TODO: We should probably fix that upstream (in tar)
+                       -- so that we can compile with the version of bytestring
+                       -- that comes with ghc for ghc < 7.8
+                       bytestring        >= 0.10.2,
                        Cabal             >= 1.12,
                        containers        >= 0.4,
                        directory         >= 1.1,

@@ -1,3 +1,4 @@
+{-# LANGUAGE CPP #-}
 module ExampleClient.Options (
     GlobalOpts(..)
   , Command(..)
@@ -82,7 +83,11 @@ parseGlobalOptions = GlobalOpts
        , metavar "CLIENT"
        , value "HTTP"
        , showDefault
+#if MIN_VERSION_base(4,5,0)
        , help "HTTP client to use (currently supported: HTTP, http-conduit, curl)"
+#else
+       , help "HTTP client to use (currently supported: HTTP, curl)"
+#endif
        ])
   <*> (many . option readKeyId $ mconcat [
          long "root-key"
