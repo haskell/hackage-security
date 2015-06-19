@@ -240,14 +240,14 @@ fromFilePath ('~':'/':path) = FileSystemPath $
 fromFilePath path = FileSystemPath $
     rootPath (Rooted :: Rooted Relative) (fromUnrootedFilePath path)
 
-makeAbsolute :: IsFileSystemRoot root => Path (Rooted root) -> IO AbsolutePath
-makeAbsolute path = do
+makeAbsolute :: FileSystemPath -> IO AbsolutePath
+makeAbsolute (FileSystemPath path) = do
     let (root, unrooted) = unrootPath path
     rootFilePath <- fromUnrootedFilePath <$> interpretRoot root
     return $ rootPath Rooted (rootFilePath </> unrooted)
 
 toAbsoluteFilePath :: IsFileSystemRoot root => Path (Rooted root) -> IO FilePath
-toAbsoluteFilePath = fmap toFilePath . makeAbsolute
+toAbsoluteFilePath = fmap toFilePath . makeAbsolute . FileSystemPath
 
 fromAbsoluteFilePath :: FilePath -> AbsolutePath
 fromAbsoluteFilePath ('/':path) = rootPath Rooted (fromUnrootedFilePath path)

@@ -107,8 +107,6 @@ readURI uriStr =
      Nothing  -> fail $ "Invalid URI " ++ show uriStr
      Just uri -> return uri
 
+-- Sadly, cannot do I/O actions inside ReadM
 readAbsolutePath :: String -> ReadM AbsolutePath
-readAbsolutePath filePath =
-   case fromFilePath filePath of
-     -- Sadly, cannot do I/O actions inside ReadM
-     FileSystemPath path -> return $ unsafePerformIO $ makeAbsolute path
+readAbsolutePath = return . unsafePerformIO . makeAbsolute . fromFilePath
