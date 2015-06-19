@@ -10,7 +10,6 @@ import System.IO
 import System.IO.Error
 import qualified Codec.Compression.GZip as GZip
 import qualified Data.ByteString.Lazy   as BS.L
-import qualified System.FilePath        as FilePath
 
 -- Cabal
 import Distribution.Package
@@ -323,7 +322,7 @@ createPackageMetadata GlobalOpts{..} whenWrite pkgId = do
             logWarn $ "Skipping unrecognized " ++ show path
             return Nothing
           else do
-            let (_, ext) = FilePath.splitExtension file
+            let (_, ext) = splitExtension path
             -- TODO: Not sure how (or if) cabal revisions are stored
             case ext of
               ".gz"      -> Just <$> computeFileMapEntry file
@@ -395,7 +394,7 @@ findPackages GlobalOpts{..} = do
                logWarn $ "Skipping unrecognized " ++ show path
                return Nothing
 
-    skipPkg :: FilePath -> Bool
+    skipPkg :: Fragment -> Bool
     skipPkg "."                       = True
     skipPkg ".."                      = True
     skipPkg "00-index.tar"            = True
@@ -409,7 +408,7 @@ findPackages GlobalOpts{..} = do
     skipPkg "mirrors.json"            = True
     skipPkg _                         = False
 
-    skipVersion :: FilePath -> Bool
+    skipVersion :: Fragment -> Bool
     skipVersion "."  = True
     skipVersion ".." = True
     skipVersion _    = False
