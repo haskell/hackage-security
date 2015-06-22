@@ -1,3 +1,4 @@
+-- | Local repository
 module Hackage.Security.Client.Repository.Local (
     LocalRepo
   , Cache
@@ -13,6 +14,11 @@ import Hackage.Security.Util.Path
 --
 -- Note that we regard the local repository as immutable; we cache files just
 -- like we do for remote repositories.
+--
+-- The local repository caches the index as @<cache>/00-index.tar@; this is
+-- important because `cabal-install` expects to find it there (and does not
+-- currently go through the hackage-security library to get files from the
+-- index).
 type LocalRepo = Path (Rooted Absolute)
 
 -- | Initialize the repository (and cleanup resources afterwards)
