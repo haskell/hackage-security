@@ -39,7 +39,8 @@ data Signed a = Signed {
 -- | A list of signatures
 --
 -- Invariant: each signature must be made with a different key.
--- (We enforce this invariant only in the FromJSON instance.)
+-- We enforce this invariant for incoming untrusted data ('fromPreSignatures')
+-- but not for lists of signatures that we create in code.
 newtype Signatures = Signatures [Signature]
 
 data Signature = Signature {
@@ -88,19 +89,8 @@ instance ToJSON Signature where
 instance FromJSON ReadJSON Signatures where
   fromJSON enc = do
       preSigs <- fromJSON enc
-      validate "all signatures made with different keys" (check preSigs)
-      sigs <- mapM fromPreSignature preSigs
+      sigs    <- fromPreSignatures preSigs
       return $ Signatures sigs
-    where
-      -- Check that all (pre)signatures are made with different keys
-      --
-      -- We do this on the presignatures rather than the signatures to that
-      -- we can do the check on key IDs, rather than keys (the latter don't
-      -- have an Ord instance)
-      --
-      -- TODO: Should we attempt a more efficient implementation?
-      check :: [PreSignature] -> Bool
-      check sigs = Set.size (Set.fromList (map presigKeyId sigs)) == length sigs
 
 {-------------------------------------------------------------------------------
   Auxiliary
@@ -132,6 +122,20 @@ fromPreSignature PreSignature{..} = do
         signature    = presignature
       , signatureKey = key
       }
+
+-- | Convert a list of 'PreSignature's to a list of 'Signature's
+--
+-- This verifies the invariant that all signatures are made with different keys.
+-- We do this on the presignatures rather than the signatures so that we can do
+-- the check on key IDs, rather than keys (the latter don't have an Ord
+-- instance).
+--
+-- TODO: Should we attempt a more efficient implementation?
+fromPreSignatures :: [PreSignature] -> ReadJSON [Signature]
+fromPreSignatures sigs = do
+      validate "all signatures made with different keys" $
+        Set.size (Set.fromList (map presigKeyId sigs)) == length sigs
+      mapM fromPreSignature sigs
 
 {-------------------------------------------------------------------------------
   JSON aids
