@@ -19,6 +19,8 @@ module Hackage.Security.Util.Path (
   , (</>)
   , rootPath
   , unrootPath
+  , unrootPath'
+  , castRoot
   -- ** Unrooted paths
   , joinFragments
   , splitFragments
@@ -60,6 +62,8 @@ module Hackage.Security.Util.Path (
   , getTemporaryDirectory
   , removeFile
   -- ** Wrappers around Codec.Archive.Tar.*
+  , TarballRoot
+  , TarballPath
   , tarPack
   , tarIndexLookup
   -- * Paths in URIs
@@ -90,9 +94,17 @@ import qualified Network.URI             as URI
   Paths
 -------------------------------------------------------------------------------}
 
+-- | Unrooted paths
+--
+-- Unrooted paths need a root before they can be interpreted.
 data Unrooted
+
+-- | Rooted paths
+--
+-- The 'a' parameter is a phantom argument; 'Rooted' is effectively a proxy.
 data Rooted a = Rooted
 
+-- | Path fragments
 type Fragment = String
 
 -- | Paths
@@ -112,6 +124,12 @@ instance Show (Rooted root) => Show (Path (Rooted root)) where
                in show root FilePath.</> show unrooted
 
 type UnrootedPath = Path Unrooted
+
+instance Eq (Path a) where
+  (==) = (==) `on` (splitFragments . unrootPath')
+
+instance Ord (Path a) where
+  (<=) = (<=) `on` (splitFragments . unrootPath')
 
 {-------------------------------------------------------------------------------
   Constructing and destructing paths
@@ -136,15 +154,19 @@ unrootPath (PathRoot root) = (root, PathNil)
 unrootPath (PathSnoc qs q) = let (root, unrooted) = unrootPath qs
                              in (root, PathSnoc unrooted q)
 
+unrootPath' :: Path a -> UnrootedPath
+unrootPath' (PathRoot _)    = PathNil
+unrootPath' PathNil         = PathNil
+unrootPath' (PathSnoc qs q) = PathSnoc (unrootPath' qs) q
+
+-- | Reinterpret the root of a path
+castRoot :: Path (Rooted root) -> Path (Rooted root')
+castRoot (PathRoot _)    = PathRoot Rooted
+castRoot (PathSnoc qs q) = PathSnoc (castRoot qs) q
+
 {-------------------------------------------------------------------------------
   Unrooted paths
 -------------------------------------------------------------------------------}
-
-instance Eq UnrootedPath where
-  (==) = (==) `on` splitFragments
-
-instance Ord UnrootedPath where
-  (<=) = (<=) `on` splitFragments
 
 joinFragments :: [Fragment] -> UnrootedPath
 joinFragments = go PathNil
@@ -230,7 +252,7 @@ data FileSystemPath where
 -------------------------------------------------------------------------------}
 
 toFilePath :: AbsolutePath -> FilePath
-toFilePath = toUnrootedFilePath . snd . unrootPath
+toFilePath = toUnrootedFilePath . unrootPath'
 
 fromFilePath :: FilePath -> FileSystemPath
 fromFilePath ('/':path) = FileSystemPath $
@@ -343,14 +365,25 @@ getDirectoryContents path = do
   Wrappers around Codec.Archive.Tar.*
 -------------------------------------------------------------------------------}
 
+data TarballRoot
+type TarballPath = Path (Rooted TarballRoot)
+
+instance Show (Rooted TarballPath) where show _ = "<tarball>"
+
 tarPack :: IsFileSystemRoot root
-        => Path (Rooted root) -> [UnrootedPath] -> IO [Tar.Entry]
+        => Path (Rooted root) -> [TarballPath] -> IO [Tar.Entry]
 tarPack basePath contents = do
     baseFilePath <- toAbsoluteFilePath basePath
-    Tar.pack baseFilePath (map toUnrootedFilePath contents)
+    Tar.pack baseFilePath contents'
+  where
+    contents' :: [FilePath]
+    contents' = map (toUnrootedFilePath . unrootPath') contents
 
-tarIndexLookup :: TarIndex.TarIndex -> UnrootedPath -> Maybe TarIndex.TarIndexEntry
-tarIndexLookup index = TarIndex.lookup index . toUnrootedFilePath
+tarIndexLookup :: TarIndex.TarIndex -> TarballPath -> Maybe TarIndex.TarIndexEntry
+tarIndexLookup index path = TarIndex.lookup index path'
+  where
+    path' :: FilePath
+    path' = toUnrootedFilePath $ unrootPath' path
 
 {-------------------------------------------------------------------------------
   Wrappers around Network.URI
@@ -364,7 +397,7 @@ toURIPath :: FilePath -> URIPath
 toURIPath = rootPath Rooted . fromUnrootedFilePath
 
 fromURIPath :: URIPath -> FilePath
-fromURIPath = toUnrootedFilePath . snd . unrootPath
+fromURIPath = toUnrootedFilePath . unrootPath'
 
 uriPath :: URI.URI -> URIPath
 uriPath = toURIPath . URI.uriPath

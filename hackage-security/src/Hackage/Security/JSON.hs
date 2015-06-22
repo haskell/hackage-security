@@ -16,10 +16,12 @@ module Hackage.Security.JSON (
   , fromJSObject
   , fromJSField
   , fromJSOptField
+  , mkObject
     -- * Re-exports
   , JSValue(..)
   ) where
 
+import Control.Monad (liftM)
 import Data.Map (Map)
 import Data.Time
 import Text.JSON.Canonical
@@ -38,15 +40,15 @@ import Hackage.Security.Util.Path
   We parameterize over the monad here to avoid mutual module dependencies.
 -------------------------------------------------------------------------------}
 
-class ToJSON a where
-  toJSON :: a -> JSValue
+class ToJSON m a where
+  toJSON :: a -> m JSValue
 
 class FromJSON m a where
   fromJSON :: JSValue -> m a
 
 -- | Used in the 'ToJSON' instance for 'Map'
-class ToObjectKey a where
-  toObjectKey :: a -> String
+class ToObjectKey m a where
+  toObjectKey :: a -> m String
 
 -- | Used in the 'FromJSON' instance for 'Map'
 class FromObjectKey m a where
@@ -77,37 +79,43 @@ unknownField field = expected ("field " ++ show field) Nothing
   ToObjectKey and FromObjectKey instances
 -------------------------------------------------------------------------------}
 
-instance ToObjectKey String where
-  toObjectKey = id
+instance Monad m => ToObjectKey m String where
+  toObjectKey = return
 
 instance Monad m => FromObjectKey m String where
   fromObjectKey = return
 
-instance ToObjectKey UnrootedPath where
-  toObjectKey = toUnrootedFilePath
+instance Monad m => ToObjectKey m (Path Unrooted) where
+  toObjectKey = return . toUnrootedFilePath
 
-instance Monad m => FromObjectKey m UnrootedPath where
+instance Monad m => FromObjectKey m (Path Unrooted) where
   fromObjectKey = return . fromUnrootedFilePath
+
+instance Monad m => ToObjectKey m (Path (Rooted root)) where
+  toObjectKey = toObjectKey . unrootPath'
+
+instance Monad m => FromObjectKey m (Path (Rooted root)) where
+  fromObjectKey = liftM (rootPath Rooted) . fromObjectKey
 
 {-------------------------------------------------------------------------------
   ToJSON and FromJSON instances
 -------------------------------------------------------------------------------}
 
-instance ToJSON JSValue where
-  toJSON = id
+instance Monad m => ToJSON m JSValue where
+  toJSON = return
 
 instance Monad m => FromJSON m JSValue where
   fromJSON = return
 
-instance ToJSON String where
-  toJSON = JSString
+instance Monad m => ToJSON m String where
+  toJSON = return . JSString
 
 instance ReportSchemaErrors m => FromJSON m String where
   fromJSON (JSString str) = return str
   fromJSON val            = expected' "string" val
 
-instance ToJSON Int where
-  toJSON = JSNum
+instance Monad m => ToJSON m Int where
+  toJSON = return . JSNum
 
 instance ReportSchemaErrors m => FromJSON m Int where
   fromJSON (JSNum i) = return i
@@ -117,8 +125,8 @@ instance
 #if __GLASGOW_HASKELL__ >= 710
   {-# OVERLAPPABLE #-}
 #endif
-    ToJSON a => ToJSON [a] where
-  toJSON = JSArray . map toJSON
+    (Monad m, ToJSON m a) => ToJSON m [a] where
+  toJSON = liftM JSArray . mapM toJSON
 
 instance
 #if __GLASGOW_HASKELL__ >= 710
@@ -128,8 +136,8 @@ instance
   fromJSON (JSArray as) = mapM fromJSON as
   fromJSON val          = expected' "array" val
 
-instance ToJSON UTCTime where
-  toJSON = JSString . formatTime defaultTimeLocale "%FT%TZ"
+instance Monad m => ToJSON m UTCTime where
+  toJSON = return . JSString . formatTime defaultTimeLocale "%FT%TZ"
 
 instance ReportSchemaErrors m => FromJSON m UTCTime where
   fromJSON enc = do
@@ -142,13 +150,14 @@ instance ReportSchemaErrors m => FromJSON m UTCTime where
       parseTimeM _trim = parseTime
 #endif
 
-instance ( ToObjectKey k
-         , ToJSON a
-         ) => ToJSON (Map k a) where
-  toJSON = JSObject . map aux . Map.toList
+instance ( Monad m
+         , ToObjectKey m k
+         , ToJSON m a
+         ) => ToJSON m (Map k a) where
+  toJSON = liftM JSObject . mapM aux . Map.toList
     where
-      aux :: (k, a) -> (String, JSValue)
-      aux (k, a) = (toObjectKey k, toJSON a)
+      aux :: (k, a) -> m (String, JSValue)
+      aux (k, a) = do k' <- toObjectKey k; a' <- toJSON a; return (k', a')
 
 instance ( ReportSchemaErrors m
          , Ord k
@@ -162,7 +171,7 @@ instance ( ReportSchemaErrors m
       aux :: (String, JSValue) -> m (k, a)
       aux (k, a) = (,) <$> fromObjectKey k <*> fromJSON a
 
-instance ToJSON URI where
+instance Monad m => ToJSON m URI where
   toJSON = toJSON . show
 
 instance ReportSchemaErrors m => FromJSON m URI where
@@ -196,3 +205,12 @@ fromJSOptField val nm = do
     case lookup nm obj of
       Just fld -> Just <$> fromJSON fld
       Nothing  -> return Nothing
+
+mkObject :: forall m. Monad m => [(String, m JSValue)] -> m JSValue
+mkObject = liftM JSObject . sequenceFields
+  where
+    sequenceFields :: [(String, m JSValue)] -> m [(String, JSValue)]
+    sequenceFields []               = return []
+    sequenceFields ((fld,val):flds) = do val' <- val
+                                         flds' <- sequenceFields flds
+                                         return ((fld,val'):flds')

@@ -1,11 +1,15 @@
+{-# LANGUAGE UndecidableInstances #-}
 module Hackage.Security.TUF.Timestamp (
     Timestamp(..)
   ) where
+
+import Control.Monad.Reader
 
 import Hackage.Security.JSON
 import Hackage.Security.Key.ExplicitSharing
 import Hackage.Security.TUF.FileInfo
 import Hackage.Security.TUF.Header
+import Hackage.Security.TUF.Layout
 import Hackage.Security.TUF.Signed
 import Hackage.Security.Util.Path
 import qualified Hackage.Security.TUF.FileMap as FileMap
@@ -31,26 +35,40 @@ instance DescribeFile Timestamp where
   JSON
 -------------------------------------------------------------------------------}
 
-instance ToJSON Timestamp where
-  toJSON Timestamp{..} = JSObject [
-        ("_type"   , JSString "Timestamp")
-      , ("version" , toJSON timestampVersion)
-      , ("expires" , toJSON timestampExpires)
-      , ("meta"    , toJSON timestampMeta)
-      ]
+instance MonadReader RepoLayout m => ToJSON m Timestamp where
+  toJSON Timestamp{..} = do
+      repoLayout <- ask
+      mkObject [
+          ("_type"   , return $ JSString "Timestamp")
+        , ("version" , toJSON timestampVersion)
+        , ("expires" , toJSON timestampExpires)
+        , ("meta"    , toJSON (timestampMeta repoLayout))
+        ]
     where
-      timestampMeta = FileMap.fromList [
-          (fragment "snapshot.json", timestampInfoSnapshot)
+      timestampMeta repoLayout = FileMap.fromList [
+          (pathSnapshot repoLayout, timestampInfoSnapshot)
         ]
 
-instance ReportSchemaErrors m => FromJSON m Timestamp where
+instance (MonadReader RepoLayout m, ReportSchemaErrors m) => FromJSON m Timestamp where
   fromJSON enc = do
     -- TODO: Should we verify _type?
+    repoLayout            <- ask
     timestampVersion      <- fromJSField enc "version"
     timestampExpires      <- fromJSField enc "expires"
     timestampMeta         <- fromJSField enc "meta"
-    timestampInfoSnapshot <- FileMap.lookupM timestampMeta (fragment "snapshot.json")
+    timestampInfoSnapshot <- FileMap.lookupM timestampMeta (pathSnapshot repoLayout)
     return Timestamp{..}
 
 instance FromJSON ReadJSON (Signed Timestamp) where
   fromJSON = signedFromJSON
+
+{-------------------------------------------------------------------------------
+  Paths used in the timestamp
+
+  NOTE: Since the timestamp lives in the top-level directory of the repository,
+  we can safely reinterpret "relative to the repo root" as "relative to the
+  timestamp"; hence, this use of 'castRoot' is okay.
+-------------------------------------------------------------------------------}
+
+pathSnapshot :: RepoLayout -> RelativePath
+pathSnapshot = castRoot . repoLayoutSnapshot

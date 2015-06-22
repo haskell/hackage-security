@@ -38,7 +38,6 @@ import qualified Data.ByteString      as BS
 import qualified Data.ByteString.Lazy as BS.L
 
 import Distribution.Package (PackageIdentifier)
-import Distribution.Text
 
 import Hackage.Security.Client.Repository
 import Hackage.Security.Client.Formats
@@ -121,20 +120,20 @@ checkForUpdates rep checkExpiry =
       -- verify signatures
       cachedRoot :: Trusted Root
          <- getCachedRoot rep
-        >>= readJSON KeyEnv.empty
+        >>= readJSON (repLayout rep) KeyEnv.empty
         >>= return . trustLocalFile
       let keyEnv = rootKeys (trusted cachedRoot)
 
       -- Get the old timestamp (if any)
       mOldTS :: Maybe (Trusted Timestamp)
          <- getCached rep CachedTimestamp
-        >>= traverse (readJSON keyEnv)
+        >>= traverse (readJSON (repLayout rep) keyEnv)
         >>= return . fmap trustLocalFile
 
       -- Get the new timestamp
       newTS :: Trusted Timestamp
          <- getRemote' rep RemoteTimestamp
-        >>= readJSON keyEnv
+        >>= readJSON (repLayout rep) keyEnv
         >>= liftM trustVerified . throwErrors . verifyTimestamp
               cachedRoot
               (fmap (timestampVersion . trusted) mOldTS)
@@ -150,7 +149,7 @@ checkForUpdates rep checkExpiry =
           -- Get the old snapshot (if any)
           mOldSS :: Maybe (Trusted Snapshot)
              <- getCached rep CachedSnapshot
-            >>= traverse (readJSON keyEnv)
+            >>= traverse (readJSON (repLayout rep) keyEnv)
             >>= return . fmap trustLocalFile
 
           -- Get the new snapshot
@@ -159,7 +158,7 @@ checkForUpdates rep checkExpiry =
           newSS :: Trusted Snapshot
              <- getRemote' rep expectedSnapshot
             >>= verifyFileInfo' (Just newSnapshotInfo)
-            >>= readJSON keyEnv
+            >>= readJSON (repLayout rep) keyEnv
             >>= liftM trustVerified . throwErrors . verifySnapshot
                   cachedRoot
                   (fmap (snapshotVersion . trusted) mOldSS)
@@ -187,14 +186,14 @@ checkForUpdates rep checkExpiry =
             -- Get the old mirrors file (so we can verify version numbers)
             mOldMirrors :: Maybe (Trusted Mirrors)
                <- getCached rep CachedMirrors
-              >>= traverse (readJSON keyEnv)
+              >>= traverse (readJSON (repLayout rep) keyEnv)
               >>= return . fmap trustLocalFile
 
             -- Verify new mirrors
             _newMirrors :: Trusted Mirrors
                <- getRemote' rep expectedMirrors
               >>= verifyFileInfo' (Just newMirrorsInfo)
-              >>= readJSON keyEnv
+              >>= readJSON (repLayout rep) keyEnv
               >>= liftM trustVerified . throwErrors . verifyMirrors
                     cachedRoot
                     (fmap (mirrorsVersion . trusted) mOldMirrors)
@@ -298,7 +297,7 @@ updateRoot :: Repository
 updateRoot rep mNow eFileInfo = evalContT $ do
     oldRoot :: Trusted Root
        <- getCachedRoot rep
-      >>= readJSON KeyEnv.empty
+      >>= readJSON (repLayout rep) KeyEnv.empty
       >>= return . trustLocalFile
 
     let mFileInfo    = eitherToMaybe eFileInfo
@@ -306,7 +305,7 @@ updateRoot rep mNow eFileInfo = evalContT $ do
     _newRoot :: Trusted Root
        <- getRemote' rep expectedRoot
       >>= verifyFileInfo' mFileInfo
-      >>= readJSON KeyEnv.empty
+      >>= readJSON (repLayout rep) KeyEnv.empty
       >>= liftM trustVerified . throwErrors . verifyRoot oldRoot mNow
 
     clearCache rep
@@ -338,7 +337,7 @@ downloadPackage rep pkgId callback = withMirror rep $ evalContT $ do
     -- (for performance) we need to parameterize parseJSON.
     cachedRoot :: Trusted Root
        <- getCachedRoot rep
-      >>= readJSON KeyEnv.empty
+      >>= readJSON (repLayout rep) KeyEnv.empty
       >>= return . trustLocalFile
     let keyEnv = rootKeys (trusted cachedRoot)
 
@@ -377,18 +376,22 @@ downloadPackage rep pkgId callback = withMirror rep $ evalContT $ do
     targets :: Trusted Targets
        <- getFromIndex rep (IndexPkgMetadata pkgId)
       >>= packageMustExist
-      >>= throwErrors . parseJSON keyEnv
+      >>= throwErrors . parseJSON (repLayout rep) keyEnv
       >>= return . trustIndex
+
+    -- The path of the package, relative to the targets.json file
+    let filePath :: RelativePath
+        filePath = rootPath Rooted $ repoLayoutPkgFile (repLayout rep) pkgId
 
     let mTargetMetaData :: Maybe (Trusted FileInfo)
         mTargetMetaData = trustSeq
                         $ trustStatic (static targetsLookup)
-             `trustApply` DeclareTrusted packageFileName
+             `trustApply` DeclareTrusted filePath
              `trustApply` targets
     targetMetaData :: Trusted FileInfo
       <- case mTargetMetaData of
            Nothing -> liftIO $
-             throwIO $ VerificationErrorUnknownTarget (show packageFileName)
+             throwIO $ VerificationErrorUnknownTarget (show filePath)
            Just nfo ->
              return nfo
 
@@ -398,10 +401,6 @@ downloadPackage rep pkgId callback = withMirror rep $ evalContT $ do
          >>= verifyFileInfo' (Just targetMetaData)
     lift $ callback tarGz
   where
-    -- TODO: Is there a standard function in Cabal to do this?
-    packageFileName :: UnrootedPath
-    packageFileName = fragment (display pkgId) <.> "tar.gz"
-
     packageMustExist :: MonadIO m => Maybe a -> m a
     packageMustExist (Just fp) = return fp
     packageMustExist Nothing   = liftIO $ throwIO $ InvalidPackageException pkgId
@@ -437,7 +436,7 @@ bootstrap :: Repository -> [KeyId] -> KeyThreshold -> IO ()
 bootstrap rep trustedRootKeys keyThreshold = withMirror rep $ evalContT $ do
     _newRoot :: Trusted Root
        <- getRemote' rep (RemoteRoot Nothing)
-      >>= readJSON KeyEnv.empty
+      >>= readJSON (repLayout rep) KeyEnv.empty
       >>= liftM trustVerified . throwErrors . verifyFingerprints
             trustedRootKeys
             keyThreshold
@@ -542,9 +541,9 @@ verifyFileInfo' (Just info) fp = liftIO $ do
     return fp
 
 readJSON :: (MonadIO m, IsFileSystemRoot root, FromJSON ReadJSON a)
-         => KeyEnv -> Path (Rooted root) -> m a
-readJSON keyEnv fpath = liftIO $ do
-    result <- readCanonical keyEnv fpath
+         => RepoLayout -> KeyEnv -> Path (Rooted root) -> m a
+readJSON repoLayout keyEnv fpath = liftIO $ do
+    result <- readCanonical repoLayout keyEnv fpath
     case result of
       Left err -> throwIO err
       Right a  -> return a

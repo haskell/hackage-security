@@ -69,17 +69,17 @@ instance DescribeFile Targets where
   Utility
 -------------------------------------------------------------------------------}
 
-targetsLookup :: UnrootedPath -> Targets -> Maybe FileInfo
+targetsLookup :: RelativePath -> Targets -> Maybe FileInfo
 targetsLookup fp Targets{..} = FileMap.lookup fp targetsTargets
 
 {-------------------------------------------------------------------------------
   JSON
 -------------------------------------------------------------------------------}
 
-instance ToJSON DelegationSpec where
-  toJSON DelegationSpec{delegation = Delegation fp name, ..} = JSObject [
+instance Monad m => ToJSON m DelegationSpec where
+  toJSON DelegationSpec{delegation = Delegation fp name, ..} = mkObject [
         ("name"      , toJSON name)
-      , ("keyids"    , JSArray $ map writeKeyAsId delegationSpecKeys)
+      , ("keyids"    , return . JSArray . map writeKeyAsId $ delegationSpecKeys)
       , ("threshold" , toJSON delegationSpecThreshold)
       , ("path"      , toJSON fp)
       ]
@@ -97,8 +97,8 @@ instance FromJSON ReadJSON DelegationSpec where
 -- NOTE: Unlike the Root object, the keys that are used to sign the delegations
 -- are NOT listed inside the delegations, so the same "bootstrapping" problems
 -- do not arise here.
-instance ToJSON Delegations where
-  toJSON Delegations{..} = JSObject [
+instance Monad m => ToJSON m Delegations where
+  toJSON Delegations{..} = mkObject [
         ("keys"  , toJSON delegationsKeys)
       , ("roles" , toJSON delegationsRoles)
       ]
@@ -109,9 +109,9 @@ instance FromJSON ReadJSON Delegations where
     delegationsRoles <- fromJSField enc "roles"
     return Delegations{..}
 
-instance ToJSON Targets where
-  toJSON Targets{..} = JSObject $ mconcat [
-      [ ("_type"       , JSString "Targets")
+instance Monad m => ToJSON m Targets where
+  toJSON Targets{..} = mkObject $ mconcat [
+      [ ("_type"       , return $ JSString "Targets")
       , ("version"     , toJSON targetsVersion)
       , ("expires"     , toJSON targetsExpires)
       , ("targets"     , toJSON targetsTargets)

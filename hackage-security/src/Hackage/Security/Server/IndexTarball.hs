@@ -16,7 +16,7 @@ import Hackage.Security.Util.Path
 append :: (IsFileSystemRoot root, IsFileSystemRoot root')
        => Path (Rooted root)  -- ^ Location of the tar-file
        -> Path (Rooted root') -- ^ Base directory of new files to be added
-       -> [UnrootedPath]   -- ^ Files to be added
+       -> [TarballPath]       -- ^ Files to be added
        -> IO ()
 append tar baseDir newFiles =
     seekTarball tar $ \h -> do

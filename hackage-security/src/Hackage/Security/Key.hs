@@ -27,6 +27,7 @@ module Hackage.Security.Key (
 
 import Control.Monad
 import Data.Digest.Pure.SHA
+import Data.Functor.Identity
 import Data.Typeable (Typeable)
 import Text.JSON.Canonical
 import qualified Crypto.Sign.Ed25519  as Ed25519
@@ -135,8 +136,8 @@ createKey' = liftM Some . createKey
 newtype KeyId = KeyId { keyIdString :: String }
   deriving (Show, Eq, Ord)
 
-instance ToObjectKey KeyId where
-  toObjectKey = keyIdString
+instance Monad m => ToObjectKey m KeyId where
+  toObjectKey = return . keyIdString
 
 instance Monad m => FromObjectKey m KeyId where
   fromObjectKey = return . KeyId
@@ -150,6 +151,7 @@ instance HasKeyId PublicKey where
         . showDigest
         . sha256
         . renderCanonicalJSON
+        . runIdentity
         . toJSON
 
 instance HasKeyId Key where
@@ -175,15 +177,15 @@ verify (PublicKeyEd25519 pub) inp sig =
   JSON encoding and decoding
 -------------------------------------------------------------------------------}
 
-instance ToJSON (Key typ) where
+instance Monad m => ToJSON m (Key typ) where
   toJSON key = case key of
       KeyEd25519 pub pri ->
         enc "ed25519" (Ed25519.unPublicKey pub) (Ed25519.unSecretKey pri)
     where
-      enc :: String -> BS.ByteString -> BS.ByteString -> JSValue
-      enc tag pub pri = JSObject [
-            ("keytype", JSString tag)
-          , ("keyval", JSObject [
+      enc :: String -> BS.ByteString -> BS.ByteString -> m JSValue
+      enc tag pub pri = mkObject [
+            ("keytype", return $ JSString tag)
+          , ("keyval", mkObject [
                 ("public",  toJSON (B64.fromByteString pub))
               , ("private", toJSON (B64.fromByteString pri))
               ])
@@ -206,22 +208,22 @@ instance ReportSchemaErrors m => FromJSON m (Some Key) where
         pri <- fromJSField val "private"
         return (tag, B64.toByteString pub, B64.toByteString pri)
 
-instance ToJSON (PublicKey typ) where
+instance Monad m => ToJSON m (PublicKey typ) where
   toJSON key = case key of
       PublicKeyEd25519 pub ->
         enc "ed25519" (Ed25519.unPublicKey pub)
     where
-      enc :: String -> BS.ByteString -> JSValue
-      enc tag pub = JSObject [
-            ("keytype", JSString tag)
-          , ("keyval", JSObject [
+      enc :: String -> BS.ByteString -> m JSValue
+      enc tag pub = mkObject [
+            ("keytype", return $ JSString tag)
+          , ("keyval", mkObject [
                 ("public", toJSON (B64.fromByteString pub))
               ])
           ]
 
-instance ToJSON (Some Key)        where toJSON (Some a) = toJSON a
-instance ToJSON (Some PublicKey)  where toJSON (Some a) = toJSON a
-instance ToJSON (Some KeyType)    where toJSON (Some a) = toJSON a
+instance Monad m => ToJSON m (Some Key)        where toJSON (Some a) = toJSON a
+instance Monad m => ToJSON m (Some PublicKey)  where toJSON (Some a) = toJSON a
+instance Monad m => ToJSON m (Some KeyType)    where toJSON (Some a) = toJSON a
 
 instance ReportSchemaErrors m => FromJSON m (Some PublicKey) where
   fromJSON enc = do
@@ -239,8 +241,8 @@ instance ReportSchemaErrors m => FromJSON m (Some PublicKey) where
         pub <- fromJSField val "public"
         return (tag, B64.toByteString pub)
 
-instance ToJSON (KeyType typ) where
-  toJSON KeyTypeEd25519 = JSString "ed25519"
+instance Monad m => ToJSON m (KeyType typ) where
+  toJSON KeyTypeEd25519 = return $ JSString "ed25519"
 
 instance ReportSchemaErrors m => FromJSON m (Some KeyType) where
   fromJSON enc = do

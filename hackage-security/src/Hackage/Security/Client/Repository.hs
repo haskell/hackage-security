@@ -17,7 +17,6 @@ module Hackage.Security.Client.Repository (
   , mirrorsUnsupported
     -- * Paths
   , remoteFilePath
-  , cachedFilePath
   , indexFilePath
     -- * Names of package files
   , pkgTarGz
@@ -239,6 +238,9 @@ data Repository = Repository {
     -- | Logging
   , repLog :: LogMessage -> IO ()
 
+    -- | Layout of this repository
+  , repLayout :: RepoLayout
+
     -- | Description of the repository (used in the show instance)
   , repDescription :: String
   }
@@ -347,30 +349,28 @@ catchRecoverable wrapCustom act handler = catches (wrapCustom act) [
   Paths
 -------------------------------------------------------------------------------}
 
-remoteFilePath :: RemoteFile fs -> Formats fs UnrootedPath
-remoteFilePath RemoteTimestamp        = FsUn (fragment "timestamp.json")
-remoteFilePath (RemoteRoot _)         = FsUn (fragment "root.json")
-remoteFilePath (RemoteSnapshot _)     = FsUn (fragment "snapshot.json")
-remoteFilePath (RemoteMirrors _)      = FsUn (fragment "mirrors.json")
-remoteFilePath (RemotePkgTarGz pId _) = FsGz (pkgLoc pId </> pkgTarGz pId)
-remoteFilePath (RemoteIndex _ lens)   = formatsMap aux lens
+remoteFilePath :: RepoLayout -> RemoteFile fs -> Formats fs RepoPath
+remoteFilePath repoLayout@RepoLayout{..} = go
   where
-    aux :: Format f -> a -> UnrootedPath
-    aux FUn _ = fragment "00-index.tar"
-    aux FGz _ = fragment "00-index.tar.gz"
+    go :: RemoteFile fs -> Formats fs RepoPath
+    go RemoteTimestamp        = FsUn repoLayoutTimestamp
+    go (RemoteRoot _)         = FsUn repoLayoutRoot
+    go (RemoteSnapshot _)     = FsUn repoLayoutSnapshot
+    go (RemoteMirrors _)      = FsUn repoLayoutMirrors
+    go (RemotePkgTarGz pId _) = FsGz (repoLayoutPkg repoLayout pId)
+    go (RemoteIndex _ lens)   = formatsMap goIndex lens
 
-cachedFilePath :: CachedFile -> UnrootedPath
-cachedFilePath CachedTimestamp = fragment "timestamp.json"
-cachedFilePath CachedRoot      = fragment "root.json"
-cachedFilePath CachedSnapshot  = fragment "snapshot.json"
-cachedFilePath CachedMirrors   = fragment "mirrors.json"
+    goIndex :: Format f -> a -> RepoPath
+    goIndex FUn _ = repoLayoutIndexTar
+    goIndex FGz _ = repoLayoutIndexTarGz
 
-indexFilePath :: IndexFile -> UnrootedPath
-indexFilePath (IndexPkgMetadata pkgId) = pkgLoc pkgId </> fragment "targets.json"
-
-pkgLoc :: PackageIdentifier -> UnrootedPath
-pkgLoc pkgId =  fragment (display (packageName    pkgId))
-            </> fragment (display (packageVersion pkgId))
+-- TODO: By using pkgLoc here we couple the location of a package in the repo
+-- to its location in the index. These may not match.
+indexFilePath :: IndexLayout -> IndexFile -> TarballPath
+indexFilePath IndexLayout{..} = go
+  where
+    go :: IndexFile -> TarballPath
+    go (IndexPkgMetadata pkgId) = indexLayoutPkgMetadata pkgId
 
 -- TODO: Are we hardcoding information here that's available from Cabal somewhere?
 pkgTarGz :: PackageIdentifier -> UnrootedPath

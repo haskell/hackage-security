@@ -63,8 +63,8 @@ instance DescribeFile Root where
   JSON encoding
 -------------------------------------------------------------------------------}
 
-instance ToJSON RootRoles where
-  toJSON RootRoles{..} = JSObject [
+instance Monad m => ToJSON m RootRoles where
+  toJSON RootRoles{..} = mkObject [
       ("root"      , toJSON rootRolesRoot)
     , ("snapshot"  , toJSON rootRolesSnapshot)
     , ("targets"   , toJSON rootRolesTargets)
@@ -81,18 +81,18 @@ instance FromJSON ReadJSON RootRoles where
     rootRolesMirrors   <- fromJSField enc "mirrors"
     return RootRoles{..}
 
-instance ToJSON Root where
-  toJSON Root{..} = JSObject [
-         ("_type"   , JSString "Root")
+instance Monad m => ToJSON m Root where
+  toJSON Root{..} = mkObject [
+         ("_type"   , return $ JSString "Root")
        , ("version" , toJSON rootVersion)
        , ("expires" , toJSON rootExpires)
        , ("keys"    , toJSON rootKeys)
        , ("roles"   , toJSON rootRoles)
        ]
 
-instance ToJSON (RoleSpec a) where
-  toJSON RoleSpec{..} = JSObject [
-        ("keyids"    , JSArray $ map writeKeyAsId roleSpecKeys)
+instance Monad m => ToJSON m (RoleSpec a) where
+  toJSON RoleSpec{..} = mkObject [
+        ("keyids"    , return . JSArray . map writeKeyAsId $ roleSpecKeys)
       , ("threshold" , toJSON roleSpecThreshold)
       ]
 

@@ -65,15 +65,15 @@ computeFileInfo fp = fileInfo <$> readLazyByteString fp
   JSON
 -------------------------------------------------------------------------------}
 
-instance ToObjectKey HashFn where
-  toObjectKey HashFnSHA256 = "sha256"
+instance Monad m => ToObjectKey m HashFn where
+  toObjectKey HashFnSHA256 = return "sha256"
 
 instance ReportSchemaErrors m => FromObjectKey m HashFn where
   fromObjectKey "sha256" = return HashFnSHA256
   fromObjectKey str      = expected "valid hash function" (Just str)
 
-instance ToJSON FileInfo where
-  toJSON FileInfo{..} = JSObject [
+instance Monad m => ToJSON m FileInfo where
+  toJSON FileInfo{..} = mkObject [
         ("length", toJSON fileInfoLength)
       , ("hashes", toJSON fileInfoHashes)
       ]

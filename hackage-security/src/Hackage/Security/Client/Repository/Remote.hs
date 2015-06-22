@@ -26,7 +26,6 @@ module Hackage.Security.Client.Repository.Remote (
   , DownloadedRange(..)
   , HttpClient(..)
   , FileSize(..)
-  , Cache
     -- ** Utility
   , fileSizeWithinBounds
     -- * Top-level API
@@ -36,20 +35,20 @@ module Hackage.Security.Client.Repository.Remote (
 import Control.Concurrent
 import Control.Exception
 import Control.Monad.Except
-import Network.URI hiding (uriPath, path, fragment)
+import Network.URI hiding (uriPath, path)
 import System.IO
 import qualified Data.ByteString      as BS
 import qualified Data.ByteString.Lazy as BS.L
 
 import Hackage.Security.Client.Formats
 import Hackage.Security.Client.Repository
-import Hackage.Security.Client.Repository.Local (Cache)
+import Hackage.Security.Client.Repository.Cache (Cache)
 import Hackage.Security.Trusted
 import Hackage.Security.TUF
 import Hackage.Security.Util.IO
 import Hackage.Security.Util.Path
 import Hackage.Security.Util.Some
-import qualified Hackage.Security.Client.Repository.Local.Internal as Local
+import qualified Hackage.Security.Client.Repository.Cache as Cache
 
 {-------------------------------------------------------------------------------
   Server capabilities
@@ -169,15 +168,18 @@ withRepository
 withRepository http outOfBandMirrors cache logger callback = do
     selectedMirror <- newMVar Nothing
     callback Repository {
-        repWithRemote    = flip $ withRemote http selectedMirror cache logger
-      , repGetCached     = Local.getCached     cache
-      , repGetCachedRoot = Local.getCachedRoot cache
-      , repClearCache    = Local.clearCache    cache
-      , repGetFromIndex  = Local.getFromIndex  cache
+        repWithRemote    = flip $ withRemote repLayout http selectedMirror cache logger
+      , repGetCached     = Cache.getCached     cache
+      , repGetCachedRoot = Cache.getCachedRoot cache
+      , repClearCache    = Cache.clearCache    cache
+      , repGetFromIndex  = Cache.getFromIndex  cache (repoIndexLayout repLayout)
       , repWithMirror    = withMirror http selectedMirror outOfBandMirrors logger
       , repLog           = logger
+      , repLayout        = repLayout
       , repDescription   = "Remote repository at " ++ show outOfBandMirrors
       }
+  where
+    repLayout = defaultRepoLayout
 
 {-------------------------------------------------------------------------------
   Implementations of the various methods of Repository
@@ -192,11 +194,11 @@ type SelectedMirror = MVar (Maybe URI)
 
 -- | Get a file from the server
 withRemote :: forall fs a.
-              HttpClient -> SelectedMirror -> Cache
+              RepoLayout -> HttpClient -> SelectedMirror -> Cache
            -> (LogMessage -> IO ())
            -> (SelectedFormat fs -> TempPath -> IO a)
            -> RemoteFile fs -> IO a
-withRemote httpClient selectedMirror cache logger callback = \remoteFile -> do
+withRemote repoLayout httpClient selectedMirror cache logger callback = \remoteFile -> do
    -- NOTE: Cannot use withMVar here, because the callback would be inside
    -- the scope of the withMVar, and there might be further calls to
    -- withRemote made by this callback, leading to deadlock.
@@ -217,7 +219,7 @@ withRemote httpClient selectedMirror cache logger callback = \remoteFile -> do
             return Nothing
           Right (sf, len, fp) -> do
             logger $ LogUpdating (describeRemoteFile remoteFile)
-            let incr = incTar httpClient baseURI cache (callback sf) len fp
+            let incr = incTar repoLayout httpClient baseURI cache (callback sf) len fp
                 wrapCustomEx = httpWrapCustomEx httpClient
             catchRecoverable wrapCustomEx (Just <$> incr) $ \ex -> do
               let failure = UpdateFailed ex
@@ -228,7 +230,7 @@ withRemote httpClient selectedMirror cache logger callback = \remoteFile -> do
           Just did -> return did
           Nothing  -> do
             logger $ LogDownloading (describeRemoteFile remoteFile)
-            getFile httpClient baseURI cache callback remoteFile
+            getFile repoLayout httpClient baseURI cache callback remoteFile
 
 -- | Should we do an incremental update?
 --
@@ -262,7 +264,7 @@ shouldDoIncremental HttpClient{..} cache remoteFile = runExceptT $ do
     -- We already have a local file to be updated
     -- (if not we should try to download the initial file in compressed form)
     cachedIndex <- do
-      mCachedIndex <- lift $ Local.getCachedIndex cache
+      mCachedIndex <- lift $ Cache.getCachedIndex cache
       case mCachedIndex of
         Nothing -> throwError $ Just UpdateImpossibleNoLocalCopy
         Just fp -> return fp
@@ -275,13 +277,13 @@ shouldDoIncremental HttpClient{..} cache remoteFile = runExceptT $ do
     return (selected, len, cachedIndex)
 
 -- | Get any file from the server, without using incremental updates
-getFile :: HttpClient -> URI -> Cache
+getFile :: RepoLayout -> HttpClient -> URI -> Cache
         -> (SelectedFormat fs -> TempPath -> IO a)
         -> RemoteFile fs -> IO a
-getFile httpClient baseURI cache callback remoteFile =
+getFile repoLayout httpClient baseURI cache callback remoteFile =
     getFile' httpClient uri sz (describeRemoteFile remoteFile) $ \tempPath -> do
       result <- callback format tempPath
-      Local.cacheRemoteFile cache
+      Cache.cacheRemoteFile cache
                             tempPath
                             (selectedFormatSome format)
                             (mustCache remoteFile)
@@ -291,7 +293,7 @@ getFile httpClient baseURI cache callback remoteFile =
                             (remoteFileNonEmpty remoteFile)
                             FGz
                             (formatsZip
-                              (remoteFileURI baseURI remoteFile)
+                              (remoteFileURI repoLayout baseURI remoteFile)
                               (remoteFileSize remoteFile))
 
 -- | Get a file from the server (by URI)
@@ -313,10 +315,10 @@ getFile' HttpClient{..} uri sz description callback =
 --
 -- Sadly, this has some tar-specific functionality
 incTar :: IsFileSystemRoot root
-       => HttpClient -> URI -> Cache
+       => RepoLayout -> HttpClient -> URI -> Cache
        -> (TempPath -> IO a)
        -> Trusted FileLength -> Path (Rooted root) -> IO a
-incTar HttpClient{..} baseURI cache callback len cachedFile = do
+incTar RepoLayout{..} HttpClient{..} baseURI cache callback len cachedFile = do
     -- TODO: Once we have a local tarball index, this is not necessary
     currentSize <- getFileSize cachedFile
     let currentMinusTrailer = currentSize - 1024
@@ -343,12 +345,10 @@ incTar HttpClient{..} baseURI cache callback len cachedFile = do
             execBodyReader "index" totalSz h br
       hClose h
       result <- callback tempPath
-      Local.cacheRemoteFile cache tempPath (Some FUn) CacheIndex
+      Cache.cacheRemoteFile cache tempPath (Some FUn) CacheIndex
       return result
   where
-    -- TODO: There are hardcoded references to "00-index.tar" and
-    -- "00-index.tar.gz" everwhere. We should probably abstract over that.
-    uri = modifyUriPath baseURI $ \p -> p </> fragment "00-index.tar"
+    uri = modifyUriPath baseURI (`anchorRepoPathRemotely` repoLayoutIndexTar)
 
 -- | Mirror selection
 withMirror :: forall a.
@@ -422,11 +422,11 @@ execBodyReader file mlen h br = go 0
   Information about remote files
 -------------------------------------------------------------------------------}
 
-remoteFileURI :: URI -> RemoteFile fs -> Formats fs URI
-remoteFileURI baseURI = fmap aux . remoteFilePath
+remoteFileURI :: RepoLayout -> URI -> RemoteFile fs -> Formats fs URI
+remoteFileURI repoLayout baseURI = fmap aux . remoteFilePath repoLayout
   where
-    aux :: UnrootedPath -> URI
-    aux remotePath = modifyUriPath baseURI $ \p -> p </> remotePath
+    aux :: RepoPath -> URI
+    aux repoPath = modifyUriPath baseURI (`anchorRepoPathRemotely` repoPath)
 
 -- | Extracting or estimating file sizes
 --

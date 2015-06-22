@@ -60,7 +60,7 @@ union (KeyEnv env) (KeyEnv env') = KeyEnv (env `Map.union` env')
   JSON
 -------------------------------------------------------------------------------}
 
-instance ToJSON KeyEnv where
+instance Monad m => ToJSON m KeyEnv where
   toJSON (KeyEnv keyEnv) = toJSON keyEnv
 
 -- TODO: verify key ID matches

@@ -34,13 +34,13 @@ newtype Hash = Hash String
   JSON
 -------------------------------------------------------------------------------}
 
-instance ToJSON KeyThreshold where
+instance Monad m => ToJSON m KeyThreshold where
   toJSON (KeyThreshold i) = toJSON i
 
-instance ToJSON FileLength where
+instance Monad m => ToJSON m FileLength where
   toJSON (FileLength i) = toJSON i
 
-instance ToJSON Hash where
+instance Monad m => ToJSON m Hash where
   toJSON (Hash str) = toJSON str
 
 instance ReportSchemaErrors m => FromJSON m KeyThreshold where

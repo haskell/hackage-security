@@ -90,12 +90,12 @@ versionIncrement (FileVersion i) = FileVersion (i + 1)
   JSON
 -------------------------------------------------------------------------------}
 
-instance ToJSON FileVersion where
+instance Monad m => ToJSON m FileVersion where
   toJSON (FileVersion i) = toJSON i
 
-instance ToJSON FileExpires where
+instance Monad m => ToJSON m FileExpires where
   toJSON (FileExpires (Just e)) = toJSON e
-  toJSON (FileExpires Nothing)  = JSNull
+  toJSON (FileExpires Nothing)  = return JSNull
 
 instance ReportSchemaErrors m => FromJSON m FileVersion where
   fromJSON enc = FileVersion <$> fromJSON enc

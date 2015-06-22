@@ -70,17 +70,16 @@ describeMirror = show . mirrorUrlBase
   JSON
 -------------------------------------------------------------------------------}
 
-instance ToJSON Mirror where
-  toJSON Mirror{..} = JSObject $ concat [
-      [ ("urlbase"        , toJSON mirrorUrlBase)
-      ]
+instance Monad m => ToJSON m Mirror where
+  toJSON Mirror{..} = mkObject $ concat [
+      [ ("urlbase", toJSON mirrorUrlBase) ]
     , case mirrorContent of
         MirrorFull -> []
     ]
 
-instance ToJSON Mirrors where
-  toJSON Mirrors{..} = JSObject [
-      ("_type"   , JSString "Mirrorlist")
+instance Monad m => ToJSON m Mirrors where
+  toJSON Mirrors{..} = mkObject [
+      ("_type"   , return $ JSString "Mirrorlist")
     , ("version" , toJSON mirrorsVersion)
     , ("expires" , toJSON mirrorsExpires)
     , ("mirrors" , toJSON mirrorsMirrors)

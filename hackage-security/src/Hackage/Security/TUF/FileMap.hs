@@ -32,7 +32,11 @@ import Hackage.Security.Util.Path
   Datatypes
 -------------------------------------------------------------------------------}
 
-newtype FileMap = FileMap { fileMap :: Map UnrootedPath FileInfo }
+-- | Mapping from paths to file info
+--
+-- File maps are used in target files; the paths are relative to the location
+-- of the target files containing the file map.
+newtype FileMap = FileMap { fileMap :: Map RelativePath FileInfo }
 
 {-------------------------------------------------------------------------------
   Standard accessors
@@ -41,23 +45,23 @@ newtype FileMap = FileMap { fileMap :: Map UnrootedPath FileInfo }
 empty :: FileMap
 empty = FileMap Map.empty
 
-lookup :: UnrootedPath -> FileMap -> Maybe FileInfo
+lookup :: RelativePath -> FileMap -> Maybe FileInfo
 lookup fp = Map.lookup fp . fileMap
 
-(!) :: FileMap -> UnrootedPath -> FileInfo
+(!) :: FileMap -> RelativePath -> FileInfo
 fm ! fp = fileMap fm Map.! fp
 
-insert :: UnrootedPath -> FileInfo -> FileMap -> FileMap
+insert :: RelativePath -> FileInfo -> FileMap -> FileMap
 insert fp nfo = FileMap . Map.insert fp nfo . fileMap
 
-fromList :: [(UnrootedPath, FileInfo)] -> FileMap
+fromList :: [(RelativePath, FileInfo)] -> FileMap
 fromList = FileMap . Map.fromList
 
 {-------------------------------------------------------------------------------
   Convenience accessors
 -------------------------------------------------------------------------------}
 
-lookupM :: Monad m => FileMap -> UnrootedPath -> m FileInfo
+lookupM :: Monad m => FileMap -> RelativePath -> m FileInfo
 lookupM m fp =
     case lookup fp m of
       Nothing  -> fail $ "Could not find entry for " ++ show fp ++ " in filemap"
@@ -77,15 +81,15 @@ data FileChange =
 
 fileMapChanges :: FileMap  -- ^ Old
                -> FileMap  -- ^ New
-               -> Map UnrootedPath FileChange
+               -> Map RelativePath FileChange
 fileMapChanges (FileMap a) (FileMap b) =
     Map.fromList $ go (Map.toList a) (Map.toList b)
   where
     -- Assumes the old and new lists are sorted alphabetically
     -- (Map.toList guarantees this)
-    go :: [(UnrootedPath, FileInfo)]
-       -> [(UnrootedPath, FileInfo)]
-       -> [(UnrootedPath, FileChange)]
+    go :: [(RelativePath, FileInfo)]
+       -> [(RelativePath, FileInfo)]
+       -> [(RelativePath, FileChange)]
     go [] new = map (second FileChanged) new
     go old [] = map (second (const FileDeleted)) old
     go old@((fp, nfo):old') new@((fp', nfo'):new')
@@ -98,7 +102,7 @@ fileMapChanges (FileMap a) (FileMap b) =
   JSON
 -------------------------------------------------------------------------------}
 
-instance ToJSON FileMap where
+instance Monad m => ToJSON m FileMap where
   toJSON (FileMap metaFiles) = toJSON metaFiles
 
 instance ReportSchemaErrors m => FromJSON m FileMap where

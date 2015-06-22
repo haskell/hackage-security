@@ -1,10 +1,8 @@
--- | Low-level API
+-- | The files we cache from the repository
 --
--- This provides direct access to the implementation of the Local repository
--- for the benefit of other repository implements that want to reuse parts
--- of the local repository.
-module Hackage.Security.Client.Repository.Local.Internal (
-    Cache
+-- Both the Local and the Remote repositories make use of this module.
+module Hackage.Security.Client.Repository.Cache (
+    Cache(..)
   , getCached
   , getCachedRoot
   , getCachedIndex
@@ -25,31 +23,33 @@ import qualified Data.ByteString.Lazy    as BS.L
 
 import Hackage.Security.Client.Repository
 import Hackage.Security.Client.Formats
+import Hackage.Security.TUF
 import Hackage.Security.Util.IO
 import Hackage.Security.Util.Path
 import Hackage.Security.Util.Some
 
--- | Location of the local cache
-type Cache = Path (Rooted Absolute)
+-- | Location and layout of the local cache
+data Cache = Cache {
+      cacheRoot   :: Path (Rooted Absolute)
+    , cacheLayout :: CacheLayout
+    }
 
 -- | Cache a previously downloaded remote file
 cacheRemoteFile :: Cache -> TempPath -> Some Format -> IsCached -> IO ()
 cacheRemoteFile cache tempPath (Some f) isCached = do
-    go f (cachedFileName isCached)
+    go f (cachedFileName cache isCached)
     -- TODO: This recreates the tar index ahead of time. Alternatively, we
     -- could delete the index here and then it will be rebuilt on first access.
     when (isCached == CacheIndex) $ rebuildTarIndex cache
   where
-    go :: Format f -> Maybe UnrootedPath -> IO ()
+    go :: Format f -> Maybe AbsolutePath -> IO ()
     go _ Nothing =
       return () -- Don't cache
-    go FUn (Just localName) = do
+    go FUn (Just fp) = do
       -- TODO: (here and elsewhere): use atomic file operation instead
-      let fp = cache </> localName
       createDirectoryIfMissing True (takeDirectory fp)
       copyFile tempPath fp
-    go FGz (Just localName) = do
-      let fp = cache </> localName
+    go FGz (Just fp) = do
       createDirectoryIfMissing True (takeDirectory fp)
       compressed <- readLazyByteString tempPath
       writeLazyByteString fp $ GZip.decompress compressed
@@ -59,25 +59,13 @@ cacheRemoteFile cache tempPath (Some f) isCached = do
 -- TODO: Should we attempt to rebuild this incrementally?
 rebuildTarIndex :: Cache -> IO ()
 rebuildTarIndex cache = do
-    entries <- Tar.read <$> readLazyByteString (cache </> fragment "00-index.tar")
+    entries <- Tar.read <$> readLazyByteString (cachedIndexTarPath cache)
     case TarIndex.build entries of
       Left  ex    -> throwIO ex
       Right index ->
-        withBinaryFile (cache </> fragment "00-index.tar.idx") WriteMode $ \h -> do
+        withBinaryFile (cachedIndexIdxPath cache) WriteMode $ \h -> do
           hSetBuffering h (BlockBuffering Nothing)
           BS.Builder.hPutBuilder h $ TarIndex.serialise index
-
--- | The name of the file as cached
---
--- Returns @Nothing@ if we do not cache this file.
---
--- NOTE: We always cache files locally in uncompressed format. This is a
--- policy of this implementation of 'Repository', however, and other policies
--- are possible; that's why this lives here rather than in @Client.Repository@.
-cachedFileName :: IsCached -> Maybe UnrootedPath
-cachedFileName (CacheAs cachedFile) = Just $ cachedFilePath cachedFile
-cachedFileName CacheIndex           = Just $ fragment "00-index.tar"
-cachedFileName DontCache            = Nothing
 
 -- | Get a cached file (if available)
 getCached :: Cache -> CachedFile -> IO (Maybe AbsolutePath)
@@ -86,7 +74,7 @@ getCached cache cachedFile = do
     if exists then return $ Just localPath
               else return $ Nothing
   where
-    localPath = cache </> cachedFilePath cachedFile
+    localPath = cachedFilePath cache cachedFile
 
 -- | Get the cached index (if available)
 getCachedIndex :: Cache -> IO (Maybe AbsolutePath)
@@ -95,7 +83,7 @@ getCachedIndex cache = do
     if exists then return $ Just localPath
               else return $ Nothing
   where
-    localPath = cache </> fragment "00-index.tar"
+    localPath = cachedIndexTarPath cache
 
 -- | Get the cached root
 getCachedRoot :: Cache -> IO AbsolutePath
@@ -106,19 +94,19 @@ getCachedRoot cache = do
       Nothing -> throwIO $ userError "Client missing root info"
 
 -- | Get a file from the index
-getFromIndex :: Cache -> IndexFile -> IO (Maybe BS.ByteString)
-getFromIndex cache indexFile = do
-    mIndex <- tryReadIndex (cache </> fragment "00-index.tar.idx")
+getFromIndex :: Cache -> IndexLayout -> IndexFile -> IO (Maybe BS.ByteString)
+getFromIndex cache indexLayout indexFile = do
+    mIndex <- tryReadIndex (cachedIndexIdxPath cache)
     case mIndex of
       Left _err -> do
         -- If index is corrupted, rebuild and try again
         rebuildTarIndex cache
-        getFromIndex cache indexFile
+        getFromIndex cache indexLayout indexFile
       Right index ->
-        case tarIndexLookup index (indexFilePath indexFile) of
+        case tarIndexLookup index (indexFilePath indexLayout indexFile) of
           Just (TarIndex.TarFileEntry offset) ->
             -- TODO: We might want to keep this handle open
-            withFile (cache </> fragment "00-index.tar") ReadMode $ \h -> do
+            withFile (cachedIndexTarPath cache) ReadMode $ \h -> do
               entry <- TarIndex.hReadEntry h offset
               case Tar.entryContent entry of
                 Tar.NormalFile lbs _size -> do
@@ -142,5 +130,42 @@ getFromIndex cache indexFile = do
 -- | Delete a previously downloaded remote file
 clearCache :: Cache -> IO ()
 clearCache cache = void . handleDoesNotExist $ do
-    removeFile $ cache </> cachedFilePath CachedTimestamp
-    removeFile $ cache </> cachedFilePath CachedSnapshot
+    removeFile $ cachedFilePath cache CachedTimestamp
+    removeFile $ cachedFilePath cache CachedSnapshot
+
+{-------------------------------------------------------------------------------
+  Auxiliary: paths
+-------------------------------------------------------------------------------}
+
+-- | The name of the file as cached
+--
+-- Returns @Nothing@ if we do not cache this file.
+--
+-- NOTE: We always cache files locally in uncompressed format. This is a
+-- policy of this implementation of 'Repository', however, and other policies
+-- are possible.
+cachedFileName :: Cache -> IsCached -> Maybe AbsolutePath
+cachedFileName cache = go
+  where
+    go :: IsCached -> Maybe AbsolutePath
+    go (CacheAs cachedFile) = Just $ cachedFilePath     cache cachedFile
+    go CacheIndex           = Just $ cachedIndexTarPath cache
+    go DontCache            = Nothing
+
+cachedFilePath :: Cache -> CachedFile -> AbsolutePath
+cachedFilePath Cache{cacheLayout=CacheLayout{..}, ..} file =
+    anchorCachePath cacheRoot $ go file
+  where
+    go :: CachedFile -> CachePath
+    go CachedRoot      = cacheLayoutRoot
+    go CachedTimestamp = cacheLayoutTimestamp
+    go CachedSnapshot  = cacheLayoutSnapshot
+    go CachedMirrors   = cacheLayoutMirrors
+
+cachedIndexTarPath :: Cache -> AbsolutePath
+cachedIndexTarPath Cache{..} =
+    anchorCachePath cacheRoot $ cacheLayoutIndexTar cacheLayout
+
+cachedIndexIdxPath :: Cache -> AbsolutePath
+cachedIndexIdxPath Cache{..} =
+    anchorCachePath cacheRoot $ cacheLayoutIndexIdx cacheLayout

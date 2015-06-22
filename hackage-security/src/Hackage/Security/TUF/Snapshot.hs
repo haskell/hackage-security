@@ -1,11 +1,15 @@
+{-# LANGUAGE UndecidableInstances #-}
 module Hackage.Security.TUF.Snapshot (
     Snapshot(..)
   ) where
+
+import Control.Monad.Reader
 
 import Hackage.Security.JSON
 import Hackage.Security.Key.ExplicitSharing
 import Hackage.Security.TUF.Header
 import Hackage.Security.TUF.FileInfo
+import Hackage.Security.TUF.Layout
 import Hackage.Security.TUF.Signed
 import Hackage.Security.Util.Path
 import qualified Hackage.Security.TUF.FileMap as FileMap
@@ -48,32 +52,49 @@ instance DescribeFile Snapshot where
   JSON
 -------------------------------------------------------------------------------}
 
-instance ToJSON Snapshot where
-  toJSON Snapshot{..} = JSObject [
-        ("_type"   , JSString "Snapshot")
-      , ("version" , toJSON snapshotVersion)
-      , ("expires" , toJSON snapshotExpires)
-      , ("meta"    , toJSON snapshotMeta)
-      ]
+instance MonadReader RepoLayout m => ToJSON m Snapshot where
+  toJSON Snapshot{..} = do
+      repoLayout <- ask
+      mkObject [
+          ("_type"   , return $ JSString "Snapshot")
+        , ("version" , toJSON snapshotVersion)
+        , ("expires" , toJSON snapshotExpires)
+        , ("meta"    , toJSON (snapshotMeta repoLayout))
+        ]
     where
-      snapshotMeta = FileMap.fromList $ [
-          (fragment "root.json"    , snapshotInfoRoot)
-        , (fragment "mirrors.json" , snapshotInfoMirrors)
-        , (fragment "index.tar.gz" , snapshotInfoTarGz)
+      snapshotMeta repoLayout = FileMap.fromList $ [
+          (pathRoot       repoLayout , snapshotInfoRoot)
+        , (pathMirrors    repoLayout , snapshotInfoMirrors)
+        , (pathIndexTarGz repoLayout , snapshotInfoTarGz)
         ] ++
-        [ (fragment "index.tar" , infoTar) | Just infoTar <- [snapshotInfoTar] ]
+        [ (pathIndexTar   repoLayout , infoTar) | Just infoTar <- [snapshotInfoTar] ]
 
-instance ReportSchemaErrors m => FromJSON m Snapshot where
+instance (MonadReader RepoLayout m, ReportSchemaErrors m) => FromJSON m Snapshot where
   fromJSON enc = do
     -- TODO: Should we verify _type?
+    repoLayout          <- ask
     snapshotVersion     <- fromJSField enc "version"
     snapshotExpires     <- fromJSField enc "expires"
     snapshotMeta        <- fromJSField enc "meta"
-    snapshotInfoRoot    <- FileMap.lookupM snapshotMeta $ fragment "root.json"
-    snapshotInfoMirrors <- FileMap.lookupM snapshotMeta $ fragment "mirrors.json"
-    snapshotInfoTarGz   <- FileMap.lookupM snapshotMeta $ fragment "index.tar.gz"
-    let snapshotInfoTar = FileMap.lookup (fragment "index.tar") snapshotMeta
+    snapshotInfoRoot    <- FileMap.lookupM snapshotMeta (pathRoot       repoLayout)
+    snapshotInfoMirrors <- FileMap.lookupM snapshotMeta (pathMirrors    repoLayout)
+    snapshotInfoTarGz   <- FileMap.lookupM snapshotMeta (pathIndexTarGz repoLayout)
+    let snapshotInfoTar = FileMap.lookup (pathIndexTar repoLayout) snapshotMeta
     return Snapshot{..}
 
 instance FromJSON ReadJSON (Signed Snapshot) where
   fromJSON = signedFromJSON
+
+{-------------------------------------------------------------------------------
+  Paths used in the snapshot
+
+  NOTE: Since the snapshot lives in the top-level directory of the repository,
+  we can safely reinterpret "relative to the repo root" as "relative to the
+  snapshot"; hence, this use of 'castRoot' is okay.
+-------------------------------------------------------------------------------}
+
+pathRoot, pathMirrors, pathIndexTarGz, pathIndexTar :: RepoLayout -> RelativePath
+pathRoot       = castRoot . repoLayoutRoot
+pathMirrors    = castRoot . repoLayoutMirrors
+pathIndexTarGz = castRoot . repoLayoutIndexTarGz
+pathIndexTar   = castRoot . repoLayoutIndexTar

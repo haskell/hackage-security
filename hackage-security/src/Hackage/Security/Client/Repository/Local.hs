@@ -1,27 +1,26 @@
 -- | Local repository
 module Hackage.Security.Client.Repository.Local (
     LocalRepo
-  , Cache
   , withRepository
   ) where
 
 import Hackage.Security.Client.Repository
-import Hackage.Security.Client.Repository.Local.Internal
+import Hackage.Security.Client.Repository.Cache
 import Hackage.Security.Client.Formats
+import Hackage.Security.TUF
 import Hackage.Security.Util.Path
 
 -- | Location of the repository
 --
 -- Note that we regard the local repository as immutable; we cache files just
 -- like we do for remote repositories.
---
--- The local repository caches the index as @<cache>/00-index.tar@; this is
--- important because `cabal-install` expects to find it there (and does not
--- currently go through the hackage-security library to get files from the
--- index).
 type LocalRepo = Path (Rooted Absolute)
 
 -- | Initialize the repository (and cleanup resources afterwards)
+--
+-- The local repository reuses the layout of a remote repository to determine
+-- where to find files (but relative to the 'LocalRepo' root instead of an URL).
+-- It uses the same cache as the remote repository.
 withRepository
   :: LocalRepo             -- ^ Location of local repository
   -> Cache                 -- ^ Location of local cache
@@ -29,20 +28,23 @@ withRepository
   -> (Repository -> IO a)  -- ^ Callback
   -> IO a
 withRepository repo cache logger callback = callback Repository {
-    repWithRemote    = withRemote repo cache
-  , repGetCached     = getCached     cache
-  , repGetCachedRoot = getCachedRoot cache
-  , repClearCache    = clearCache    cache
-  , repGetFromIndex  = getFromIndex  cache
-  , repWithMirror    = mirrorsUnsupported
-  , repLog           = logger
-  , repDescription   = "Local repository at " ++ show repo
-  }
+      repWithRemote    = withRemote repLayout repo cache
+    , repGetCached     = getCached     cache
+    , repGetCachedRoot = getCachedRoot cache
+    , repClearCache    = clearCache    cache
+    , repGetFromIndex  = getFromIndex  cache (repoIndexLayout repLayout)
+    , repWithMirror    = mirrorsUnsupported
+    , repLog           = logger
+    , repLayout        = repLayout
+    , repDescription   = "Local repository at " ++ show repo
+    }
+  where
+    repLayout = defaultRepoLayout
 
 -- | Get a file from the server
-withRemote :: LocalRepo -> Cache
+withRemote :: RepoLayout -> LocalRepo -> Cache
            -> RemoteFile fs -> (SelectedFormat fs -> TempPath -> IO a) -> IO a
-withRemote repo cache remoteFile callback = do
+withRemote repoLayout repo cache remoteFile callback = do
     result <- callback format remotePath
     cacheRemoteFile cache
                     remotePath
@@ -53,5 +55,5 @@ withRemote repo cache remoteFile callback = do
     (format, remotePath') = formatsPrefer
                               (remoteFileNonEmpty remoteFile)
                               FUn
-                              (remoteFilePath remoteFile)
-    remotePath = repo </> remotePath'
+                              (remoteFilePath repoLayout remoteFile)
+    remotePath = anchorRepoPathLocally repo remotePath'

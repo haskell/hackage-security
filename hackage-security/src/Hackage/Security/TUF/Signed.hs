@@ -11,7 +11,7 @@ module Hackage.Security.TUF.Signed (
     -- * Construction and verification
   , unsigned
   , withSignatures
-  , addSignature
+ -- , addSignature
   , verifySignature
     -- * JSON aids
   , signedFromJSON
@@ -52,7 +52,10 @@ data Signature = Signature {
 unsigned :: a -> Signed a
 unsigned a = Signed { signed = a, signatures = Signatures [] }
 
-withSignatures :: ToJSON a => [Some Key] -> a -> Signed a
+
+withSignatures :: [Some Key] -> a -> Signed a
+withSignatures = undefined
+{-
 withSignatures []                = unsigned
 withSignatures (Some key : keys) = addSignature key . withSignatures keys
 
@@ -65,23 +68,24 @@ addSignature key Signed{signatures = Signatures sigs, ..} =
         signature    = sign (privateKey key) $ renderJSON signed
       , signatureKey = Some $ publicKey key
       }
+-}
 
 verifySignature :: BS.L.ByteString -> Signature -> Bool
 verifySignature inp Signature{signature = sig, signatureKey = Some pub} =
   verify pub inp sig
 
-instance ToJSON a => ToJSON (Signed a) where
-  toJSON Signed{..} = JSObject [
+instance (Monad m, ToJSON m a) => ToJSON m (Signed a) where
+  toJSON Signed{..} = mkObject [
          ("signed"     , toJSON signed)
        , ("signatures" , toJSON signatures)
        ]
 
-instance ToJSON Signatures where
+instance Monad m => ToJSON m Signatures where
   toJSON (Signatures sigs) = toJSON sigs
 
-instance ToJSON Signature where
-  toJSON Signature{..} = JSObject [
-         ("keyid"  , writeKeyAsId signatureKey)
+instance Monad m => ToJSON m Signature where
+  toJSON Signature{..} = mkObject [
+         ("keyid"  , return $ writeKeyAsId signatureKey)
        , ("method" , toJSON $ somePublicKeyType signatureKey)
        , ("sig"    , toJSON $ B64.fromByteString signature)
        ]

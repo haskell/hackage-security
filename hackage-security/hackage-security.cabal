@@ -20,8 +20,8 @@ library
   -- and .Server; the other exported modules are intended for qualified imports.
   exposed-modules:     Hackage.Security.Client
                        Hackage.Security.Client.Repository
+                       Hackage.Security.Client.Repository.Cache
                        Hackage.Security.Client.Repository.Local
-                       Hackage.Security.Client.Repository.Local.Internal
                        Hackage.Security.Client.Repository.Remote
                        Hackage.Security.Key.Env
                        Hackage.Security.Server
@@ -42,6 +42,7 @@ library
                        Hackage.Security.TUF.Common
                        Hackage.Security.TUF.FileInfo
                        Hackage.Security.TUF.Header
+                       Hackage.Security.TUF.Layout
                        Hackage.Security.TUF.Mirrors
                        Hackage.Security.TUF.Patterns
                        Hackage.Security.TUF.Root
@@ -90,6 +91,7 @@ library
                        GeneralizedNewtypeDeriving
                        KindSignatures
                        MultiParamTypeClasses
+                       NamedFieldPuns
                        NoMonomorphismRestriction
                        RankNTypes
                        RecordWildCards
@@ -105,6 +107,7 @@ library
                        PackageImports
                        QuasiQuotes
                        TemplateHaskell
+                       UndecidableInstances
   ghc-options:         -Wall
 
   if flag(base48)

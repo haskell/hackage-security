@@ -276,14 +276,14 @@ instance TH.Lift Delegation where
   JSON
 -------------------------------------------------------------------------------}
 
-instance ToJSON (Pattern typ) where
-  toJSON = JSString . prettyPattern
-instance ToJSON (Replacement typ) where
-  toJSON = JSString . prettyReplacement
+instance Monad m => ToJSON m (Pattern typ) where
+  toJSON = return . JSString . prettyPattern
+instance Monad m => ToJSON m (Replacement typ) where
+  toJSON = return . JSString . prettyReplacement
 
-instance ToJSON (Some Pattern) where
+instance Monad m => ToJSON m (Some Pattern) where
   toJSON (Some p) = toJSON p
-instance ToJSON (Some Replacement) where
+instance Monad m => ToJSON m (Some Replacement) where
   toJSON (Some r) = toJSON r
 
 instance ReportSchemaErrors m => FromJSON m (Some Pattern) where
