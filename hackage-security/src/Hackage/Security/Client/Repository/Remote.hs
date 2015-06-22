@@ -49,7 +49,7 @@ import Hackage.Security.TUF
 import Hackage.Security.Util.IO
 import Hackage.Security.Util.Path
 import Hackage.Security.Util.Some
-import qualified Hackage.Security.Client.Repository.Local as Local
+import qualified Hackage.Security.Client.Repository.Local.Internal as Local
 
 {-------------------------------------------------------------------------------
   Server capabilities

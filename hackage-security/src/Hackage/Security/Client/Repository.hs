@@ -1,3 +1,7 @@
+-- | Abstract definition of a Repository
+--
+-- Most clients should only need to import this module if they wish to define
+-- their own Repository implementations.
 module Hackage.Security.Client.Repository (
     -- * Files
     RemoteFile(..)

@@ -19,7 +19,9 @@ library
   -- Most functionality is exported through the top-level entry points .Client
   -- and .Server; the other exported modules are intended for qualified imports.
   exposed-modules:     Hackage.Security.Client
+                       Hackage.Security.Client.Repository
                        Hackage.Security.Client.Repository.Local
+                       Hackage.Security.Client.Repository.Local.Internal
                        Hackage.Security.Client.Repository.Remote
                        Hackage.Security.Key.Env
                        Hackage.Security.Server
@@ -31,7 +33,6 @@ library
                        Hackage.Security.Util.Some
   other-modules:       Hackage.Security.Base64
                        Hackage.Security.Client.Formats
-                       Hackage.Security.Client.Repository
                        Hackage.Security.JSON
                        Hackage.Security.Key
                        Hackage.Security.Key.ExplicitSharing

@@ -11,11 +11,19 @@ module Hackage.Security.Client (
     -- * Downloading targets
   , downloadPackage
     -- * Bootstrapping
+  , requiresBootstrap
   , bootstrap
     -- * Re-exports
   , module Hackage.Security.TUF
   , module Hackage.Security.Key
-  , module Hackage.Security.Client.Repository
+    -- ** We only a few bits from .Repository
+    -- TODO: Maybe this is a sign that these should be in a different module?
+  , CustomException(..)
+  , Repository -- opaque
+  , LogMessage(..)
+  , formatLogMessage
+    -- ** TODO: Temporary. Introduce paths module instead
+  , pkgTarGz
   ) where
 
 import Prelude hiding (log)
@@ -23,6 +31,7 @@ import Control.Exception
 import Control.Monad
 import Control.Monad.Cont
 import Control.Monad.Trans.Cont
+import Data.Maybe (isJust)
 import Data.Time
 import Data.Typeable (Typeable)
 import qualified Data.ByteString      as BS
@@ -405,6 +414,10 @@ instance Exception InvalidPackageException
 {-------------------------------------------------------------------------------
   Bootstrapping
 -------------------------------------------------------------------------------}
+
+-- | Check if we need to bootstrap (i.e., if we have root info)
+requiresBootstrap :: Repository -> IO Bool
+requiresBootstrap rep = isJust <$> repGetCached rep CachedRoot
 
 -- | Bootstrap the chain of trust
 --
