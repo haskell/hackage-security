@@ -22,6 +22,7 @@ module Hackage.Security.JSON (
   , runWriteJSON
     -- ** Utility
   , renderJSON
+  , renderJSON'
   , writeCanonical
   , writeKeyAsId
     -- * Re-exports
@@ -32,6 +33,7 @@ import Control.Arrow (first)
 import Control.Exception
 import Control.Monad.Except
 import Control.Monad.Reader
+import Data.Functor.Identity
 import Data.Typeable (Typeable)
 import qualified Data.ByteString.Lazy as BS.L
 
@@ -209,8 +211,13 @@ runWriteJSON repoLayout act = runReader (unWriteJSON act) repoLayout
   Writing: Utility
 -------------------------------------------------------------------------------}
 
+-- | Render to canonical JSON format
 renderJSON :: ToJSON WriteJSON a => RepoLayout -> a -> BS.L.ByteString
 renderJSON repoLayout = renderCanonicalJSON . runWriteJSON repoLayout . toJSON
+
+-- | Variation on 'renderJSON' for files that don't require the repo layout
+renderJSON' :: ToJSON Identity a => a -> BS.L.ByteString
+renderJSON' = renderCanonicalJSON . runIdentity . toJSON
 
 writeCanonical :: (IsFileSystemRoot root, ToJSON WriteJSON a)
                => RepoLayout -> Path (Rooted root) -> a -> IO ()

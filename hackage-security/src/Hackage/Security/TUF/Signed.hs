@@ -11,7 +11,7 @@ module Hackage.Security.TUF.Signed (
     -- * Construction and verification
   , unsigned
   , withSignatures
- -- , addSignature
+  , withSignatures'
   , verifySignature
     -- * JSON aids
   , signedFromJSON
@@ -20,6 +20,7 @@ module Hackage.Security.TUF.Signed (
   , IgnoreSigned(..)
   ) where
 
+import Data.Functor.Identity
 import qualified Data.ByteString      as BS
 import qualified Data.ByteString.Lazy as BS.L
 import qualified Data.Set             as Set
@@ -56,17 +57,25 @@ unsigned a = Signed { signed = a, signatures = Signatures [] }
 withSignatures :: ToJSON WriteJSON a => RepoLayout -> [Some Key] -> a -> Signed a
 withSignatures repoLayout keys doc = Signed {
       signed     = doc
-    , signatures = Signatures $ map signRendered keys
+    , signatures = signRendered keys $ renderJSON repoLayout doc
     }
-  where
-    signRendered :: Some Key -> Signature
-    signRendered (Some key) = Signature {
-          signature    = sign (privateKey key) rendered
-        , signatureKey = Some $ publicKey key
-        }
 
-    rendered :: BS.L.ByteString
-    rendered = renderJSON repoLayout doc
+-- | Variation on 'withSignatures' that doesn't need the repo layout
+withSignatures' :: ToJSON Identity a => [Some Key] -> a -> Signed a
+withSignatures' keys doc = Signed {
+      signed     = doc
+    , signatures = signRendered keys $ renderJSON' doc
+    }
+
+-- | Construct signatures for already rendered value (internal function)
+signRendered :: [Some Key] -> BS.L.ByteString -> Signatures
+signRendered keys rendered = Signatures $ map go keys
+  where
+    go :: Some Key -> Signature
+    go (Some key) = Signature {
+        signature    = sign (privateKey key) rendered
+      , signatureKey = Some $ publicKey key
+      }
 
 verifySignature :: BS.L.ByteString -> Signature -> Bool
 verifySignature inp Signature{signature = sig, signatureKey = Some pub} =

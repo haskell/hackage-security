@@ -368,7 +368,7 @@ getDirectoryContents path = do
 data TarballRoot
 type TarballPath = Path (Rooted TarballRoot)
 
-instance Show (Rooted TarballPath) where show _ = "<tarball>"
+instance Show (Rooted TarballRoot) where show _ = "<tarball>"
 
 tarPack :: IsFileSystemRoot root
         => Path (Rooted root) -> [TarballPath] -> IO [Tar.Entry]
