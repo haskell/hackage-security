@@ -38,10 +38,10 @@ import qualified Data.ByteString.Lazy as BS.L
 import qualified Data.Typeable as Typeable
 #endif
 
-import Hackage.Security.JSON
+import Hackage.Security.Util.JSON
 import Hackage.Security.Util.Some
 import Hackage.Security.Util.TypedEmbedded
-import qualified Hackage.Security.Base64 as B64
+import qualified Hackage.Security.Util.Base64 as B64
 
 {-------------------------------------------------------------------------------
   Generalization over key types

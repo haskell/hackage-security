@@ -11,7 +11,6 @@ module Hackage.Security.TUF.Targets (
 import Hackage.Security.JSON
 import Hackage.Security.Key
 import Hackage.Security.Key.Env (KeyEnv)
-import Hackage.Security.Key.ExplicitSharing
 import Hackage.Security.TUF.Common
 import Hackage.Security.TUF.FileInfo
 import Hackage.Security.TUF.FileMap (FileMap)

@@ -1,4 +1,4 @@
-module Hackage.Security.Base64 (
+module Hackage.Security.Util.Base64 (
     Base64 -- opaque
   , fromByteString
   , toByteString
@@ -8,7 +8,7 @@ import Data.ByteString (ByteString)
 import qualified Data.ByteString.Char8  as C8  -- only called on B64-enc strings
 import qualified Data.ByteString.Base64 as B64
 
-import Hackage.Security.JSON
+import Hackage.Security.Util.JSON
 
 -- | Simple wrapper around bytestring with ToJSON and FromJSON instances that
 -- use base64 encoding.

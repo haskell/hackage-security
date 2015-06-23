@@ -16,8 +16,8 @@ import Prelude hiding (lookup, null)
 import Data.Map (Map)
 import qualified Data.Map as Map
 
-import Hackage.Security.JSON
 import Hackage.Security.Key
+import Hackage.Security.Util.JSON
 import Hackage.Security.Util.Some
 
 newtype KeyEnv = KeyEnv {

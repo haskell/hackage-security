@@ -115,11 +115,15 @@ anchorRepoPathRemotely remoteRoot repoPath = remoteRoot </> unrootPath' repoPath
 data IndexLayout = IndexLayout  {
       -- | TUF metadata for a package
       indexLayoutPkgMetadata :: PackageIdentifier -> TarballPath
+
+      -- | Package .cabal file
+    , indexLayoutPkgCabal :: PackageIdentifier -> TarballPath
     }
 
 defaultIndexLayout :: IndexLayout
 defaultIndexLayout = IndexLayout {
-      indexLayoutPkgMetadata = \pkgId -> rp $ pkgLoc pkgId </> fragment "targets.json"
+      indexLayoutPkgMetadata = \pkgId -> rp $ pkgLoc pkgId </> pkgMetadata pkgId
+    , indexLayoutPkgCabal    = \pkgId -> rp $ pkgLoc pkgId </> pkgCabal    pkgId
     }
   where
     rp :: UnrootedPath -> TarballPath
@@ -194,5 +198,7 @@ pkgLoc pkgId = joinFragments [
     , display (packageVersion pkgId)
     ]
 
-pkgFile :: PackageIdentifier -> UnrootedPath
-pkgFile pkgId = fragment (display pkgId) <.> "tar.gz"
+pkgFile, pkgCabal, pkgMetadata :: PackageIdentifier -> UnrootedPath
+pkgFile      pkgId = fragment (display              pkgId)  <.> "tar.gz"
+pkgCabal     pkgId = fragment (display (packageName pkgId)) <.> "cabal"
+pkgMetadata _pkgId = fragment "targets"                     <.> "json"

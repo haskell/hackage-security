@@ -26,10 +26,10 @@ import qualified Data.Set             as Set
 
 import Hackage.Security.JSON
 import Hackage.Security.Key
-import Hackage.Security.Key.ExplicitSharing
+import Hackage.Security.TUF.Layout
 import Hackage.Security.Util.Some
 import Text.JSON.Canonical
-import qualified Hackage.Security.Base64 as B64
+import qualified Hackage.Security.Util.Base64 as B64
 
 data Signed a = Signed {
     signed     :: a
@@ -52,23 +52,21 @@ data Signature = Signature {
 unsigned :: a -> Signed a
 unsigned a = Signed { signed = a, signatures = Signatures [] }
 
-
-withSignatures :: [Some Key] -> a -> Signed a
-withSignatures = undefined
-{-
-withSignatures []                = unsigned
-withSignatures (Some key : keys) = addSignature key . withSignatures keys
-
--- | Add a new signature to a signed document
-addSignature :: ToJSON a => Key typ -> Signed a -> Signed a
-addSignature key Signed{signatures = Signatures sigs, ..} =
-    Signed{signatures = Signatures (newSignature : sigs), ..}
+-- | Sign a document
+withSignatures :: ToJSON WriteJSON a => RepoLayout -> [Some Key] -> a -> Signed a
+withSignatures repoLayout keys doc = Signed {
+      signed     = doc
+    , signatures = Signatures $ map signRendered keys
+    }
   where
-    newSignature = Signature {
-        signature    = sign (privateKey key) $ renderJSON signed
-      , signatureKey = Some $ publicKey key
-      }
--}
+    signRendered :: Some Key -> Signature
+    signRendered (Some key) = Signature {
+          signature    = sign (privateKey key) rendered
+        , signatureKey = Some $ publicKey key
+        }
+
+    rendered :: BS.L.ByteString
+    rendered = renderJSON repoLayout doc
 
 verifySignature :: BS.L.ByteString -> Signature -> Bool
 verifySignature inp Signature{signature = sig, signatureKey = Some pub} =

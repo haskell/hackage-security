@@ -9,7 +9,6 @@ module Hackage.Security.TUF.Root (
 import Hackage.Security.JSON
 import Hackage.Security.Key
 import Hackage.Security.Key.Env (KeyEnv)
-import Hackage.Security.Key.ExplicitSharing
 import Hackage.Security.TUF.Common
 import Hackage.Security.TUF.Header
 import Hackage.Security.TUF.Mirrors

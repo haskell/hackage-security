@@ -23,6 +23,7 @@ library
                        Hackage.Security.Client.Repository.Cache
                        Hackage.Security.Client.Repository.Local
                        Hackage.Security.Client.Repository.Remote
+                       Hackage.Security.JSON
                        Hackage.Security.Key.Env
                        Hackage.Security.Server
                        Hackage.Security.Server.IndexTarball
@@ -31,11 +32,8 @@ library
                        Hackage.Security.Util.Lens
                        Hackage.Security.Util.Path
                        Hackage.Security.Util.Some
-  other-modules:       Hackage.Security.Base64
-                       Hackage.Security.Client.Formats
-                       Hackage.Security.JSON
+  other-modules:       Hackage.Security.Client.Formats
                        Hackage.Security.Key
-                       Hackage.Security.Key.ExplicitSharing
                        Hackage.Security.Trusted
                        Hackage.Security.Trusted.TCB
                        Hackage.Security.TUF
@@ -50,6 +48,8 @@ library
                        Hackage.Security.TUF.Snapshot
                        Hackage.Security.TUF.Targets
                        Hackage.Security.TUF.Timestamp
+                       Hackage.Security.Util.Base64
+                       Hackage.Security.Util.JSON
                        Hackage.Security.Util.Stack
                        Hackage.Security.Util.TypedEmbedded
   other-modules:       Prelude

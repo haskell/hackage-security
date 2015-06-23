@@ -6,7 +6,6 @@ module Hackage.Security.TUF.Timestamp (
 import Control.Monad.Reader
 
 import Hackage.Security.JSON
-import Hackage.Security.Key.ExplicitSharing
 import Hackage.Security.TUF.FileInfo
 import Hackage.Security.TUF.Header
 import Hackage.Security.TUF.Layout

@@ -4,17 +4,14 @@ module Hackage.Security.Server (
     module Hackage.Security.JSON
   , module Hackage.Security.Key
   , module Hackage.Security.TUF
-  , module Hackage.Security.Key.ExplicitSharing
   ) where
 
 import Hackage.Security.JSON (
     ToJSON(..)
   , FromJSON(..)
-  )
-import Hackage.Security.Key
-import Hackage.Security.TUF
-import Hackage.Security.Key.ExplicitSharing (
-    DeserializationError(..)
+  , DeserializationError(..)
+  , WriteJSON
+  , ReadJSON
   , readNoKeys
   , parseNoKeys
   , readCanonical
@@ -22,3 +19,5 @@ import Hackage.Security.Key.ExplicitSharing (
   , writeCanonical
   , formatDeserializationError
   )
+import Hackage.Security.Key
+import Hackage.Security.TUF

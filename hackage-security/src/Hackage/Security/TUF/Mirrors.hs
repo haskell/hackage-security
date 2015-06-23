@@ -11,7 +11,6 @@ module Hackage.Security.TUF.Mirrors (
 import Network.URI
 
 import Hackage.Security.JSON
-import Hackage.Security.Key.ExplicitSharing
 import Hackage.Security.TUF.Header
 import Hackage.Security.TUF.Signed
 

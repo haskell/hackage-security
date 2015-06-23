@@ -44,7 +44,6 @@ import Hackage.Security.Client.Formats
 import Hackage.Security.JSON
 import Hackage.Security.Key
 import Hackage.Security.Key.Env (KeyEnv)
-import Hackage.Security.Key.ExplicitSharing
 import Hackage.Security.Trusted
 import Hackage.Security.Trusted.TCB
 import Hackage.Security.TUF
