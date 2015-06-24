@@ -5,6 +5,7 @@ import Distribution.Package
 
 import Hackage.Security.Client
 import Hackage.Security.Util.Path
+import qualified Hackage.Security.Client.Repository.Cache             as Cache
 import qualified Hackage.Security.Client.Repository.Local             as Local
 import qualified Hackage.Security.Client.Repository.Remote            as Remote
 import qualified Hackage.Security.Client.Repository.Remote.HTTP       as Remote.HTTP
@@ -59,12 +60,12 @@ withRepo GlobalOpts{..} =
       Right remote -> withRemoteRepo remote
   where
     withLocalRepo :: AbsolutePath -> (Repository -> IO a) -> IO a
-    withLocalRepo repo = Local.withRepository repo globalCache logTUF
+    withLocalRepo repo = Local.withRepository repo cache logTUF
 
     withRemoteRepo :: URI -> (Repository -> IO a) -> IO a
     withRemoteRepo baseURI callback =
         withClient $ \httpClient ->
-          Remote.withRepository httpClient [baseURI] globalCache logTUF callback
+          Remote.withRepository httpClient [baseURI] cache logTUF callback
 
     withClient :: (Remote.HttpClient -> IO a) -> IO a
     withClient =
@@ -73,7 +74,7 @@ withRepo GlobalOpts{..} =
           "curl"        -> Remote.Curl.withClient logHTTP
 #if MIN_VERSION_base(4,5,0)
           "http-client" -> Remote.HttpClient.withClient logHTTP
-#endif          
+#endif
           _otherwise    -> error "unsupported HTTP client"
 
     -- used for log messages from the Hackage.Security code
@@ -83,3 +84,9 @@ withRepo GlobalOpts{..} =
     -- used for log messages from the HTTP clients
     logHTTP :: String -> IO ()
     logHTTP = putStrLn
+
+    cache :: Cache.Cache
+    cache = Cache.Cache {
+        cacheRoot   = globalCache
+      , cacheLayout = defaultCacheLayout
+      }
