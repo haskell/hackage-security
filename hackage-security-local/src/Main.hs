@@ -32,6 +32,7 @@ import qualified Hackage.Security.Util.Lens           as Lens
 
 -- hackage-secure-local
 import Hackage.Security.Local.Options
+import Hackage.Security.Local.Layout
 
 {-------------------------------------------------------------------------------
   Main application driver
@@ -71,45 +72,40 @@ data PrivateKeys = PrivateKeys {
   }
 
 readKeys :: GlobalOpts -> IO PrivateKeys
-readKeys GlobalOpts{..} =
-    PrivateKeys <$> readKeysAt (globalKeys </> fragment "root")
-                <*> readKeysAt (globalKeys </> fragment "target")
-                <*> readKeysAt (globalKeys </> fragment "timestamp")
-                <*> readKeysAt (globalKeys </> fragment "snapshot")
-                <*> readKeysAt (globalKeys </> fragment "mirrors")
+readKeys opts =
+    PrivateKeys <$> readKeysAt (anchorKeyPath opts keyLayoutRoot)
+                <*> readKeysAt (anchorKeyPath opts keyLayoutTarget)
+                <*> readKeysAt (anchorKeyPath opts keyLayoutTimestamp)
+                <*> readKeysAt (anchorKeyPath opts keyLayoutSnapshot)
+                <*> readKeysAt (anchorKeyPath opts keyLayoutMirrors)
 
 writeKeys :: GlobalOpts -> PrivateKeys -> IO ()
 writeKeys opts PrivateKeys{..} = do
-    forM_ privateRoot      $ writeKey opts "root"
-    forM_ privateTarget    $ writeKey opts "target"
-    forM_ privateTimestamp $ writeKey opts "timestamp"
-    forM_ privateSnapshot  $ writeKey opts "snapshot"
-    forM_ privateMirrors   $ writeKey opts "mirrors"
+    forM_ privateRoot      $ writeKey opts keyLayoutRoot
+    forM_ privateTarget    $ writeKey opts keyLayoutTarget
+    forM_ privateTimestamp $ writeKey opts keyLayoutTimestamp
+    forM_ privateSnapshot  $ writeKey opts keyLayoutSnapshot
+    forM_ privateMirrors   $ writeKey opts keyLayoutMirrors
 
 readKeysAt :: AbsolutePath -> IO [Some Key]
 readKeysAt dir = catMaybes <$> do
-    contents <- getDirectoryContents dir
-    forM (filter (not . skip) contents) $ \file -> do
-      let path = dir </> fragment file
+    entries <- getDirectoryContents dir
+    forM entries $ \entry -> do
+      let path = dir </> entry
       mKey <- readCanonical defaultRepoLayout KeyEnv.empty path
       case mKey of
         Left _err -> do logWarn $ "Skipping unrecognized " ++ show path
                         return Nothing
         Right key -> return $ Just key
-  where
-    skip :: Fragment -> Bool
-    skip "."  = True
-    skip ".." = True
-    skip _    = False
 
-writeKey :: GlobalOpts -> Fragment -> Some Key -> IO ()
-writeKey GlobalOpts{..} prefix key = do
-    logInfo $ "Writing " ++ show path
-    createDirectoryIfMissing True (takeDirectory path)
-    writeCanonical defaultRepoLayout path key
+writeKey :: GlobalOpts -> (KeyLayout -> KeyPath) -> Some Key -> IO ()
+writeKey opts keyDir key = do
+    logInfo $ "Writing " ++ show (relPath defaultKeyLayout)
+    createDirectoryIfMissing True (takeDirectory absPath)
+    writeCanonical defaultRepoLayout absPath key
   where
-    kId  = keyIdString (someKeyId key)
-    path = globalKeys </> fragment prefix </> fragment kId <.> "private"
+    relPath = keyLayoutKey keyDir key
+    absPath = anchorKeyPath opts relPath
 
 {-------------------------------------------------------------------------------
   Bootstrapping / updating
@@ -480,43 +476,6 @@ checkRepoLayout opts@GlobalOpts{..} = liftM and . mapM checkPackage
         expectedTarGz, expectedCabal :: RepoLayout -> RepoPath
         expectedTarGz = (`repoLayoutPkg` pkgId)
         expectedCabal = (`repoLayoutCabal` pkgId)
-
-{-------------------------------------------------------------------------------
-  Additional paths specifically to the kind of repository this tool manages
--------------------------------------------------------------------------------}
-
--- | Location of the @.cabal@ file
---
--- Repositories don't have to serve the .cabal files directly; cabal will only
--- read them from the index. However, for the purposes of this tool, when we
--- _create_ the index, we expect the .cabal file to exist in the same directory
--- as the package tarball.
-repoLayoutCabal :: RepoLayout -> PackageIdentifier -> RepoPath
-repoLayoutCabal RepoLayout{..} pkgId = repoLayoutPkgLoc pkgId </> pkgCabal pkgId
-
--- | Directory containing the unpacked index
---
--- Since the layout of the tarball may not match the layout of the index,
--- we create a local directory with the unpacked contents of the index.
-repoLayoutIndexDir :: RepoLayout -> RepoPath
-repoLayoutIndexDir _ = rootPath Rooted $ fragment "index"
-
--- | The name of the .cabal file we expect to find in the local repo
---
--- NOTE: This is not necessarily the same as the name in the index
--- (though it typically will be)
-pkgCabal :: PackageIdentifier -> UnrootedPath
-pkgCabal pkgId = fragment (display (packageName pkgId)) <.> "cabal"
-
--- | Anchor a tarball path to the repo (see 'repoLayoutIndex')
-anchorIndexPath :: GlobalOpts -> (IndexLayout -> TarballPath) -> AbsolutePath
-anchorIndexPath opts@GlobalOpts{..} file =
-        anchorRepoPath opts repoLayoutIndexDir
-    </> unrootPath' (file $ repoIndexLayout globalRepoLayout)
-
-anchorRepoPath :: GlobalOpts -> (RepoLayout -> RepoPath) -> AbsolutePath
-anchorRepoPath GlobalOpts{..} file =
-    anchorRepoPathLocally globalRepo $ file globalRepoLayout
 
 {-------------------------------------------------------------------------------
   Logging

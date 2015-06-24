@@ -366,11 +366,19 @@ removeFile path = do
 getTemporaryDirectory :: IO AbsolutePath
 getTemporaryDirectory = fromAbsoluteFilePath <$> Dir.getTemporaryDirectory
 
+-- | Return the immediate children of a directory
+--
+-- Filters out @"."@ and @".."@.
 getDirectoryContents :: IsFileSystemRoot root
-                     => Path (Rooted root) -> IO [Fragment]
+                     => Path (Rooted root) -> IO [UnrootedPath]
 getDirectoryContents path = do
     filePath <- toAbsoluteFilePath path
-    Dir.getDirectoryContents filePath
+    (map fragment . filter (not . skip)) <$> Dir.getDirectoryContents filePath
+  where
+    skip :: Fragment -> Bool
+    skip "."  = True
+    skip ".." = True
+    skip _    = False
 
 -- | Recursive traverse a directory structure
 --
@@ -383,18 +391,12 @@ getRecursiveContents root = go PathNil
   where
     go :: UnrootedPath -> IO [UnrootedPath]
     go subdir = do
-      contents <- getDirectoryContents (root </> subdir)
-      filess <- forM (filter (not . skip) contents) $ \entry -> do
-        let path = subdir </> fragment entry
+      entries <- getDirectoryContents (root </> subdir)
+      liftM concat $ forM entries $ \entry -> do
+        let path = subdir </> entry
         isDirectory <- doesDirectoryExist (root </> path)
         if isDirectory then go path
                        else return [path]
-      return $ concat filess
-
-    skip :: Fragment -> Bool
-    skip "."  = True
-    skip ".." = True
-    skip _    = False
 
 {-------------------------------------------------------------------------------
   Wrappers around Codec.Archive.Tar.*

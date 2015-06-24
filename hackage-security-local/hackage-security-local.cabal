@@ -30,6 +30,7 @@ executable hackage-secure-local
   hs-source-dirs:      src
   default-language:    Haskell2010
   default-extensions:  FlexibleContexts
+                       FlexibleInstances
                        ScopedTypeVariables
                        RecordWildCards
   other-extensions:    TemplateHaskell
