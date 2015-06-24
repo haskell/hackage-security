@@ -4,17 +4,17 @@ module Hackage.Security.TUF.Layout (
   , RepoPath
   , RepoLayout(..)
   , repoLayoutPkg
-  , defaultRepoLayout
+  , hackageRepoLayout
   , anchorRepoPathLocally
   , anchorRepoPathRemotely
     -- * Index tarball layout
   , IndexLayout(..)
-  , defaultIndexLayout
+  , hackageIndexLayout
     -- * Cache layout
   , CacheRoot
   , CachePath
   , CacheLayout(..)
-  , defaultCacheLayout
+  , cabalCacheLayout
   , anchorCachePath
   ) where
 
@@ -84,8 +84,8 @@ repoLayoutPkg RepoLayout{..} pkgId =
     repoLayoutPkgLoc pkgId </> repoLayoutPkgFile pkgId
 
 -- | The layout used on Hackage
-defaultRepoLayout :: RepoLayout
-defaultRepoLayout = RepoLayout {
+hackageRepoLayout :: RepoLayout
+hackageRepoLayout = RepoLayout {
       repoLayoutRoot       = rp $ fragment "root.json"
     , repoLayoutTimestamp  = rp $ fragment "timestamp.json"
     , repoLayoutSnapshot   = rp $ fragment "snapshot.json"
@@ -94,7 +94,7 @@ defaultRepoLayout = RepoLayout {
     , repoLayoutIndexTar   = rp $ fragment "00-index.tar"
     , repoLayoutPkgLoc     = rp . pkgLoc
     , repoLayoutPkgFile    = pkgFile
-    , repoIndexLayout      = defaultIndexLayout
+    , repoIndexLayout      = hackageIndexLayout
     }
   where
     rp :: UnrootedPath -> RepoPath
@@ -120,8 +120,9 @@ data IndexLayout = IndexLayout  {
     , indexLayoutPkgCabal :: PackageIdentifier -> TarballPath
     }
 
-defaultIndexLayout :: IndexLayout
-defaultIndexLayout = IndexLayout {
+-- | The layout of the index as maintained on Hackage
+hackageIndexLayout :: IndexLayout
+hackageIndexLayout = IndexLayout {
       indexLayoutPkgMetadata = \pkgId -> rp $ pkgLoc pkgId </> pkgMetadata pkgId
     , indexLayoutPkgCabal    = \pkgId -> rp $ pkgLoc pkgId </> pkgCabal    pkgId
     }
@@ -165,13 +166,13 @@ data CacheLayout = CacheLayout {
   , cacheLayoutIndexIdx :: CachePath
   }
 
--- | Default cache layout
+-- | The cache layout cabal-install uses
 --
 -- We cache the index as @<cache>/00-index.tar@; this is important because
 -- `cabal-install` expects to find it there (and does not currently go through
 -- the hackage-security library to get files from the index).
-defaultCacheLayout :: CacheLayout
-defaultCacheLayout = CacheLayout {
+cabalCacheLayout :: CacheLayout
+cabalCacheLayout = CacheLayout {
       cacheLayoutRoot      = rp $ fragment "root.json"
     , cacheLayoutTimestamp = rp $ fragment "timestamp.json"
     , cacheLayoutSnapshot  = rp $ fragment "snapshot.json"

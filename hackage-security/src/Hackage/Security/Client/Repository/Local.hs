@@ -18,16 +18,19 @@ type LocalRepo = Path (Rooted Absolute)
 
 -- | Initialize the repository (and cleanup resources afterwards)
 --
--- The local repository reuses the layout of a remote repository to determine
--- where to find files (but relative to the 'LocalRepo' root instead of an URL).
+-- Like a remote repository, a local repository takes a RepoLayout as argument;
+-- but where the remote repository interprets this RepoLayout relative to a URL,
+-- the local repository interprets it relative to a local directory.
+--
 -- It uses the same cache as the remote repository.
 withRepository
   :: LocalRepo             -- ^ Location of local repository
   -> Cache                 -- ^ Location of local cache
+  -> RepoLayout            -- ^ Repository layout
   -> (LogMessage -> IO ()) -- ^ Logger
   -> (Repository -> IO a)  -- ^ Callback
   -> IO a
-withRepository repo cache logger callback = callback Repository {
+withRepository repo cache repLayout logger callback = callback Repository {
       repWithRemote    = withRemote repLayout repo cache
     , repGetCached     = getCached     cache
     , repGetCachedRoot = getCachedRoot cache
@@ -38,8 +41,6 @@ withRepository repo cache logger callback = callback Repository {
     , repLayout        = repLayout
     , repDescription   = "Local repository at " ++ show repo
     }
-  where
-    repLayout = defaultRepoLayout
 
 -- | Get a file from the server
 withRemote :: RepoLayout -> LocalRepo -> Cache

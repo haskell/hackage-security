@@ -162,10 +162,11 @@ withRepository
   :: HttpClient            -- ^ Implementation of the HTTP protocol
   -> [URI]                 -- ^ "Out of band" list of mirrors
   -> Cache                 -- ^ Location of local cache
+  -> RepoLayout            -- ^ Repository layout
   -> (LogMessage -> IO ()) -- ^ Logger
   -> (Repository -> IO a)  -- ^ Callback
   -> IO a
-withRepository http outOfBandMirrors cache logger callback = do
+withRepository http outOfBandMirrors cache repLayout logger callback = do
     selectedMirror <- newMVar Nothing
     callback Repository {
         repWithRemote    = flip $ withRemote repLayout http selectedMirror cache logger
@@ -178,8 +179,6 @@ withRepository http outOfBandMirrors cache logger callback = do
       , repLayout        = repLayout
       , repDescription   = "Remote repository at " ++ show outOfBandMirrors
       }
-  where
-    repLayout = defaultRepoLayout
 
 {-------------------------------------------------------------------------------
   Implementations of the various methods of Repository
