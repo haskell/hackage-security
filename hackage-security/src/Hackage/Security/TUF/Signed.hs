@@ -64,7 +64,7 @@ withSignatures repoLayout keys doc = Signed {
 withSignatures' :: ToJSON Identity a => [Some Key] -> a -> Signed a
 withSignatures' keys doc = Signed {
       signed     = doc
-    , signatures = signRendered keys $ renderJSON' doc
+    , signatures = signRendered keys $ renderJSON_NoLayout doc
     }
 
 -- | Construct signatures for already rendered value (internal function)
@@ -97,7 +97,7 @@ instance Monad m => ToJSON m Signature where
        , ("sig"    , toJSON $ B64.fromByteString signature)
        ]
 
-instance FromJSON ReadJSON Signatures where
+instance MonadKeys m => FromJSON m Signatures where
   fromJSON enc = do
       preSigs <- fromJSON enc
       sigs    <- fromPreSignatures preSigs
@@ -125,7 +125,7 @@ instance ReportSchemaErrors m => FromJSON m PreSignature where
       , presigKeyId  = KeyId kId
       }
 
-fromPreSignature :: PreSignature -> ReadJSON Signature
+fromPreSignature :: MonadKeys m => PreSignature -> m Signature
 fromPreSignature PreSignature{..} = do
     key <- lookupKey presigKeyId
     validate "key type" $ typecheckSome key presigMethod
@@ -142,7 +142,7 @@ fromPreSignature PreSignature{..} = do
 -- instance).
 --
 -- TODO: Should we attempt a more efficient implementation?
-fromPreSignatures :: [PreSignature] -> ReadJSON [Signature]
+fromPreSignatures :: MonadKeys m => [PreSignature] -> m [Signature]
 fromPreSignatures sigs = do
       validate "all signatures made with different keys" $
         Set.size (Set.fromList (map presigKeyId sigs)) == length sigs
@@ -157,7 +157,7 @@ fromPreSignatures sigs = do
 -- We don't give a general FromJSON instance for Signed because for some
 -- datatypes we need to do something special (datatypes where we need to
 -- read key environments); for instance, see the "Signed Root" instance.
-signedFromJSON :: FromJSON ReadJSON a => JSValue -> ReadJSON (Signed a)
+signedFromJSON :: (MonadKeys m, FromJSON m a) => JSValue -> m (Signed a)
 signedFromJSON envelope = do
     enc        <- fromJSField envelope "signed"
     signed     <- fromJSON enc

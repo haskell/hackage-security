@@ -83,7 +83,7 @@ instance Monad m => ToJSON m DelegationSpec where
       , ("path"      , toJSON fp)
       ]
 
-instance FromJSON ReadJSON DelegationSpec where
+instance MonadKeys m => FromJSON m DelegationSpec where
   fromJSON enc = do
     delegationName          <- fromJSField enc "name"
     delegationSpecKeys      <- mapM readKeyAsId =<< fromJSField enc "keyids"
@@ -102,7 +102,7 @@ instance Monad m => ToJSON m Delegations where
       , ("roles" , toJSON delegationsRoles)
       ]
 
-instance FromJSON ReadJSON Delegations where
+instance MonadKeys m => FromJSON m Delegations where
   fromJSON enc = do
     delegationsKeys  <- fromJSField enc "keys"
     delegationsRoles <- fromJSField enc "roles"
@@ -118,7 +118,7 @@ instance Monad m => ToJSON m Targets where
     , [ ("delegations" , toJSON d) | Just d <- [ targetsDelegations ] ]
     ]
 
-instance FromJSON ReadJSON Targets where
+instance MonadKeys m => FromJSON m Targets where
   fromJSON enc = do
     -- TODO: verify _type
     targetsVersion     <- fromJSField    enc "version"
@@ -129,5 +129,5 @@ instance FromJSON ReadJSON Targets where
 
 -- TODO: This is okay right now because targets do not introduce additional
 -- keys, but will no longer be okay once we have author keys.
-instance FromJSON ReadJSON (Signed Targets) where
+instance MonadKeys m => FromJSON m (Signed Targets) where
   fromJSON = signedFromJSON

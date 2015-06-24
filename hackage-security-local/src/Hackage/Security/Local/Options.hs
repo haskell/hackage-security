@@ -97,7 +97,7 @@ parseGlobalOptions = GlobalOpts
         ])
   -- TODO: Make the repository layout configurable
   -- (if we want to be able to test different layouts)
-  <*> (pure defaultRepoLayout)
+  <*> (pure hackageRepoLayout)
   <*> (subparser $ mconcat [
           command "create-keys" (info (pure CreateKeys)
               (progDesc "Create keys"))

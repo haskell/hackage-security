@@ -92,7 +92,7 @@ readKeysAt dir = catMaybes <$> do
     entries <- getDirectoryContents dir
     forM entries $ \entry -> do
       let path = dir </> entry
-      mKey <- readCanonical defaultRepoLayout KeyEnv.empty path
+      mKey <- readJSON_NoKeys_NoLayout path
       case mKey of
         Left _err -> do logWarn $ "Skipping unrecognized " ++ show path
                         return Nothing
@@ -102,7 +102,7 @@ writeKey :: GlobalOpts -> (KeyLayout -> KeyPath) -> Some Key -> IO ()
 writeKey opts keyDir key = do
     logInfo $ "Writing " ++ show (relPath defaultKeyLayout)
     createDirectoryIfMissing True (takeDirectory absPath)
-    writeCanonical defaultRepoLayout absPath key
+    writeJSON_NoLayout absPath key
   where
     relPath = keyLayoutKey keyDir key
     absPath = anchorKeyPath opts relPath
@@ -371,7 +371,7 @@ updateFile :: forall a. (ToJSON WriteJSON (Signed a), HasHeader a)
            -> IO ()
 updateFile opts@GlobalOpts{..} whenWrite fileLoc signPayload a = do
     mOldHeader :: Maybe (Either DeserializationError (IgnoreSigned Header)) <-
-      handleDoesNotExist $ readNoKeys fp
+      handleDoesNotExist $ readJSON_NoKeys_NoLayout fp
 
     case (whenWrite, mOldHeader) of
       (WriteAlways, _) ->
@@ -410,7 +410,7 @@ updateFile opts@GlobalOpts{..} whenWrite fileLoc signPayload a = do
     writeDoc reason doc = do
       logInfo reason
       createDirectoryIfMissing True (takeDirectory fp)
-      writeCanonical globalRepoLayout fp (signPayload doc)
+      writeJSON globalRepoLayout fp (signPayload doc)
 
     fp :: AbsolutePath
     fp = anchorFileLoc opts fileLoc

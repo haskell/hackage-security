@@ -81,7 +81,7 @@ instance (MonadReader RepoLayout m, ReportSchemaErrors m) => FromJSON m Snapshot
     let snapshotInfoTar = FileMap.lookup (pathIndexTar repoLayout) snapshotMeta
     return Snapshot{..}
 
-instance FromJSON ReadJSON (Signed Snapshot) where
+instance (MonadKeys m, MonadReader RepoLayout m) => FromJSON m (Signed Snapshot) where
   fromJSON = signedFromJSON
 
 {-------------------------------------------------------------------------------

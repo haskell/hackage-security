@@ -375,7 +375,7 @@ downloadPackage rep pkgId callback = withMirror rep $ evalContT $ do
     targets :: Trusted Targets
        <- getFromIndex rep (IndexPkgMetadata pkgId)
       >>= packageMustExist
-      >>= throwErrors . parseJSON (repLayout rep) keyEnv
+      >>= throwErrors . parseJSON_Keys_NoLayout keyEnv
       >>= return . trustIndex
 
     -- The path of the package, relative to the targets.json file
@@ -496,7 +496,7 @@ withMirror rep callback = do
     mMirrors <- repGetCached rep CachedMirrors
     mirrors  <- case mMirrors of
       Nothing -> return Nothing
-      Just fp -> filterMirrors <$> (throwErrors =<< readNoKeys fp)
+      Just fp -> filterMirrors <$> (throwErrors =<< readJSON_NoKeys_NoLayout fp)
     repWithMirror rep mirrors $ callback
   where
     filterMirrors :: IgnoreSigned Mirrors -> Maybe [Mirror]
@@ -539,10 +539,10 @@ verifyFileInfo' (Just info) fp = liftIO $ do
     unless verified $ throw $ VerificationErrorFileInfo (show fp)
     return fp
 
-readJSON :: (MonadIO m, IsFileSystemRoot root, FromJSON ReadJSON a)
+readJSON :: (MonadIO m, IsFileSystemRoot root, FromJSON ReadJSON_Keys_Layout a)
          => RepoLayout -> KeyEnv -> Path (Rooted root) -> m a
 readJSON repoLayout keyEnv fpath = liftIO $ do
-    result <- readCanonical repoLayout keyEnv fpath
+    result <- readJSON_Keys_Layout keyEnv repoLayout fpath
     case result of
       Left err -> throwIO err
       Right a  -> return a

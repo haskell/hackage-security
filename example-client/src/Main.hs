@@ -60,12 +60,20 @@ withRepo GlobalOpts{..} =
       Right remote -> withRemoteRepo remote
   where
     withLocalRepo :: AbsolutePath -> (Repository -> IO a) -> IO a
-    withLocalRepo repo = Local.withRepository repo cache logTUF
+    withLocalRepo repo =
+        Local.withRepository repo
+                             cache
+                             hackageRepoLayout
+                             logTUF
 
     withRemoteRepo :: URI -> (Repository -> IO a) -> IO a
-    withRemoteRepo baseURI callback =
-        withClient $ \httpClient ->
-          Remote.withRepository httpClient [baseURI] cache logTUF callback
+    withRemoteRepo baseURI callback = withClient $ \httpClient ->
+        Remote.withRepository httpClient
+                              [baseURI]
+                              cache
+                              hackageRepoLayout
+                              logTUF 
+                              callback
 
     withClient :: (Remote.HttpClient -> IO a) -> IO a
     withClient =
@@ -88,5 +96,5 @@ withRepo GlobalOpts{..} =
     cache :: Cache.Cache
     cache = Cache.Cache {
         cacheRoot   = globalCache
-      , cacheLayout = defaultCacheLayout
+      , cacheLayout = cabalCacheLayout
       }

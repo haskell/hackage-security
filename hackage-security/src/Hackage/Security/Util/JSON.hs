@@ -2,7 +2,7 @@
 #if __GLASGOW_HASKELL__ < 710
 {-# LANGUAGE OverlappingInstances #-}
 #endif
--- | 
+-- |
 module Hackage.Security.Util.JSON (
     -- * Type classes
     ToJSON(..)

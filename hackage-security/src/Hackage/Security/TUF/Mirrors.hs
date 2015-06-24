@@ -98,5 +98,5 @@ instance ReportSchemaErrors m => FromJSON m Mirrors where
     mirrorsMirrors <- fromJSField enc "mirrors"
     return Mirrors{..}
 
-instance FromJSON ReadJSON (Signed Mirrors) where
+instance MonadKeys m => FromJSON m (Signed Mirrors) where
   fromJSON = signedFromJSON

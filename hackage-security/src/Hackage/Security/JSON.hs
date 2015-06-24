@@ -1,35 +1,43 @@
 -- | Hackage-specific wrappers around the Util.JSON module
 module Hackage.Security.JSON (
-    -- * Reading
+    -- * Deserialization errors
     DeserializationError(..)
-  , ReadJSON -- opaque
-  , runReadJSON
-    -- ** Primitive operations
+  , formatDeserializationError
   , validate
+    -- * MonadKeys
+  , MonadKeys(..)
   , addKeys
   , withKeys
-  , readKeyAsId
   , lookupKey
+  , readKeyAsId
+    -- * Reader monads
+  , ReadJSON_Keys_Layout
+  , ReadJSON_Keys_NoLayout
+  , ReadJSON_NoKeys_NoLayout
+  , runReadJSON_Keys_Layout
+  , runReadJSON_Keys_NoLayout
+  , runReadJSON_NoKeys_NoLayout
     -- ** Utility
-  , parseJSON
-  , readCanonical
-  , formatDeserializationError
-    -- ** Reading without keys
-  , parseNoKeys
-  , readNoKeys
+  , parseJSON_Keys_Layout
+  , parseJSON_Keys_NoLayout
+  , parseJSON_NoKeys_NoLayout
+  , readJSON_Keys_Layout
+  , readJSON_Keys_NoLayout
+  , readJSON_NoKeys_NoLayout
     -- * Writing
   , WriteJSON
   , runWriteJSON
     -- ** Utility
   , renderJSON
-  , renderJSON'
-  , writeCanonical
+  , renderJSON_NoLayout
+  , writeJSON
+  , writeJSON_NoLayout
   , writeKeyAsId
     -- * Re-exports
   , module Hackage.Security.Util.JSON
   ) where
 
-import Control.Arrow (first)
+import Control.Arrow (first, second)
 import Control.Exception
 import Control.Monad.Except
 import Control.Monad.Reader
@@ -47,7 +55,7 @@ import Text.JSON.Canonical
 import qualified Hackage.Security.Key.Env as KeyEnv
 
 {-------------------------------------------------------------------------------
-  Reading
+  Deserialization errors
 -------------------------------------------------------------------------------}
 
 data DeserializationError =
@@ -69,89 +77,6 @@ data DeserializationError =
 
 instance Exception DeserializationError
 
--- Access to the key environment is intentially hidden.
-newtype ReadJSON a = ReadJSON {
-    unReadJSON :: ExceptT DeserializationError (Reader (RepoLayout, KeyEnv)) a
-  }
-  deriving ( Functor
-           , Applicative
-           , Monad
-           , MonadError DeserializationError
-           )
-
-instance ReportSchemaErrors ReadJSON where
-  expected str mgot = throwError $ expectedError str mgot
-
-instance MonadReader RepoLayout ReadJSON where
-  ask         = ReadJSON $ fst `liftM` ask
-  local f act = ReadJSON $ local (first f) (unReadJSON act)
-
-expectedError :: Expected -> Maybe Got -> DeserializationError
-expectedError str mgot = DeserializationErrorSchema msg
-  where
-    msg = case mgot of
-            Nothing  -> "Expected " ++ str
-            Just got -> "Expected " ++ str ++ " but got " ++ got
-
-runReadJSON :: RepoLayout -> KeyEnv -> ReadJSON a -> Either DeserializationError a
-runReadJSON repoLayout keyEnv act =
-    runReader (runExceptT (unReadJSON act)) (repoLayout, keyEnv)
-
-{-------------------------------------------------------------------------------
-  Reading: Primitive operations
--------------------------------------------------------------------------------}
-
-validate :: String -> Bool -> ReadJSON ()
-validate _   True  = return ()
-validate msg False = throwError $ DeserializationErrorValidation msg
-
-addKeys :: KeyEnv -> ReadJSON a -> ReadJSON a
-addKeys keys (ReadJSON act) = ReadJSON $ local aux act
-  where
-    aux :: (RepoLayout, KeyEnv) -> (RepoLayout, KeyEnv)
-    aux (repoLayout, keyEnv) = (repoLayout, KeyEnv.union keys keyEnv)
-
-withKeys :: KeyEnv -> ReadJSON a -> ReadJSON a
-withKeys keys (ReadJSON act) = ReadJSON $ local aux act
-  where
-    aux :: (RepoLayout, KeyEnv) -> (RepoLayout, KeyEnv)
-    aux (repoLayout, _keyEnv) = (repoLayout, keys)
-
-readKeyAsId :: JSValue -> ReadJSON (Some PublicKey)
-readKeyAsId (JSString kId) = lookupKey (KeyId kId)
-readKeyAsId val = expected' "key ID" val
-
-lookupKey :: KeyId -> ReadJSON (Some PublicKey)
-lookupKey kId = do
-    (_repoLayout, keyEnv) <- ReadJSON $ ask
-    case KeyEnv.lookup kId keyEnv of
-      Just key -> return key
-      Nothing  -> throwError $ DeserializationErrorUnknownKey kId
-
-{-------------------------------------------------------------------------------
-  Reading: Utility
--------------------------------------------------------------------------------}
-
-parseJSON :: FromJSON ReadJSON a
-          => RepoLayout
-          -> KeyEnv
-          -> BS.L.ByteString
-          -> Either DeserializationError a
-parseJSON repoLayout keyEnv bs =
-    case parseCanonicalJSON bs of
-      Left  err -> Left (DeserializationErrorMalformed err)
-      Right val -> runReadJSON repoLayout keyEnv (fromJSON val)
-
-readCanonical :: (IsFileSystemRoot root, FromJSON ReadJSON a)
-              => RepoLayout
-              -> KeyEnv
-              -> Path (Rooted root)
-              -> IO (Either DeserializationError a)
-readCanonical repoLayout keyEnv fp = do
-    withFile fp ReadMode $ \h -> do
-      bs <- BS.L.hGetContents h
-      evaluate $ parseJSON repoLayout keyEnv bs
-
 formatDeserializationError :: DeserializationError -> String
 formatDeserializationError (DeserializationErrorMalformed str) =
     "Malformed: " ++ str
@@ -162,34 +87,180 @@ formatDeserializationError (DeserializationErrorUnknownKey kId) =
 formatDeserializationError (DeserializationErrorValidation str) =
     "Invalid: " ++ str
 
+validate :: MonadError DeserializationError m => String -> Bool -> m ()
+validate _   True  = return ()
+validate msg False = throwError $ DeserializationErrorValidation msg
+
 {-------------------------------------------------------------------------------
-  Reading datatypes that do not require keys
+  Access to keys
 -------------------------------------------------------------------------------}
 
-newtype NoKeys a = NoKeys {
-    unNoKeys :: Except DeserializationError a
-  }
-  deriving (Functor, Applicative, Monad, MonadError DeserializationError)
+-- | MonadReader-like monad, specialized to key environments
+class (ReportSchemaErrors m, MonadError DeserializationError m) => MonadKeys m where
+  localKeys :: (KeyEnv -> KeyEnv) -> m a -> m a
+  askKeys   :: m KeyEnv
 
-instance ReportSchemaErrors NoKeys where
+readKeyAsId :: MonadKeys m => JSValue -> m (Some PublicKey)
+readKeyAsId (JSString kId) = lookupKey (KeyId kId)
+readKeyAsId val            = expected' "key ID" val
+
+addKeys :: MonadKeys m => KeyEnv -> m a -> m a
+addKeys keys = localKeys (KeyEnv.union keys)
+
+withKeys :: MonadKeys m => KeyEnv -> m a -> m a
+withKeys keys = localKeys (const keys)
+
+lookupKey :: MonadKeys m => KeyId -> m (Some PublicKey)
+lookupKey kId = do
+    keyEnv <- askKeys
+    case KeyEnv.lookup kId keyEnv of
+      Just key -> return key
+      Nothing  -> throwError $ DeserializationErrorUnknownKey kId
+
+{-------------------------------------------------------------------------------
+  Reading
+-------------------------------------------------------------------------------}
+
+newtype ReadJSON_Keys_Layout a = ReadJSON_Keys_Layout {
+    unReadJSON_Keys_Layout :: ExceptT DeserializationError (Reader (RepoLayout, KeyEnv)) a
+  }
+  deriving ( Functor
+           , Applicative
+           , Monad
+           , MonadError DeserializationError
+           )
+
+newtype ReadJSON_Keys_NoLayout a = ReadJSON_Keys_NoLayout {
+    unReadJSON_Keys_NoLayout :: ExceptT DeserializationError (Reader KeyEnv) a
+  }
+  deriving ( Functor
+           , Applicative
+           , Monad
+           , MonadError DeserializationError
+           )
+
+newtype ReadJSON_NoKeys_NoLayout a = ReadJSON_NoKeys_NoLayout {
+    unReadJSON_NoKeys_NoLayout :: Except DeserializationError a
+  }
+  deriving ( Functor
+           , Applicative
+           , Monad
+           , MonadError DeserializationError
+           )
+
+instance ReportSchemaErrors ReadJSON_Keys_Layout where
+  expected str mgot = throwError $ expectedError str mgot
+instance ReportSchemaErrors ReadJSON_Keys_NoLayout where
+  expected str mgot = throwError $ expectedError str mgot
+instance ReportSchemaErrors ReadJSON_NoKeys_NoLayout where
   expected str mgot = throwError $ expectedError str mgot
 
-runNoKeys :: NoKeys a -> Either DeserializationError a
-runNoKeys = runExcept . unNoKeys
+expectedError :: Expected -> Maybe Got -> DeserializationError
+expectedError str mgot = DeserializationErrorSchema msg
+  where
+    msg = case mgot of
+            Nothing  -> "Expected " ++ str
+            Just got -> "Expected " ++ str ++ " but got " ++ got
 
-parseNoKeys :: FromJSON NoKeys a
-            => BS.L.ByteString -> Either DeserializationError a
-parseNoKeys bs =
+instance MonadReader RepoLayout ReadJSON_Keys_Layout where
+  ask         = ReadJSON_Keys_Layout $ fst `liftM` ask
+  local f act = ReadJSON_Keys_Layout $ local (first f) act'
+    where
+      act' = unReadJSON_Keys_Layout act
+
+instance MonadKeys ReadJSON_Keys_Layout where
+  askKeys         = ReadJSON_Keys_Layout $ snd `liftM` ask
+  localKeys f act = ReadJSON_Keys_Layout $ local (second f) act'
+    where
+      act' = unReadJSON_Keys_Layout act
+
+instance MonadKeys ReadJSON_Keys_NoLayout where
+  askKeys         = ReadJSON_Keys_NoLayout $ ask
+  localKeys f act = ReadJSON_Keys_NoLayout $ local f act'
+    where
+      act' = unReadJSON_Keys_NoLayout act
+
+runReadJSON_Keys_Layout :: KeyEnv
+                        -> RepoLayout
+                        -> ReadJSON_Keys_Layout a
+                        -> Either DeserializationError a
+runReadJSON_Keys_Layout keyEnv repoLayout act =
+    runReader (runExceptT (unReadJSON_Keys_Layout act)) (repoLayout, keyEnv)
+
+runReadJSON_Keys_NoLayout :: KeyEnv
+                          -> ReadJSON_Keys_NoLayout a
+                          -> Either DeserializationError a
+runReadJSON_Keys_NoLayout keyEnv act =
+    runReader (runExceptT (unReadJSON_Keys_NoLayout act)) keyEnv
+
+runReadJSON_NoKeys_NoLayout :: ReadJSON_NoKeys_NoLayout a
+                            -> Either DeserializationError a
+runReadJSON_NoKeys_NoLayout act =
+    runExcept (unReadJSON_NoKeys_NoLayout act)
+
+{-------------------------------------------------------------------------------
+  Utility
+-------------------------------------------------------------------------------}
+
+parseJSON_Keys_Layout :: FromJSON ReadJSON_Keys_Layout a
+                      => KeyEnv
+                      -> RepoLayout
+                      -> BS.L.ByteString
+                      -> Either DeserializationError a
+parseJSON_Keys_Layout keyEnv repoLayout bs =
     case parseCanonicalJSON bs of
       Left  err -> Left (DeserializationErrorMalformed err)
-      Right val -> runNoKeys (fromJSON val)
+      Right val -> runReadJSON_Keys_Layout keyEnv repoLayout (fromJSON val)
 
-readNoKeys :: (IsFileSystemRoot root, FromJSON NoKeys a)
-           => Path (Rooted root) -> IO (Either DeserializationError a)
-readNoKeys fp = do
+parseJSON_Keys_NoLayout :: FromJSON ReadJSON_Keys_NoLayout a
+                        => KeyEnv
+                        -> BS.L.ByteString
+                        -> Either DeserializationError a
+parseJSON_Keys_NoLayout keyEnv bs =
+    case parseCanonicalJSON bs of
+      Left  err -> Left (DeserializationErrorMalformed err)
+      Right val -> runReadJSON_Keys_NoLayout keyEnv (fromJSON val)
+
+parseJSON_NoKeys_NoLayout :: FromJSON ReadJSON_NoKeys_NoLayout a
+                          => BS.L.ByteString
+                          -> Either DeserializationError a
+parseJSON_NoKeys_NoLayout bs =
+    case parseCanonicalJSON bs of
+      Left  err -> Left (DeserializationErrorMalformed err)
+      Right val -> runReadJSON_NoKeys_NoLayout (fromJSON val)
+
+readJSON_Keys_Layout :: ( IsFileSystemRoot root
+                        , FromJSON ReadJSON_Keys_Layout a
+                        )
+                     => KeyEnv
+                     -> RepoLayout
+                     -> Path (Rooted root)
+                     -> IO (Either DeserializationError a)
+readJSON_Keys_Layout keyEnv repoLayout fp = do
     withFile fp ReadMode $ \h -> do
       bs <- BS.L.hGetContents h
-      evaluate $ parseNoKeys bs
+      evaluate $ parseJSON_Keys_Layout keyEnv repoLayout bs
+
+readJSON_Keys_NoLayout :: ( IsFileSystemRoot root
+                          , FromJSON ReadJSON_Keys_NoLayout a
+                          )
+                       => KeyEnv
+                       -> Path (Rooted root)
+                       -> IO (Either DeserializationError a)
+readJSON_Keys_NoLayout keyEnv fp = do
+    withFile fp ReadMode $ \h -> do
+      bs <- BS.L.hGetContents h
+      evaluate $ parseJSON_Keys_NoLayout keyEnv bs
+
+readJSON_NoKeys_NoLayout :: ( IsFileSystemRoot root
+                            , FromJSON ReadJSON_NoKeys_NoLayout a
+                            )
+                         => Path (Rooted root)
+                         -> IO (Either DeserializationError a)
+readJSON_NoKeys_NoLayout fp = do
+    withFile fp ReadMode $ \h -> do
+      bs <- BS.L.hGetContents h
+      evaluate $ parseJSON_NoKeys_NoLayout bs
 
 {-------------------------------------------------------------------------------
   Writing
@@ -216,12 +287,16 @@ renderJSON :: ToJSON WriteJSON a => RepoLayout -> a -> BS.L.ByteString
 renderJSON repoLayout = renderCanonicalJSON . runWriteJSON repoLayout . toJSON
 
 -- | Variation on 'renderJSON' for files that don't require the repo layout
-renderJSON' :: ToJSON Identity a => a -> BS.L.ByteString
-renderJSON' = renderCanonicalJSON . runIdentity . toJSON
+renderJSON_NoLayout :: ToJSON Identity a => a -> BS.L.ByteString
+renderJSON_NoLayout = renderCanonicalJSON . runIdentity . toJSON
 
-writeCanonical :: (IsFileSystemRoot root, ToJSON WriteJSON a)
-               => RepoLayout -> Path (Rooted root) -> a -> IO ()
-writeCanonical repoLayout fp = writeLazyByteString fp . renderJSON repoLayout
+writeJSON :: (IsFileSystemRoot root, ToJSON WriteJSON a)
+          => RepoLayout -> Path (Rooted root) -> a -> IO ()
+writeJSON repoLayout fp = writeLazyByteString fp . renderJSON repoLayout
+
+writeJSON_NoLayout :: (IsFileSystemRoot root, ToJSON Identity a)
+                   => Path (Rooted root) -> a -> IO ()
+writeJSON_NoLayout fp = writeLazyByteString fp . renderJSON_NoLayout 
 
 writeKeyAsId :: Some PublicKey -> JSValue
 writeKeyAsId = JSString . keyIdString . someKeyId

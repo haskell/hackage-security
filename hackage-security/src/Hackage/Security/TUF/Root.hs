@@ -71,7 +71,7 @@ instance Monad m => ToJSON m RootRoles where
     , ("mirrors"   , toJSON rootRolesMirrors)
     ]
 
-instance FromJSON ReadJSON RootRoles where
+instance MonadKeys m => FromJSON m RootRoles where
   fromJSON enc = do
     rootRolesRoot      <- fromJSField enc "root"
     rootRolesSnapshot  <- fromJSField enc "snapshot"
@@ -98,7 +98,7 @@ instance Monad m => ToJSON m (RoleSpec a) where
 -- | We give an instance for Signed Root rather than Root because the key
 -- environment from the root data is necessary to resolve the explicit sharing
 -- in the signatures.
-instance FromJSON ReadJSON (Signed Root) where
+instance MonadKeys m => FromJSON m (Signed Root) where
   fromJSON envelope = do
     enc      <- fromJSField envelope "signed"
     rootKeys <- fromJSField enc      "keys"
@@ -113,7 +113,7 @@ instance FromJSON ReadJSON (Signed Root) where
       validate "signatures" $ verifySignatures enc signatures
       return Signed{..}
 
-instance FromJSON ReadJSON (RoleSpec a) where
+instance MonadKeys m => FromJSON m (RoleSpec a) where
   fromJSON enc = do
     roleSpecKeys      <- mapM readKeyAsId =<< fromJSField enc "keyids"
     roleSpecThreshold <- fromJSField enc "threshold"

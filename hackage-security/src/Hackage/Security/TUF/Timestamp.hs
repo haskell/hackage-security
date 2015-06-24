@@ -58,7 +58,7 @@ instance (MonadReader RepoLayout m, ReportSchemaErrors m) => FromJSON m Timestam
     timestampInfoSnapshot <- FileMap.lookupM timestampMeta (pathSnapshot repoLayout)
     return Timestamp{..}
 
-instance FromJSON ReadJSON (Signed Timestamp) where
+instance (MonadKeys m, MonadReader RepoLayout m) => FromJSON m (Signed Timestamp) where
   fromJSON = signedFromJSON
 
 {-------------------------------------------------------------------------------
