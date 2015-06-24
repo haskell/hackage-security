@@ -3,13 +3,18 @@ module Main (main) where
 
 import Control.Exception
 import Control.Monad
-import Data.Maybe (catMaybes)
+import Data.Maybe (catMaybes, mapMaybe)
 import Data.Time
-import System.Directory ()
 import System.IO
 import System.IO.Error
 import qualified Codec.Compression.GZip as GZip
 import qualified Data.ByteString.Lazy   as BS.L
+import qualified System.FilePath        as FilePath
+
+-- Unlike the hackage-security library properly,
+-- this currently works on unix systems only
+import System.Posix.Files (getFileStatus, modificationTime)
+import System.Posix.Types (EpochTime)
 
 -- Cabal
 import Distribution.Package
@@ -86,7 +91,7 @@ readKeysAt dir = catMaybes <$> do
     contents <- getDirectoryContents dir
     forM (filter (not . skip) contents) $ \file -> do
       let path = dir </> fragment file
-      mKey <- readCanonical KeyEnv.empty path
+      mKey <- readCanonical defaultRepoLayout KeyEnv.empty path
       case mKey of
         Left _err -> do logWarn $ "Skipping unrecognized " ++ show path
                         return Nothing
@@ -101,7 +106,7 @@ writeKey :: GlobalOpts -> Fragment -> Some Key -> IO ()
 writeKey GlobalOpts{..} prefix key = do
     logInfo $ "Writing " ++ show path
     createDirectoryIfMissing True (takeDirectory path)
-    writeCanonical path key
+    writeCanonical defaultRepoLayout path key
   where
     kId  = keyIdString (someKeyId key)
     path = globalKeys </> fragment prefix </> fragment kId <.> "private"
@@ -116,8 +121,15 @@ writeKey GlobalOpts{..} prefix key = do
 
 bootstrapOrUpdate :: GlobalOpts -> Bool -> IO ()
 bootstrapOrUpdate opts@GlobalOpts{..} isBootstrap = do
+    -- Collect info
     keys <- readKeys opts
     now  <- getCurrentTime
+    pkgs <- findPackages opts
+
+    -- Sanity check
+    repoLayoutOk <- checkRepoLayout opts pkgs
+    unless repoLayoutOk $
+      throwIO $ userError "Unexpected repository layout"
 
     -- We overwrite files during bootstrap process, but update them only
     -- if necessary during an update. Note that we _only_ write the updated
@@ -127,132 +139,94 @@ bootstrapOrUpdate opts@GlobalOpts{..} isBootstrap = do
                       then WriteAlways
                       else WriteIfNecessary
 
-    newBootstrapped <-
-      if not isBootstrap
-        then return []
-        else do
-          -- Create root metadata
-          let root = Root {
-                  rootVersion = versionInitial
-                , rootExpires = expiresInDays now 365
-                , rootKeys    = KeyEnv.fromKeys $ concat [
-                                    privateRoot      keys
-                                  , privateTarget    keys
-                                  , privateSnapshot  keys
-                                  , privateTimestamp keys
-                                  , privateMirrors   keys
-                                  ]
-                , rootRoles   = RootRoles {
-                      rootRolesRoot = RoleSpec {
-                          roleSpecKeys      = map somePublicKey (privateRoot keys)
-                        , roleSpecThreshold = KeyThreshold 2
-                        }
-                    , rootRolesTargets = RoleSpec {
-                          roleSpecKeys      = map somePublicKey (privateTarget keys)
-                        , roleSpecThreshold = KeyThreshold 1
-                        }
-                    , rootRolesSnapshot = RoleSpec {
-                          roleSpecKeys      = map somePublicKey (privateSnapshot keys)
-                        , roleSpecThreshold = KeyThreshold 1
-                        }
-                    , rootRolesTimestamp = RoleSpec {
-                          roleSpecKeys      = map somePublicKey (privateTimestamp keys)
-                        , roleSpecThreshold = KeyThreshold 1
-                        }
-                    , rootRolesMirrors = RoleSpec {
-                          roleSpecKeys      = map somePublicKey (privateMirrors keys)
-                        , roleSpecThreshold = KeyThreshold 1
-                        }
+    -- If doing bootstrap: create root, mirrors, and top-level target files
+    when isBootstrap $ do
+      -- Create root metadata
+      let root = Root {
+              rootVersion = versionInitial
+            , rootExpires = expiresInDays now 365
+            , rootKeys    = KeyEnv.fromKeys $ concat [
+                                privateRoot      keys
+                              , privateTarget    keys
+                              , privateSnapshot  keys
+                              , privateTimestamp keys
+                              , privateMirrors   keys
+                              ]
+            , rootRoles   = RootRoles {
+                  rootRolesRoot = RoleSpec {
+                      roleSpecKeys      = map somePublicKey (privateRoot keys)
+                    , roleSpecThreshold = KeyThreshold 2
+                    }
+                , rootRolesTargets = RoleSpec {
+                      roleSpecKeys      = map somePublicKey (privateTarget keys)
+                    , roleSpecThreshold = KeyThreshold 1
+                    }
+                , rootRolesSnapshot = RoleSpec {
+                      roleSpecKeys      = map somePublicKey (privateSnapshot keys)
+                    , roleSpecThreshold = KeyThreshold 1
+                    }
+                , rootRolesTimestamp = RoleSpec {
+                      roleSpecKeys      = map somePublicKey (privateTimestamp keys)
+                    , roleSpecThreshold = KeyThreshold 1
+                    }
+                , rootRolesMirrors = RoleSpec {
+                      roleSpecKeys      = map somePublicKey (privateMirrors keys)
+                    , roleSpecThreshold = KeyThreshold 1
                     }
                 }
-          void $ updateFile whenWrite
-                            globalRepo
-                            (fragment "root.json")
-                            (withSignatures (privateRoot keys))
-                            root
+            }
 
-          -- Create mirrors
-          let mkMirror uri = Mirror uri MirrorFull
-          let mirrors = Mirrors {
-                  mirrorsVersion = versionInitial
-                , mirrorsExpires = expiresInDays now (10 * 365)
-                , mirrorsMirrors = map mkMirror globalMirrors
-                }
-          void $ updateFile whenWrite
-                            globalRepo
-                            (fragment "mirrors.json")
-                            (withSignatures (privateMirrors keys))
-                            mirrors
+      updateFile opts
+                 whenWrite
+                 (InRepo repoLayoutRoot)
+                 (withSignatures' (privateRoot keys))
+                 root
 
-          -- Create global package metadata
-          --
-          -- NOTE: Until we introduce author signing, this file is entirely static
-          -- (and in fact ignored)
-          let globalTargets = Targets {
-                  targetsVersion     = versionInitial
-                , targetsExpires     = expiresNever
-                , targetsTargets     = FileMap.empty
-                , targetsDelegations = Just $ Delegations {
-                      delegationsKeys  = KeyEnv.empty
-                    , delegationsRoles = [
-                          DelegationSpec {
-                              delegationSpecKeys      = []
-                            , delegationSpecThreshold = KeyThreshold 0
-                            , delegation = $(qqd "*/*/*" "*/*/targets.json")
-                            }
-                        ]
-                    }
-                }
-          newGlobalTargets <- updateFile whenWrite
-                                         globalRepo
-                                         (fragment "targets.json")
-                                         (withSignatures (privateTarget keys))
-                                         globalTargets
-
-          return [newGlobalTargets]
+      -- Create mirrors
+      let mkMirror uri = Mirror uri MirrorFull
+      let mirrors = Mirrors {
+              mirrorsVersion = versionInitial
+            , mirrorsExpires = expiresInDays now (10 * 365)
+            , mirrorsMirrors = map mkMirror globalMirrors
+            }
+      updateFile opts
+                 whenWrite
+                 (InRepo repoLayoutMirrors)
+                 (withSignatures' (privateMirrors keys))
+                 mirrors
 
     -- Create targets.json for each package version
-    pkgs <- findPackages opts
-    newPackageMetadata <- forM pkgs $ createPackageMetadata opts whenWrite
-
-    -- New files to be added to the index
-    let newFiles :: [UnrootedPath]
-        newFiles = concat [
-            catMaybes newBootstrapped
-          , concat newPackageMetadata
-          ]
+    forM_ pkgs $ createPackageMetadata opts whenWrite
 
     -- Recreate index tarball
-    -- TODO: This currently does not allow for .cabal file revisions
-    -- (I don't know if this is relevant at all for local repos)
-    -- NOTE: This cannot contain snapshot.json (because snapshot has the
-    -- hash of the index) or timestamp.json (because that in turn has the
-    -- hash of the snapshot).
-    extraFiles <- findExtraIndexFiles opts
-    -- TODO: Currently this means that we add the extra files a-new to the index
-    -- on every iteration
-    let addToIndex = newFiles ++ extraFiles
-    case whenWrite of
-      WriteAlways -> do
+    newFiles <- findNewIndexFiles opts whenWrite
+    case (whenWrite, null newFiles) of
+      (WriteAlways, _) -> do
         -- If we are recreating all files, also recreate the index
         removeFile pathIndexTar
-        logInfo $ "Writing " ++ show pathIndexTar
-      WriteIfNecessary -> do
-        logInfo $ "Appending to " ++ show pathIndexTar
-    Index.append
-      pathIndexTar
-      globalRepo
-      addToIndex
-    writeLazyByteString pathIndexTarGz =<<
-      GZip.compress <$> readLazyByteString pathIndexTar
+        logInfo $ "Writing " ++ showFileLoc opts (InRepo repoLayoutIndexTar)
+      (WriteIfNecessary, True) -> do
+        logInfo $ "Unchanged " ++ showFileLoc opts (InRepo repoLayoutIndexTar)
+      (WriteIfNecessary, False) ->
+        logInfo $ "Appending " ++ show (length newFiles)
+               ++ " file(s) to " ++ showFileLoc opts (InRepo repoLayoutIndexTar)
+    unless (null newFiles) $ do
+      Index.append
+        (anchorRepoPath opts repoLayoutIndexTar)
+        (anchorRepoPath opts repoLayoutIndexDir)
+        newFiles
+
+      logInfo $ "Writing " ++ showFileLoc opts (InRepo repoLayoutIndexTarGz)
+      compress (anchorRepoPath opts repoLayoutIndexTar)
+               (anchorRepoPath opts repoLayoutIndexTarGz)
 
     -- Create snapshot
     -- TODO: If we are updating we should be incrementing the version, not
     -- keeping it the same
-    rootInfo    <- computeFileInfo pathRoot
-    mirrorsInfo <- computeFileInfo pathMirrors
-    tarInfo     <- computeFileInfo pathIndexTar
-    tarGzInfo   <- computeFileInfo pathIndexTarGz
+    rootInfo    <- computeFileInfo' repoLayoutRoot
+    mirrorsInfo <- computeFileInfo' repoLayoutMirrors
+    tarInfo     <- computeFileInfo' repoLayoutIndexTar
+    tarGzInfo   <- computeFileInfo' repoLayoutIndexTarGz
     let snapshot = Snapshot {
             snapshotVersion     = versionInitial
           , snapshotExpires     = expiresInDays now 3
@@ -261,188 +235,288 @@ bootstrapOrUpdate opts@GlobalOpts{..} isBootstrap = do
           , snapshotInfoTar     = Just tarInfo
           , snapshotInfoTarGz   = tarGzInfo
           }
-    void $ updateFile whenWrite
-                      globalRepo
-                      (fragment "snapshot.json")
-                      (withSignatures (privateSnapshot keys))
-                      snapshot
+    updateFile opts
+               whenWrite
+               (InRepo repoLayoutSnapshot)
+               (withSignatures globalRepoLayout (privateSnapshot keys))
+               snapshot
 
     -- Finally, create the timestamp
-    snapshotInfo <- computeFileInfo pathSnapshot
+    snapshotInfo <- computeFileInfo' repoLayoutSnapshot
     let timestamp = Timestamp {
             timestampVersion      = versionInitial
           , timestampExpires      = expiresInDays now 3
           , timestampInfoSnapshot = snapshotInfo
           }
-    void $ updateFile whenWrite
-                      globalRepo
-                      (fragment "timestamp.json")
-                      (withSignatures (privateTimestamp keys))
-                      timestamp
+    updateFile opts
+               whenWrite
+               (InRepo repoLayoutTimestamp)
+               (withSignatures globalRepoLayout (privateTimestamp keys))
+               timestamp
   where
-    pathRoot       = globalRepo </> fragment "root.json"
-    pathMirrors    = globalRepo </> fragment "mirrors.json"
-    pathSnapshot   = globalRepo </> fragment "snapshot.json"
-    pathIndexTar   = globalRepo </> fragment "00-index.tar"
-    pathIndexTarGz = globalRepo </> fragment "00-index.tar.gz"
+    pathIndexTar :: AbsolutePath
+    pathIndexTar = anchorRepoPath opts repoLayoutIndexTar
+
+    -- | Compute file information for a file in the repo
+    computeFileInfo' :: (RepoLayout -> RepoPath) -> IO FileInfo
+    computeFileInfo' = computeFileInfo . anchorRepoPath opts
 
 -- | Create package metadata
---
--- If we find that the package metadata has changed, we return the path of the
--- new @target.json@ as well as the path of the @.cabal@ file so that we know
--- to include it in the index. If nothing changed, we return the empty list.
-createPackageMetadata :: GlobalOpts -> WhenWrite -> PackageIdentifier -> IO [UnrootedPath]
-createPackageMetadata GlobalOpts{..} whenWrite pkgId = do
-    fileMapEntries <- computeFileMapEntries
-    checkEntries fileMapEntries
+createPackageMetadata :: GlobalOpts -> WhenWrite -> PackageIdentifier -> IO ()
+createPackageMetadata opts@GlobalOpts{..} whenWrite pkgId = do
+    fileMapEntries <- mapM computeFileMapEntry fileMapFiles
     let targets = Targets {
             targetsVersion     = versionInitial
           , targetsExpires     = expiresNever
           , targetsTargets     = FileMap.fromList fileMapEntries
           , targetsDelegations = Nothing
           }
+
     -- Currently we "sign" with no keys
-    mUpdated <- updateFile whenWrite
-                           globalRepo
-                           (pathPkgMetadata pkgId)
-                           (withSignatures [])
-                           targets
-    case mUpdated of
-      Nothing      -> return []
-      Just updated -> return [updated, pathPkgCabal pkgId]
+    updateFile opts
+               whenWrite
+               (InIndex (`indexLayoutPkgMetadata` pkgId))
+               (withSignatures' [])
+               targets
+
+    -- Copy the cabal file into the index
+    copyToIndex opts (`repoLayoutCabal` pkgId) (`indexLayoutPkgCabal` pkgId)
   where
-    computeFileMapEntries :: IO [(UnrootedPath, FileInfo)]
-    computeFileMapEntries = catMaybes <$> do
-      contents <- getDirectoryContents fullPkgPath
-      forM (filter (not . skip) contents) $ \file -> do
-        let path = fullPkgPath </> fragment file
-        isDir <- doesDirectoryExist path
-        if isDir
-          then do
-            logWarn $ "Skipping unrecognized " ++ show path
-            return Nothing
-          else do
-            let (_, ext) = splitExtension path
-            -- TODO: Not sure how (or if) cabal revisions are stored
-            case ext of
-              ".gz"      -> Just <$> computeFileMapEntry file
-              ".cabal"   -> Just <$> computeFileMapEntry file
-              _otherwise -> do logWarn $ "Skipping unrecognized " ++ show path
-                               return Nothing
-
-    checkEntries :: [(UnrootedPath, a)] -> IO ()
-    checkEntries entries = do
-        unless (has ".gz") $
-          logWarn $ "No .gz file for package " ++ display pkgId
-        unless (has ".cabal") $
-          logWarn $ "No .cabal file for package " ++ display pkgId
-      where
-        has :: String -> Bool
-        has ext = not . null $ filter (matchesExt ext . fst) entries
-
-        matchesExt :: String -> UnrootedPath -> Bool
-        matchesExt ext fp = let (_, ext') = splitExtension fp in ext == ext'
-
-    computeFileMapEntry :: Fragment -> IO (UnrootedPath, FileInfo)
+    computeFileMapEntry :: RelativePath -> IO (RelativePath, FileInfo)
     computeFileMapEntry file = do
-      info <- computeFileInfo (fullPkgPath </> fragment file)
-      return (fragment file, info)
+      info <- computeFileInfo (inRepoPkg </> unrootPath' file)
+      return (file, info)
 
-    fullPkgPath :: AbsolutePath
-    fullPkgPath = globalRepo </> pathPkg pkgId
-
-    skip :: Fragment -> Bool
-    skip "."            = True
-    skip ".."           = True
-    skip "targets.json" = True
-    skip _              = False
-
-{-------------------------------------------------------------------------------
-  Auxiliary
--------------------------------------------------------------------------------}
-
--- | Find all packages in a local repository
---
--- We don't rely on the index because we might have to _create_ the index.
-findPackages :: GlobalOpts -> IO [PackageIdentifier]
-findPackages GlobalOpts{..} = do
-    contents <- getDirectoryContents globalRepo
-    pkgs <- forM (filter (not . skipPkg) contents) $ \pkg -> do
-      let path = globalRepo </> fragment pkg
-      isDir <- doesDirectoryExist path
-      if isDir
-        then
-          findVersions pkg
-        else do
-          logWarn $ "Skipping unrecognized file " ++ show path
-          return []
-    return $ concat pkgs
-  where
-    findVersions :: Fragment -> IO [PackageIdentifier]
-    findVersions pkg = catMaybes <$> do
-        contents <- getDirectoryContents (globalRepo </> fragment pkg)
-        forM (filter (not . skipVersion) contents) $ \version -> do
-          let path = globalRepo </> fragment pkg </> fragment version
-          isDir <- doesDirectoryExist path
-          if isDir
-             then
-               case simpleParse (pkg ++ "-" ++ version) of
-                 Just pkgId -> return $ Just pkgId
-                 Nothing    -> do logWarn $ "Skipping unrecognized " ++ show path
-                                  return Nothing
-             else do
-               logWarn $ "Skipping unrecognized " ++ show path
-               return Nothing
-
-    skipPkg :: Fragment -> Bool
-    skipPkg "."                       = True
-    skipPkg ".."                      = True
-    skipPkg "00-index.tar"            = True
-    skipPkg "00-index.tar.gz"         = True
-    skipPkg "preferred-versions"      = True
-    skipPkg "targets.json"            = True
-    skipPkg "root.json"               = True
-    skipPkg "snapshot.json"           = True
-    skipPkg "timestamp.json"          = True
-    skipPkg "timestamp-snapshot.json" = True
-    skipPkg "mirrors.json"            = True
-    skipPkg _                         = False
-
-    skipVersion :: Fragment -> Bool
-    skipVersion "."  = True
-    skipVersion ".." = True
-    skipVersion _    = False
-
--- | Find additional files that should be added to the index
-findExtraIndexFiles :: GlobalOpts -> IO [UnrootedPath]
-findExtraIndexFiles GlobalOpts{..} = catMaybes <$> do
-    forM extraIndexFiles $ \file -> do
-      let path = globalRepo </> fragment file
-      isFile <- doesFileExist path
-      if isFile then return $ Just (fragment file)
-                else return Nothing
-  where
-    extraIndexFiles :: [Fragment]
-    extraIndexFiles = [
-        "preferred-versions"
+    -- | The files we need to add to the package targets file
+    -- Currently this is just the .tar.gz file
+    fileMapFiles :: [RelativePath]
+    fileMapFiles = [
+        rootPath Rooted $ repoLayoutPkgFile globalRepoLayout pkgId
       ]
 
+    inRepoPkg :: AbsolutePath
+    inRepoPkg = anchorRepoPath opts (`repoLayoutPkgLoc` pkgId)
+
 {-------------------------------------------------------------------------------
-  Paths
+  Working with the index
 -------------------------------------------------------------------------------}
 
-pathPkg :: PackageIdentifier -> UnrootedPath
-pathPkg pkgId =  fragment (display (packageName    pkgId))
-             </> fragment (display (packageVersion pkgId))
+-- | Find the files we need to add to the index
+findNewIndexFiles :: GlobalOpts -> WhenWrite -> IO [TarballPath]
+findNewIndexFiles opts whenWrite = do
+    indexTS    <- getFileModificationTime $ anchorRepoPath opts repoLayoutIndexTar
+    indexFiles <- getRecursiveContents    $ anchorRepoPath opts repoLayoutIndexDir
 
-pathPkgCabal :: PackageIdentifier -> UnrootedPath
-pathPkgCabal pkgId =  pathPkg pkgId
-                  </> fragment (display (packageName pkgId))
-                  <.> "cabal"
+    let indexFiles' :: [TarballPath]
+        indexFiles' = map (rootPath Rooted) indexFiles
 
-pathPkgMetadata :: PackageIdentifier -> UnrootedPath
-pathPkgMetadata pkgId =  pathPkg pkgId
-                     </> fragment "targets.json"
+    case whenWrite of
+      WriteAlways      -> return indexFiles'
+      WriteIfNecessary -> liftM catMaybes $
+        forM indexFiles' $ \indexFile -> do
+          fileTS <- getFileModificationTime $ anchorIndexPath opts (const indexFile)
+          if fileTS > indexTS then return $ Just indexFile
+                              else return Nothing
+
+-- | Copy a file to the index (if required)
+copyToIndex :: GlobalOpts
+            -> (RepoLayout  -> RepoPath)
+            -> (IndexLayout -> TarballPath)
+            -> IO ()
+copyToIndex opts src dst = do
+    createDirectoryIfMissing True (takeDirectory dst')
+    srcTS <- getFileModificationTime src'
+    dstTS <- getFileModificationTime dst'
+    when (srcTS > dstTS) $ do
+      logInfo $ "Copying " ++ showFileLoc opts (InRepo  src)
+             ++ " to "     ++ showFileLoc opts (InIndex dst)
+      copyFile src' dst'
+  where
+    src', dst' :: AbsolutePath
+    src' = anchorRepoPath  opts src
+    dst' = anchorIndexPath opts dst
+
+{-------------------------------------------------------------------------------
+  Updating files in the repo or in the index
+-------------------------------------------------------------------------------}
+
+data WhenWrite = WriteIfNecessary | WriteAlways
+
+data FileLoc = InRepo  (RepoLayout  -> RepoPath)
+             | InIndex (IndexLayout -> TarballPath)
+
+showFileLoc :: GlobalOpts -> FileLoc -> String
+showFileLoc GlobalOpts{..} fileLoc =
+    case fileLoc of
+      InRepo  file -> show $ file globalRepoLayout
+      InIndex file -> show $ file (repoIndexLayout globalRepoLayout)
+
+anchorFileLoc :: GlobalOpts -> FileLoc -> AbsolutePath
+anchorFileLoc opts (InRepo  file) = anchorRepoPath  opts file
+anchorFileLoc opts (InIndex file) = anchorIndexPath opts file
+
+-- | Write canonical JSON
+--
+-- We write the file to a temporary location and compare file info with the file
+-- that was already in the target location (if any). If it's the same (modulo
+-- version number) we don't overwrite it and return Nothing; otherwise we
+-- increment the version number, write the file, and (if it's in the index)
+-- copy it to the unpacked index directory.
+--
+-- TODO: This currently uses withSystemTempFile, which means that 'renameFile'
+-- might not work. Instead we should (here and elsewhere) have a temporary
+-- directory on the same file system. A worry for later.
+updateFile :: forall a. (ToJSON WriteJSON (Signed a), HasHeader a)
+           => GlobalOpts
+           -> WhenWrite
+           -> FileLoc
+           -> (a -> Signed a)          -- ^ Signing function
+           -> a                        -- ^ Unsigned file contents
+           -> IO ()
+updateFile opts@GlobalOpts{..} whenWrite fileLoc signPayload a = do
+    mOldHeader :: Maybe (Either DeserializationError (IgnoreSigned Header)) <-
+      handleDoesNotExist $ readNoKeys fp
+
+    case (whenWrite, mOldHeader) of
+      (WriteAlways, _) ->
+        writeDoc writing a
+      (WriteIfNecessary, Nothing) -> -- no previous version
+        writeDoc creating a
+      (WriteIfNecessary, Just (Left _err)) -> -- old file corrupted
+        writeDoc overwriting a
+      (WriteIfNecessary, Just (Right (IgnoreSigned oldHeader))) -> do
+        -- We cannot quite read the entire old file, because we don't know
+        -- what key environment to use. Instead, we write the _new_ file,
+        -- but setting the version number to be able to the version number
+        -- of the old file. If this turns out to be equal to the old file, we
+        -- skip writing this file. However, if this is NOT equal, we set the
+        -- version number of the new file to be equal to the version number of
+        -- the old plus one, and write the new file once more.
+
+        let oldVersion  = headerVersion oldHeader
+            wOldVersion = Lens.set fileVersion oldVersion a
+            wIncVersion = Lens.set fileVersion (versionIncrement oldVersion) a
+
+        withSystemTempFile (takeFileName fp) $ \tempPath h -> do
+          -- Write new file, but using old file version
+          BS.L.hPut h $ renderJSON globalRepoLayout (signPayload wOldVersion)
+          hClose h
+
+          -- Compare file hashes
+          oldFileInfo <- computeFileInfo' fp
+          newFileInfo <- computeFileInfo tempPath
+          if oldFileInfo == Just newFileInfo
+            then logInfo $ "Unchanged " ++ showFileLoc opts fileLoc
+            else writeDoc updating wIncVersion
+  where
+    -- | Actually write the file
+    writeDoc :: String -> a -> IO ()
+    writeDoc reason doc = do
+      logInfo reason
+      createDirectoryIfMissing True (takeDirectory fp)
+      writeCanonical globalRepoLayout fp (signPayload doc)
+
+    fp :: AbsolutePath
+    fp = anchorFileLoc opts fileLoc
+
+    writing, creating, overwriting, updating :: String
+    writing     = "Writing "     ++ showFileLoc opts fileLoc
+    creating    = "Creating "    ++ showFileLoc opts fileLoc
+    overwriting = "Overwriting " ++ showFileLoc opts fileLoc ++ " (old file corrupted)"
+    updating    = "Updating "    ++ showFileLoc opts fileLoc
+
+    computeFileInfo' :: AbsolutePath -> IO (Maybe FileInfo)
+    computeFileInfo' path =
+        handle doesNotExist $ Just <$> computeFileInfo path
+      where
+        doesNotExist e = if isDoesNotExistError e
+                           then return Nothing
+                           else throwIO e
+
+{-------------------------------------------------------------------------------
+  Inspect the repo layout
+-------------------------------------------------------------------------------}
+
+-- | Find packages
+--
+-- Repository layouts are configurable, but we don't know if the layout of the
+-- current directory matches the specified layout. We therefore here just search
+-- through the directory looking for anything that looks like a package.
+-- We can then verify that this list of packages actually matches the layout as
+-- a separate step.
+findPackages :: GlobalOpts -> IO [PackageIdentifier]
+findPackages GlobalOpts{..} =
+    mapMaybe isPackage <$> getRecursiveContents globalRepo
+  where
+    isPackage :: UnrootedPath -> Maybe PackageIdentifier
+    isPackage path = do
+      guard $ not (isIndex path)
+      pkg <- hasExtensions (takeFileName path) [".tar", ".gz"]
+      simpleParse pkg
+
+    isIndex :: UnrootedPath -> Bool
+    isIndex = (==) (unrootPath' (repoLayoutIndexTarGz globalRepoLayout))
+
+-- | Check that packages are in their expected location
+checkRepoLayout :: GlobalOpts -> [PackageIdentifier] -> IO Bool
+checkRepoLayout opts@GlobalOpts{..} = liftM and . mapM checkPackage
+  where
+    checkPackage :: PackageIdentifier -> IO Bool
+    checkPackage pkgId = do
+        existsTarGz <- doesFileExist $ anchorRepoPath opts expectedTarGz
+        unless existsTarGz $
+          logWarn $ "Package tarball " ++ display pkgId
+                 ++ " expected in location "
+                 ++ showFileLoc opts (InRepo expectedTarGz)
+
+        existsCabal <- doesFileExist $ anchorRepoPath opts expectedCabal
+        unless existsCabal $
+          logWarn $ "Cabal file for package " ++ display pkgId
+                 ++ " expected in location "
+                 ++ showFileLoc opts (InRepo expectedCabal)
+
+        return $ and [existsTarGz, existsCabal]
+      where
+        expectedTarGz, expectedCabal :: RepoLayout -> RepoPath
+        expectedTarGz = (`repoLayoutPkg` pkgId)
+        expectedCabal = (`repoLayoutCabal` pkgId)
+
+{-------------------------------------------------------------------------------
+  Additional paths specifically to the kind of repository this tool manages
+-------------------------------------------------------------------------------}
+
+-- | Location of the @.cabal@ file
+--
+-- Repositories don't have to serve the .cabal files directly; cabal will only
+-- read them from the index. However, for the purposes of this tool, when we
+-- _create_ the index, we expect the .cabal file to exist in the same directory
+-- as the package tarball.
+repoLayoutCabal :: RepoLayout -> PackageIdentifier -> RepoPath
+repoLayoutCabal RepoLayout{..} pkgId = repoLayoutPkgLoc pkgId </> pkgCabal pkgId
+
+-- | Directory containing the unpacked index
+--
+-- Since the layout of the tarball may not match the layout of the index,
+-- we create a local directory with the unpacked contents of the index.
+repoLayoutIndexDir :: RepoLayout -> RepoPath
+repoLayoutIndexDir _ = rootPath Rooted $ fragment "index"
+
+-- | The name of the .cabal file we expect to find in the local repo
+--
+-- NOTE: This is not necessarily the same as the name in the index
+-- (though it typically will be)
+pkgCabal :: PackageIdentifier -> UnrootedPath
+pkgCabal pkgId = fragment (display (packageName pkgId)) <.> "cabal"
+
+-- | Anchor a tarball path to the repo (see 'repoLayoutIndex')
+anchorIndexPath :: GlobalOpts -> (IndexLayout -> TarballPath) -> AbsolutePath
+anchorIndexPath opts@GlobalOpts{..} file =
+        anchorRepoPath opts repoLayoutIndexDir
+    </> unrootPath' (file $ repoIndexLayout globalRepoLayout)
+
+anchorRepoPath :: GlobalOpts -> (RepoLayout -> RepoPath) -> AbsolutePath
+anchorRepoPath GlobalOpts{..} file =
+    anchorRepoPathLocally globalRepo $ file globalRepoLayout
 
 {-------------------------------------------------------------------------------
   Logging
@@ -460,83 +534,31 @@ logWarn str = putStrLn $ "Warning: " ++ str
   Auxiliary
 -------------------------------------------------------------------------------}
 
-data WhenWrite = WriteIfNecessary | WriteAlways
-
--- | Write canonical JSON
+-- | Check that a file has the given extensions
 --
--- We write the file to a temporary location and compare file info with the file
--- that was already in the target location (if any). If it's the same (modulo
--- version number) we don't overwrite it and return Nothing; otherwise we
--- increment the version number, write the file, and return the path to the file
--- that we wrote (not including the baseDir).
+-- Returns the filename without the verified extensions. For example:
 --
--- TODO: This currently uses withSystemTempFile, which means that 'renameFile'
--- might not work. Instead we should (here and elsewhere) have a temporary
--- directory on the same file system. A worry for later.
-updateFile :: (ToJSON (Signed a), HasHeader a)
-           => WhenWrite        -- ^ When should we overwrite the existing file?
-           -> AbsolutePath     -- ^ Base directory
-           -> UnrootedPath     -- ^ Path relative to base directory
-           -> (a -> Signed a)  -- ^ Signing function
-           -> a                -- ^ Unsigned object
-           -> IO (Maybe UnrootedPath)
-updateFile whenWrite baseDir file signPayload a = do
-    mOldHeader :: Maybe (Either DeserializationError (IgnoreSigned Header)) <-
-      handleDoesNotExist $ readNoKeys fp
-
-    case (whenWrite, mOldHeader) of
-      (WriteAlways, _) -> do
-        logInfo $ "Writing " ++ show file
-        writeCanonical fp (signPayload a)
-        return $ Just file
-      (WriteIfNecessary, Nothing) -> do
-        -- If there is no previous version of the file, or the old file is
-        -- broken just create the new file
-        logInfo $ "Creating " ++ show file
-        writeCanonical fp (signPayload a)
-        return $ Just file
-      (WriteIfNecessary, Just (Left _err)) -> do
-        -- If the old file is corrupted, warn and overwrite
-        logWarn $ "Overwriting " ++ show file ++ " (old file corrupted)"
-        writeCanonical fp (signPayload a)
-        return $ Just file
-      (WriteIfNecessary, Just (Right (IgnoreSigned oldHeader))) -> do
-        -- We cannot quite read the entire old file, because we don't know
-        -- what key environment to use. Instead, we write the _new_ file,
-        -- but setting the version number to be able to the version number
-        -- of the old file. If this turns out to be equal to the old file, we
-        -- skip writing this file. However, if this is NOT equal, we set the
-        -- version number of the new file to be equal to the version number of
-        -- the old plus one, and write the new file once more.
-
-        let oldVersion  = headerVersion oldHeader
-            wOldVersion = Lens.set fileVersion oldVersion a
-            wIncVersion = Lens.set fileVersion (versionIncrement oldVersion) a
-
-        withSystemTempFile (takeFileName file) $ \tempPath h -> do
-          -- Write new file, but using old file version
-          BS.L.hPut h $ renderJSON (signPayload wOldVersion)
-          hClose h
-
-          -- Compare file hashes
-          oldFileInfo <- computeFileInfo' fp
-          newFileInfo <- computeFileInfo tempPath
-          if oldFileInfo == Just newFileInfo
-            then do
-              logInfo $ "Unchanged " ++ show file
-              return $ Nothing
-            else do
-              -- If changed, write file using incremented file version
-              logInfo $ "Updating " ++ show file
-              writeCanonical fp (signPayload wIncVersion)
-              return $ Just file
+-- > hasExtensions "foo.tar.gz" [".tar", ".gz"] == Just "foo"
+hasExtensions :: FilePath -> [String] -> Maybe String
+hasExtensions = \fp exts -> go fp (reverse exts)
   where
-    fp = baseDir </> file
+    go :: FilePath -> [String] -> Maybe String
+    go fp []     = return fp
+    go fp (e:es) = do let (fp', e') = FilePath.splitExtension fp
+                      guard $ e == e'
+                      go fp' es
 
-computeFileInfo' :: AbsolutePath -> IO (Maybe FileInfo)
-computeFileInfo' fp =
-    handle doesNotExist $ Just <$> computeFileInfo fp
+-- | Get the modification time of the specified file
+--
+-- Returns 0 if the file does not exist .
+getFileModificationTime :: AbsolutePath -> IO EpochTime
+getFileModificationTime fp = handle handler $
+    modificationTime <$> getFileStatus (toFilePath fp)
   where
-    doesNotExist e = if isDoesNotExistError e
-                       then return Nothing
-                       else throwIO e
+    handler :: IOException -> IO EpochTime
+    handler ex = if isDoesNotExistError ex then return 0
+                                           else throwIO ex
+
+compress :: AbsolutePath -> AbsolutePath -> IO ()
+compress src dst =
+    writeLazyByteString dst =<< GZip.compress <$> readLazyByteString src

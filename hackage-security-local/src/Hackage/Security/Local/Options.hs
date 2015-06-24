@@ -8,6 +8,7 @@ import Network.URI (URI, parseURI)
 import Options.Applicative
 import System.IO.Unsafe (unsafePerformIO)
 
+import Hackage.Security.Client
 import Hackage.Security.Util.Path
 
 {-------------------------------------------------------------------------------
@@ -47,10 +48,12 @@ data GlobalOpts = GlobalOpts {
     -- | Mirrors (to add to @mirrors.json@)
   , globalMirrors :: [URI]
 
+    -- | Local repository layout
+  , globalRepoLayout :: RepoLayout
+
     -- | Command to execute
   , globalCommand :: Command
   }
-  deriving Show
 
 data Command =
     -- | Create keys
@@ -92,6 +95,9 @@ parseGlobalOptions = GlobalOpts
         , metavar "URI"
         , help "Mirror (to add to mirrors.json)"
         ])
+  -- TODO: Make the repository layout configurable
+  -- (if we want to be able to test different layouts)
+  <*> (pure defaultRepoLayout)
   <*> (subparser $ mconcat [
           command "create-keys" (info (pure CreateKeys)
               (progDesc "Create keys"))
