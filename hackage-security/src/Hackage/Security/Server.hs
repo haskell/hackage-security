@@ -16,6 +16,7 @@ import Hackage.Security.JSON (
   , parseNoKeys
   , readCanonical
   , renderJSON
+  , renderJSON'
   , writeCanonical
   , formatDeserializationError
   )
