@@ -379,8 +379,10 @@ downloadPackage rep pkgId callback = withMirror rep $ evalContT $ do
       >>= return . trustIndex
 
     -- The path of the package, relative to the targets.json file
+    -- TODO: This assumes that the targets.json for a package is stored
+    -- in the same directory as the package .tar.gz file.
     let filePath :: RelativePath
-        filePath = rootPath Rooted $ repoLayoutPkgFile (repLayout rep) pkgId
+        filePath = castRoot $ repoLayoutPkgFile (repLayout rep) pkgId
 
     let mTargetMetaData :: Maybe (Trusted FileInfo)
         mTargetMetaData = trustSeq

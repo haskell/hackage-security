@@ -42,6 +42,12 @@ type RepoPath = Path (Rooted RepoRoot)
 
 instance Show (Rooted RepoRoot) where show _ = "<repo>"
 
+-- | Directory where a package tarball is stored
+data PkgRoot
+
+-- | Paths relative to a package root
+type RelativePkgPath = Path (Rooted PkgRoot)
+
 -- | Layout of a repository
 data RepoLayout = RepoLayout {
       -- | TUF root metadata
@@ -69,8 +75,10 @@ data RepoLayout = RepoLayout {
 
       -- | Filename of the package tarball itself
       --
+      -- (relative to 'repoLayoutPkgLoc')
+      --
       -- For package @Foo-1.0@ this might be @Foo-1.0.tar.gz@
-    , repoLayoutPkgFile :: PackageIdentifier -> UnrootedPath
+    , repoLayoutPkgFile :: PackageIdentifier -> RelativePkgPath
 
       -- | Layout of the index
       --
@@ -81,7 +89,7 @@ data RepoLayout = RepoLayout {
 
 repoLayoutPkg :: RepoLayout -> PackageIdentifier -> RepoPath
 repoLayoutPkg RepoLayout{..} pkgId =
-    repoLayoutPkgLoc pkgId </> repoLayoutPkgFile pkgId
+    repoLayoutPkgLoc pkgId </> unrootPath' (repoLayoutPkgFile pkgId)
 
 -- | The layout used on Hackage
 hackageRepoLayout :: RepoLayout
@@ -92,13 +100,16 @@ hackageRepoLayout = RepoLayout {
     , repoLayoutMirrors    = rp $ fragment "mirrors.json"
     , repoLayoutIndexTarGz = rp $ fragment "00-index.tar.gz"
     , repoLayoutIndexTar   = rp $ fragment "00-index.tar"
-    , repoLayoutPkgLoc     = rp . pkgLoc
-    , repoLayoutPkgFile    = pkgFile
+    , repoLayoutPkgLoc     = rp  . pkgLoc
+    , repoLayoutPkgFile    = rp' . pkgFile
     , repoIndexLayout      = hackageIndexLayout
     }
   where
     rp :: UnrootedPath -> RepoPath
     rp = rootPath Rooted
+
+    rp' :: UnrootedPath -> RelativePkgPath
+    rp' = rootPath Rooted
 
 anchorRepoPathLocally :: IsFileSystemRoot root
                       => Path (Rooted root) -> RepoPath -> Path (Rooted root)

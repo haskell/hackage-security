@@ -285,9 +285,11 @@ createPackageMetadata opts@GlobalOpts{..} whenWrite pkgId = do
 
     -- | The files we need to add to the package targets file
     -- Currently this is just the .tar.gz file
+    -- TODO: This assumes that the package metadata is stored in the same
+    -- directory as the package tarball
     fileMapFiles :: [RelativePath]
     fileMapFiles = [
-        rootPath Rooted $ repoLayoutPkgFile globalRepoLayout pkgId
+        castRoot $ repoLayoutPkgFile globalRepoLayout pkgId
       ]
 
     inRepoPkg :: AbsolutePath
