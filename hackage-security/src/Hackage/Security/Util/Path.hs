@@ -26,6 +26,7 @@ module Hackage.Security.Util.Path (
   , splitFragments
   , toUnrootedFilePath
   , fromUnrootedFilePath
+  , isPathPrefixOf
   -- ** FilePath-like operations
   , takeDirectory
   , takeFileName
@@ -59,6 +60,7 @@ module Hackage.Security.Util.Path (
   , doesDirectoryExist
   , doesFileExist
   , getDirectoryContents
+  , getRecursiveContents
   , getTemporaryDirectory
   , removeFile
   -- ** Wrappers around Codec.Archive.Tar.*
@@ -80,6 +82,7 @@ module Hackage.Security.Util.Path (
   , IO.hFileSize
   ) where
 
+import Control.Monad
 import Data.Function (on)
 import qualified Data.ByteString         as BS
 import qualified Data.ByteString.Lazy    as BS.L
@@ -187,6 +190,14 @@ toUnrootedFilePath = FilePath.joinPath . splitFragments
 
 fromUnrootedFilePath :: FilePath -> UnrootedPath
 fromUnrootedFilePath = joinFragments . FilePath.splitPath
+
+isPathPrefixOf :: UnrootedPath -> UnrootedPath -> Bool
+isPathPrefixOf = go `on` splitFragments
+  where
+    go :: [Fragment] -> [Fragment] -> Bool
+    go []     _      = True
+    go _      []     = False
+    go (p:ps) (q:qs) = p == q && go ps qs
 
 {-------------------------------------------------------------------------------
   FilePath-like operations
@@ -360,6 +371,30 @@ getDirectoryContents :: IsFileSystemRoot root
 getDirectoryContents path = do
     filePath <- toAbsoluteFilePath path
     Dir.getDirectoryContents filePath
+
+-- | Recursive traverse a directory structure
+--
+-- Returns a set of paths relative to the directory specified.
+-- TODO: Not sure about the memory behaviour with large file systems.
+getRecursiveContents :: IsFileSystemRoot root
+                     => Path (Rooted root)
+                     -> IO [UnrootedPath]
+getRecursiveContents root = go PathNil
+  where
+    go :: UnrootedPath -> IO [UnrootedPath]
+    go subdir = do
+      contents <- getDirectoryContents (root </> subdir)
+      filess <- forM (filter (not . skip) contents) $ \entry -> do
+        let path = subdir </> fragment entry
+        isDirectory <- doesDirectoryExist (root </> path)
+        if isDirectory then go path
+                       else return [path]
+      return $ concat filess
+
+    skip :: Fragment -> Bool
+    skip "."  = True
+    skip ".." = True
+    skip _    = False
 
 {-------------------------------------------------------------------------------
   Wrappers around Codec.Archive.Tar.*
