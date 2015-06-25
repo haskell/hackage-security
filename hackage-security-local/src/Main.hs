@@ -199,7 +199,7 @@ bootstrapOrUpdate opts@GlobalOpts{..} isBootstrap = do
     case (whenWrite, null newFiles) of
       (WriteAlways, _) -> do
         -- If we are recreating all files, also recreate the index
-        removeFile pathIndexTar
+        _didExist <- handleDoesNotExist $ removeFile pathIndexTar
         logInfo $ "Writing " ++ showFileLoc opts (InRepo repoLayoutIndexTar)
       (WriteIfNecessary, True) -> do
         logInfo $ "Unchanged " ++ showFileLoc opts (InRepo repoLayoutIndexTar)
