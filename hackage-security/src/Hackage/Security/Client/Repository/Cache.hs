@@ -30,7 +30,7 @@ import Hackage.Security.Util.Some
 
 -- | Location and layout of the local cache
 data Cache = Cache {
-      cacheRoot   :: Path (Rooted Absolute)
+      cacheRoot   :: AbsolutePath
     , cacheLayout :: CacheLayout
     }
 
