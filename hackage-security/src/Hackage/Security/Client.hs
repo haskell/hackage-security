@@ -31,7 +31,7 @@ import Control.Exception
 import Control.Monad
 import Control.Monad.Cont
 import Control.Monad.Trans.Cont
-import Data.Maybe (isJust)
+import Data.Maybe (isNothing)
 import Data.Time
 import Data.Typeable (Typeable)
 import qualified Data.ByteString      as BS
@@ -417,7 +417,7 @@ instance Exception InvalidPackageException
 
 -- | Check if we need to bootstrap (i.e., if we have root info)
 requiresBootstrap :: Repository -> IO Bool
-requiresBootstrap rep = isJust <$> repGetCached rep CachedRoot
+requiresBootstrap rep = isNothing <$> repGetCached rep CachedRoot
 
 -- | Bootstrap the chain of trust
 --
