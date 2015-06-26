@@ -22,8 +22,6 @@ module Hackage.Security.Client (
   , Repository -- opaque
   , LogMessage(..)
   , formatLogMessage
-    -- ** TODO: Temporary. Introduce paths module instead
-  , pkgTarGz
   ) where
 
 import Prelude hiding (log)

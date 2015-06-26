@@ -19,8 +19,6 @@ module Hackage.Security.Client.Repository (
     -- * Paths
   , remoteFilePath
   , indexFilePath
-    -- * Names of package files
-  , pkgTarGz
     -- * Recoverable exceptions
   , RecoverableException(..)
   , CustomException(..)
@@ -373,14 +371,6 @@ indexFilePath IndexLayout{..} = go
   where
     go :: IndexFile -> TarballPath
     go (IndexPkgMetadata pkgId) = indexLayoutPkgMetadata pkgId
-
-pkgTarGz :: PackageIdentifier -> UnrootedPath
-pkgTarGz pkgId = joinFragments [
-      display (packageName pkgId)
-    , "-"
-    , display (packageVersion pkgId)
-    , ".tar.gz"
-    ]
 
 {-------------------------------------------------------------------------------
   Utility

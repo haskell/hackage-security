@@ -47,7 +47,7 @@ cmdGet opts pkgId =
         copyFile tempPath localFile
   where
     localFile :: RelativePath
-    localFile = rootPath Rooted (pkgTarGz pkgId)
+    localFile = castRoot $ repoLayoutPkgFile hackageRepoLayout pkgId
 
 {-------------------------------------------------------------------------------
   Common functionality
@@ -72,7 +72,7 @@ withRepo GlobalOpts{..} =
                               [baseURI]
                               cache
                               hackageRepoLayout
-                              logTUF 
+                              logTUF
                               callback
 
     withClient :: (Remote.HttpClient -> IO a) -> IO a
