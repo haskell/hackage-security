@@ -50,7 +50,8 @@ import Hackage.Security.TUF
 import Hackage.Security.Util.Path
 import Hackage.Security.Util.Stack
 import Hackage.Security.Util.Some
-import qualified Hackage.Security.Key.Env as KeyEnv
+import qualified Hackage.Security.Key.Env   as KeyEnv
+import qualified Hackage.Security.Util.Lens as Lens
 
 {-------------------------------------------------------------------------------
   Checking for updates
@@ -289,6 +290,12 @@ instance Exception RootUpdated
 --    an attack where an attacker has set the file version of the snapshot or
 --    timestamp to MAX_INT, thereby making further updates impossible.
 --    (Such an attack would require a timestamp/snapshot key compromise.)
+--
+-- However, we _ONLY_ do this when the root information has actually changed.
+-- If we did this unconditionally it would mean that we delete the locally
+-- cached timestamp whenever the version on the remote timestamp is invalid,
+-- thereby rendering the file version on the timestamp and the snapshot useless.
+-- See <https://github.com/theupdateframework/tuf/issues/283#issuecomment-115739521>
 updateRoot :: Repository
            -> Maybe UTCTime
            -> IsRetry
@@ -302,13 +309,15 @@ updateRoot rep mNow isRetry eFileInfo = evalContT $ do
 
     let mFileInfo    = eitherToMaybe eFileInfo
         expectedRoot = RemoteRoot (fmap (static fileInfoLength <$$>) mFileInfo)
-    _newRoot :: Trusted Root
+    newRoot :: Trusted Root
        <- getRemote' rep isRetry expectedRoot
       >>= verifyFileInfo' mFileInfo
       >>= readJSON (repLayout rep) KeyEnv.empty
       >>= liftM trustVerified . throwErrors . verifyRoot oldRoot mNow
 
-    clearCache rep
+    let oldVersion = Lens.get fileVersion (trusted oldRoot)
+        newVersion = Lens.get fileVersion (trusted newRoot)
+    when (oldVersion /= newVersion) $ clearCache rep
 
 {-------------------------------------------------------------------------------
   Downloading target files
