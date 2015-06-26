@@ -481,8 +481,6 @@ checkRepoLayout opts@GlobalOpts{..} = liftM and . mapM checkPackage
 
 {-------------------------------------------------------------------------------
   Logging
-
-  TODO: Replace this with a proper logging package
 -------------------------------------------------------------------------------}
 
 logInfo :: String -> IO ()

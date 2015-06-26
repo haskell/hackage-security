@@ -140,8 +140,6 @@ fromPreSignature PreSignature{..} = do
 -- We do this on the presignatures rather than the signatures so that we can do
 -- the check on key IDs, rather than keys (the latter don't have an Ord
 -- instance).
---
--- TODO: Should we attempt a more efficient implementation?
 fromPreSignatures :: MonadKeys m => [PreSignature] -> m [Signature]
 fromPreSignatures sigs = do
       validate "all signatures made with different keys" $

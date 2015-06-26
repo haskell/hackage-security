@@ -368,15 +368,12 @@ remoteFilePath repoLayout@RepoLayout{..} = go
     goIndex FUn _ = repoLayoutIndexTar
     goIndex FGz _ = repoLayoutIndexTarGz
 
--- TODO: By using pkgLoc here we couple the location of a package in the repo
--- to its location in the index. These may not match.
 indexFilePath :: IndexLayout -> IndexFile -> TarballPath
 indexFilePath IndexLayout{..} = go
   where
     go :: IndexFile -> TarballPath
     go (IndexPkgMetadata pkgId) = indexLayoutPkgMetadata pkgId
 
--- TODO: Are we hardcoding information here that's available from Cabal somewhere?
 pkgTarGz :: PackageIdentifier -> UnrootedPath
 pkgTarGz pkgId = joinFragments [
       display (packageName pkgId)
