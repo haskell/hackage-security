@@ -363,7 +363,7 @@ downloadPackage rep pkgId callback = withMirror rep $ evalContT $ do
     -- signed metadata and therefore we currently don't have to do anything
     -- here.
     --
-    -- TODO: If we have explicit, author-signed, ists of versions for a package
+    -- TODO: If we have explicit, author-signed, lists of versions for a package
     -- (as described in @README.md@), then evaluating these "middle-level"
     -- delegation files lazily opens us up to a rollback attack: if we've never
     -- downloaded the delegations for a package before, then we have nothing to

@@ -1,7 +1,7 @@
 -- | Patterns and replacements
 --
--- TODO: We probably want to update this to work with 'File's
--- (rather than 'String's).
+-- TODO: We probably want to update this to work with 'Path's
+-- (rather than 'FilePath's/'String's).
 {-# LANGUAGE TemplateHaskell #-}
 module Hackage.Security.TUF.Patterns (
     -- * Patterns and replacements
