@@ -35,8 +35,9 @@ withClient _logger callback = do
   Implementation of the individual methods
 -------------------------------------------------------------------------------}
 
-get :: URI -> (BodyReader -> IO a) -> IO a
-get uri callback = do
+-- TODO: Interpret the HTTP options
+get :: [HttpOption] -> URI -> (BodyReader -> IO a) -> IO a
+get _httpOpts uri callback = do
     (Nothing, Just hOut, Nothing, hProc) <- createProcess curl
     callback (bodyReader hProc hOut)
   where

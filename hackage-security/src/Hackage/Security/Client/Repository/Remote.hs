@@ -25,6 +25,7 @@ module Hackage.Security.Client.Repository.Remote (
   , BodyReader
   , DownloadedRange(..)
   , HttpClient(..)
+  , HttpOption(..)
   , FileSize(..)
     -- ** Utility
   , fileSizeWithinBounds
@@ -115,7 +116,11 @@ data DownloadedRange = DownloadedRange | DownloadedEntireFile
 -- package) and allows for other implementations (such as a conduit based one)
 data HttpClient = HttpClient {
     -- | Download a file
-    httpClientGet :: forall a. URI -> (BodyReader -> IO a) -> IO a
+    httpClientGet :: forall a.
+                     [HttpOption]
+                  -> URI
+                  -> (BodyReader -> IO a)
+                  -> IO a
 
     -- | Download a byte range
     --
@@ -124,7 +129,8 @@ data HttpClient = HttpClient {
     -- Servers can respond to a range request by sending the entire file
     -- instead. We tell the callback if it got the range of the entire file.
   , httpClientGetRange :: forall a.
-                          URI
+                          [HttpOption]
+                       -> URI
                        -> (Int, Int)
                        -> (DownloadedRange -> BodyReader -> IO a)
                        -> IO a
@@ -137,6 +143,17 @@ data HttpClient = HttpClient {
     -- | Catch any custom exceptions thrown and wrap them as 'CustomException's
   , httpWrapCustomEx :: forall a. IO a -> IO a
   }
+
+-- | Additional options for HTTP downloads
+--
+-- Since different libraries represent headers differently, here we just
+-- abstract over the few headers that we might want to set
+data HttpOption =
+    -- | Set @Cache-Control: max-age=0@
+    HttpOptionMaxAge0
+
+    -- | Set @Cache-Control: no-transform@
+  | HttpOptionNoTransform
 
 {-------------------------------------------------------------------------------
   Top-level API
@@ -169,16 +186,18 @@ withRepository
 withRepository http outOfBandMirrors cache repLayout logger callback = do
     selectedMirror <- newMVar Nothing
     callback Repository {
-        repWithRemote    = flip $ withRemote repLayout http selectedMirror cache logger
+        repWithRemote    = fileLast $ withRemote repLayout http selectedMirror cache logger
       , repGetCached     = Cache.getCached     cache
       , repGetCachedRoot = Cache.getCachedRoot cache
       , repClearCache    = Cache.clearCache    cache
       , repGetFromIndex  = Cache.getFromIndex  cache (repoIndexLayout repLayout)
-      , repWithMirror    = withMirror http selectedMirror outOfBandMirrors logger
+      , repWithMirror    = withMirror http selectedMirror logger outOfBandMirrors
       , repLog           = logger
       , repLayout        = repLayout
       , repDescription   = "Remote repository at " ++ show outOfBandMirrors
       }
+  where
+    fileLast f = flip . f
 
 {-------------------------------------------------------------------------------
   Implementations of the various methods of Repository
@@ -195,9 +214,11 @@ type SelectedMirror = MVar (Maybe URI)
 withRemote :: forall fs a.
               RepoLayout -> HttpClient -> SelectedMirror -> Cache
            -> (LogMessage -> IO ())
+           -> IsRetry
            -> (SelectedFormat fs -> TempPath -> IO a)
-           -> RemoteFile fs -> IO a
-withRemote repoLayout httpClient selectedMirror cache logger callback = \remoteFile -> do
+           -> RemoteFile fs
+           -> IO a
+withRemote repoLayout httpClient selectedMirror cache logger isRetry callback = \remoteFile -> do
    -- NOTE: Cannot use withMVar here, because the callback would be inside
    -- the scope of the withMVar, and there might be further calls to
    -- withRemote made by this callback, leading to deadlock.
@@ -206,30 +227,51 @@ withRemote repoLayout httpClient selectedMirror cache logger callback = \remoteF
      Nothing ->
        throwIO $ userError "Internal error: no mirror selected"
      Just baseURI -> do
-        mIncremental <- shouldDoIncremental httpClient cache remoteFile
+       let config = RemoteConfig {
+                        cfgLayout = repoLayout
+                      , cfgClient = httpClient
+                      , cfgBase   = baseURI
+                      , cfgCache  = cache
+                      }
 
-        -- Try to download incrementally. However, if this throws an I/O
-        -- exception or a verification error we try again using a full download
-        didDownload <- case mIncremental of
-          Left Nothing ->
-            return Nothing
-          Left (Just failure) -> do
-            logger $ LogUpdateFailed (describeRemoteFile remoteFile) failure
-            return Nothing
-          Right (sf, len, fp) -> do
-            logger $ LogUpdating (describeRemoteFile remoteFile)
-            let incr = incTar repoLayout httpClient baseURI cache (callback sf) len fp
-                wrapCustomEx = httpWrapCustomEx httpClient
-            catchRecoverable wrapCustomEx (Just <$> incr) $ \ex -> do
-              let failure = UpdateFailed ex
-              logger $ LogUpdateFailed (describeRemoteFile remoteFile) failure
-              return Nothing
+       -- Figure out if we should do an incremental download
+       mIncremental <- shouldDoIncremental config remoteFile
 
-        case didDownload of
-          Just did -> return did
-          Nothing  -> do
-            logger $ LogDownloading (describeRemoteFile remoteFile)
-            getFile repoLayout httpClient baseURI cache callback remoteFile
+       -- If so, attempt it. However, if this throws an I/O exception or a
+       -- verification error we try again using a full download
+       didDownload <- case mIncremental of
+         Left Nothing ->
+           return Nothing
+         Left (Just failure) -> do
+           logger $ LogUpdateFailed (describeRemoteFile remoteFile) failure
+           return Nothing
+         Right (sf, len, fp) -> do
+           logger $ LogUpdating (describeRemoteFile remoteFile)
+           let wrapCustomEx = httpWrapCustomEx httpClient
+               incr = incTar config httpOpts len fp $ callback sf
+           catchRecoverable wrapCustomEx (Just <$> incr) $ \ex -> do
+             let failure = UpdateFailed ex
+             logger $ LogUpdateFailed (describeRemoteFile remoteFile) failure
+             return Nothing
+
+       case didDownload of
+         Just did -> return did
+         Nothing  -> do
+           logger $ LogDownloading (describeRemoteFile remoteFile)
+           getFile config httpOpts remoteFile callback
+  where
+    httpOpts :: [HttpOption]
+    httpOpts = httpOptions isRetry
+
+-- | HTTP options
+--
+-- We want to make sure caches don't transform files in any way (as this will
+-- mess things up with respect to hashes etc). Additionally, after a validation
+-- error we want to make sure caches get files upstream in case the validation
+-- error was because the cache updated files out of order.
+httpOptions :: IsRetry -> [HttpOption]
+httpOptions FirstAttempt         = [HttpOptionNoTransform]
+httpOptions AfterValidationError = [HttpOptionNoTransform, HttpOptionMaxAge0]
 
 -- | Should we do an incremental update?
 --
@@ -237,10 +279,12 @@ withRemote repoLayout httpClient selectedMirror cache logger callback = \remoteF
 -- @Nothing@ if we simply never update this kind of file), or else 'Right' the
 -- name of the local file that we should update.
 shouldDoIncremental
-  :: forall fs. HttpClient -> Cache -> RemoteFile fs
+  :: forall fs.
+     RemoteConfig   -- ^ Internal configuration
+  -> RemoteFile fs  -- ^ File we need to download
   -> IO (Either (Maybe UpdateFailure)
                 (SelectedFormat fs, Trusted FileLength, AbsolutePath))
-shouldDoIncremental HttpClient{..} cache remoteFile = runExceptT $ do
+shouldDoIncremental RemoteConfig{..} remoteFile = runExceptT $ do
     -- Currently the only file which we download incrementally is the index
     formats :: Formats fs (Trusted FileLength) <-
       case remoteFile of
@@ -263,7 +307,7 @@ shouldDoIncremental HttpClient{..} cache remoteFile = runExceptT $ do
     -- We already have a local file to be updated
     -- (if not we should try to download the initial file in compressed form)
     cachedIndex <- do
-      mCachedIndex <- lift $ Cache.getCachedIndex cache
+      mCachedIndex <- lift $ Cache.getCachedIndex cfgCache
       case mCachedIndex of
         Nothing -> throwError $ Just UpdateImpossibleNoLocalCopy
         Just fp -> return fp
@@ -274,50 +318,48 @@ shouldDoIncremental HttpClient{..} cache remoteFile = runExceptT $ do
     -- @Distribution.Client.GZipUtils@ in @cabal-install@)
 
     return (selected, len, cachedIndex)
+  where
+    HttpClient{..} = cfgClient
 
 -- | Get any file from the server, without using incremental updates
-getFile :: RepoLayout -> HttpClient -> URI -> Cache
-        -> (SelectedFormat fs -> TempPath -> IO a)
-        -> RemoteFile fs -> IO a
-getFile repoLayout httpClient baseURI cache callback remoteFile =
-    getFile' httpClient uri sz (describeRemoteFile remoteFile) $ \tempPath -> do
+getFile :: RemoteConfig   -- ^ Internal configuration
+        -> [HttpOption]   -- ^ Additional HTTP optons
+        -> RemoteFile fs  -- ^ File to download
+        -> (SelectedFormat fs -> TempPath -> IO a) -- ^ Callback after download
+        -> IO a
+getFile RemoteConfig{..} httpOpts remoteFile callback =
+    withSystemTempFile (takeFileName (uriPath uri)) $ \tempPath h -> do
+      -- We are careful NOT to scope the remainder of the computation underneath
+      -- the httpClientGet
+      httpClientGet httpOpts uri $ execBodyReader description sz h
+      hClose h
       result <- callback format tempPath
-      Cache.cacheRemoteFile cache
+      Cache.cacheRemoteFile cfgCache
                             tempPath
                             (selectedFormatSome format)
                             (mustCache remoteFile)
       return result
   where
+    description = describeRemoteFile remoteFile
     (format, (uri, sz)) = formatsPrefer
                             (remoteFileNonEmpty remoteFile)
                             FGz
                             (formatsZip
-                              (remoteFileURI repoLayout baseURI remoteFile)
+                              (remoteFileURI cfgLayout cfgBase remoteFile)
                               (remoteFileSize remoteFile))
 
--- | Get a file from the server (by URI)
-getFile' :: HttpClient          -- ^ HTTP client
-         -> URI                 -- ^ File URI
-         -> FileSize            -- ^ File size
-         -> String              -- ^ File description (for error messages)
-         -> (TempPath -> IO a)  -- ^ Callback
-         -> IO a
-getFile' HttpClient{..} uri sz description callback =
-    withSystemTempFile (takeFileName (uriPath uri)) $ \tempPath h -> do
-      -- We are careful NOT to scope the remainder of the computation underneath
-      -- the httpClientGet
-      httpClientGet uri $ execBodyReader description sz h
-      hClose h
-      callback tempPath
+    HttpClient{..} = cfgClient
 
 -- | Get a tar file incrementally
 --
 -- Sadly, this has some tar-specific functionality
-incTar :: IsFileSystemRoot root
-       => RepoLayout -> HttpClient -> URI -> Cache
-       -> (TempPath -> IO a)
-       -> Trusted FileLength -> Path (Rooted root) -> IO a
-incTar RepoLayout{..} HttpClient{..} baseURI cache callback len cachedFile = do
+incTar :: RemoteConfig        -- ^ Internal configuration
+       -> [HttpOption]        -- ^ Additional HTTP options
+       -> Trusted FileLength  -- ^ Expected length
+       -> AbsolutePath        -- ^ Location of cached tar (after callback)
+       -> (TempPath -> IO a)  -- ^ Callback on the updated tar
+       -> IO a
+incTar RemoteConfig{..} httpOpts len cachedFile callback = do
     -- TODO: Once we have a local tarball index, this is not necessary
     currentSize <- getFileSize cachedFile
     let currentMinusTrailer = currentSize - 1024
@@ -330,7 +372,7 @@ incTar RepoLayout{..} HttpClient{..} baseURI cache callback len cachedFile = do
       hSeek h AbsoluteSeek currentMinusTrailer
       -- As in 'getFile', make sure we don't scope the remainder of the
       -- computation underneath the httpClientGetRange
-      httpClientGetRange uri range $ \downloadedRange br -> do
+      httpClientGetRange httpOpts uri range $ \downloadedRange br -> do
         case downloadedRange of
           DownloadedRange ->
             execBodyReader "index" rangeSz h br
@@ -344,21 +386,26 @@ incTar RepoLayout{..} HttpClient{..} baseURI cache callback len cachedFile = do
             execBodyReader "index" totalSz h br
       hClose h
       result <- callback tempPath
-      Cache.cacheRemoteFile cache tempPath (Some FUn) CacheIndex
+      Cache.cacheRemoteFile cfgCache tempPath (Some FUn) CacheIndex
       return result
   where
-    uri = modifyUriPath baseURI (`anchorRepoPathRemotely` repoLayoutIndexTar)
+    uri = modifyUriPath cfgBase (`anchorRepoPathRemotely` repoLayoutIndexTar)
+
+    RepoLayout{..} = cfgLayout
+    HttpClient{..} = cfgClient
 
 -- | Mirror selection
 withMirror :: forall a.
-              HttpClient -> SelectedMirror -> [URI] -> (LogMessage -> IO ())
-           -> Maybe [Mirror] -> IO a -> IO a
-withMirror HttpClient{..} selectedMirror outOfBandMirrors logger tufMirrors callback = do
-    -- TODO: In the future we will want to make the construction of this list
-    -- configurable.
-    let mirrorsToTry = outOfBandMirrors
-                    ++ maybe [] (map mirrorUrlBase) tufMirrors
-    go mirrorsToTry
+              HttpClient             -- ^ HTTP client
+           -> SelectedMirror         -- ^ MVar indicating currently mirror
+           -> (LogMessage -> IO ())  -- ^ Logger
+           -> [URI]                  -- ^ Out-of-band mirrors
+           -> Maybe [Mirror]         -- ^ TUF mirrors
+           -> IO a                   -- ^ Callback
+           -> IO a
+withMirror HttpClient{..} selectedMirror logger oobMirrors tufMirrors callback =
+    -- TODO: We will want to make the construction of this list configurable.
+    go $ oobMirrors ++ maybe [] (map mirrorUrlBase) tufMirrors
   where
     go :: [URI] -> IO a
     -- Empty list of mirrors is a bug
@@ -443,3 +490,17 @@ remoteFileSize (RemoteIndex _ lens) =
     fmap (FileSizeExact . fileLength . trusted) lens
 remoteFileSize (RemotePkgTarGz _pkgId len) =
     FsGz $ FileSizeExact (fileLength (trusted len))
+
+{-------------------------------------------------------------------------------
+  Configuration
+-------------------------------------------------------------------------------}
+
+-- | Remote repository configuration
+--
+-- This is purely for internal convenience.
+data RemoteConfig = RemoteConfig {
+      cfgLayout :: RepoLayout
+    , cfgClient :: HttpClient
+    , cfgBase   :: URI
+    , cfgCache  :: Cache
+    }

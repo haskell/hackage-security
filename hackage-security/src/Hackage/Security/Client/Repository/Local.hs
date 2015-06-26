@@ -44,8 +44,11 @@ withRepository repo cache repLayout logger callback = callback Repository {
 
 -- | Get a file from the server
 withRemote :: RepoLayout -> LocalRepo -> Cache
-           -> RemoteFile fs -> (SelectedFormat fs -> TempPath -> IO a) -> IO a
-withRemote repoLayout repo cache remoteFile callback = do
+           -> IsRetry
+           -> RemoteFile fs
+           -> (SelectedFormat fs -> TempPath -> IO a)
+           -> IO a
+withRemote repoLayout repo cache _isRetry remoteFile callback = do
     result <- callback format remotePath
     cacheRemoteFile cache
                     remotePath

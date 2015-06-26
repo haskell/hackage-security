@@ -43,24 +43,28 @@ withClient outLog errLog callback = do
 -- (that it didn't get truncated); here and in getRange
 get :: (String -> IO ()) -> (String -> IO ())
     -> Browser -> ServerCapabilities
-    -> URI -> (BodyReader -> IO a) -> IO a
-get outLog errLog browser caps uri callback = do
+    -> [HttpOption] -> URI
+    -> (BodyReader -> IO a) -> IO a
+get outLog errLog browser caps httpOpts uri callback = do
     (_uri, response) <- withBrowser browser $ do
       setOutHandler outLog
       setErrHandler errLog
-      request $ mkRequest GET uri
+      request $ setHttpOptions httpOpts
+              $ mkRequest GET uri
     case rspCode response of
       (2, 0, 0)  -> withResponse caps response callback
       _otherwise -> throwIO $ UnexpectedResponse uri (rspCode response)
 
 getRange :: (String -> IO ()) -> (String -> IO ())
          -> Browser -> ServerCapabilities
-         -> URI -> (Int, Int) -> (DownloadedRange -> BodyReader -> IO a) -> IO a
-getRange outLog errLog browser caps uri (from, to) callback = do
+         -> [HttpOption] -> URI -> (Int, Int)
+         -> (DownloadedRange -> BodyReader -> IO a) -> IO a
+getRange outLog errLog browser caps httpOpts uri (from, to) callback = do
     (_uri, response) <- withBrowser browser $ do
       setOutHandler outLog
       setErrHandler errLog
-      request $ insertHeader HdrRange rangeHeader
+      request $ setRange from to
+              $ setHttpOptions httpOpts
               $ mkRequest GET uri
     -- TODO: Should verify HdrContentRange in response
     -- which will look like "bytes 734-1233/1234"
@@ -68,10 +72,6 @@ getRange outLog errLog browser caps uri (from, to) callback = do
       (2, 0, 6)  -> withResponse caps response (callback DownloadedRange)
       (2, 0, 0)  -> withResponse caps response (callback DownloadedEntireFile)
       _otherwise -> throwIO $ UnexpectedResponse uri (rspCode response)
-  where
-    -- Content-Range header uses inclusive rather than exclusive bounds
-    -- See <http://www.w3.org/Protocols/rfc2616/rfc2616-sec14.html>
-    rangeHeader = "bytes=" ++ show from ++ "-" ++ show (to - 1)
 
 withResponse :: ServerCapabilities
              -> Response BS.L.ByteString -> (BodyReader -> IO a) -> IO a
@@ -154,3 +154,17 @@ browserCleanup = void . takeMVar
 
 hAcceptRanges :: HeaderName
 hAcceptRanges = HdrCustom "Accept-Ranges"
+
+setRange :: HasHeaders a => Int -> Int -> a -> a
+setRange from to = insertHeader HdrRange rangeHeader
+  where
+    -- Content-Range header uses inclusive rather than exclusive bounds
+    -- See <http://www.w3.org/Protocols/rfc2616/rfc2616-sec14.html>
+    rangeHeader = "bytes=" ++ show from ++ "-" ++ show (to - 1)
+
+setHttpOptions :: HasHeaders a => [HttpOption] -> a -> a
+setHttpOptions = foldr (.) id . map (uncurry insertHeader . trOpt)
+  where
+    trOpt :: HttpOption -> (HeaderName, String)
+    trOpt HttpOptionMaxAge0     = (HdrCacheControl, "max-age=0")
+    trOpt HttpOptionNoTransform = (HdrCacheControl, "no-transform")

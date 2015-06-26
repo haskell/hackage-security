@@ -11,6 +11,7 @@ module Hackage.Security.Client.Repository (
     -- * Repository proper
   , Repository(..)
   , TempPath
+  , IsRetry(..)
   , LogMessage(..)
   , UpdateFailure(..)
     -- ** Helpers
@@ -176,13 +177,11 @@ data Repository = Repository {
     --   (Thus it is safe for local repositories to directly pass the path
     --   into the local repository.)
     --
-    -- TODO: We should make it clear to the Repository that we are downloading
-    -- files after a verification error. Remote repositories can use this
-    -- information to force proxies to get files upstream.
-    --
     -- NOTE: Calls to 'repWithRemote' should _always_ be in the scope of
     -- 'repWithMirror'.
-    repWithRemote :: forall a fs. RemoteFile fs
+    repWithRemote :: forall a fs.
+                     IsRetry
+                  -> RemoteFile fs
                   -> (SelectedFormat fs -> TempPath -> IO a)
                   -> IO a
 
@@ -251,6 +250,11 @@ instance Show Repository where
 -- | Helper function to implement 'repWithMirrors'.
 mirrorsUnsupported :: Maybe [Mirror] -> IO a -> IO a
 mirrorsUnsupported _ = id
+
+-- | Are we requesting this information because of a previous validation error?
+--
+-- Clients can take advantage of this to tell caches to revalidate files.
+data IsRetry = FirstAttempt | AfterValidationError
 
 data LogMessage =
     -- | Root information was updated

@@ -12,7 +12,7 @@ import Network.HTTP.Types
 import qualified Data.CaseInsensitive  as CI
 import qualified Data.ByteString.Char8 as BS.C8
 
-import Hackage.Security.Client
+import Hackage.Security.Client hiding (Header)
 import Hackage.Security.Client.Repository.Remote
 
 {-------------------------------------------------------------------------------
@@ -36,23 +36,25 @@ withClient _logger callback = do
 
 -- See TODOs in the HTTP client
 get :: Manager -> ServerCapabilities
-    -> URI -> (BodyReader -> IO a) -> IO a
-get manager caps uri callback = do
+    -> [HttpOption] -> URI -> (BodyReader -> IO a) -> IO a
+get manager caps httpOpts uri callback = do
     -- TODO: setUri fails under certain circumstances; in particular, when
     -- the URI contains URL auth. Not sure if this is a concern.
-    request <- setUri def uri
+    request' <- setUri def uri
+    let request = setHttpOptions httpOpts
+                $ request'
     withResponse request manager $ \response -> do
       updateCapabilities caps response
       callback (responseBody response)
 
 getRange :: Manager -> ServerCapabilities
-         -> URI -> (Int, Int) -> (DownloadedRange -> BodyReader -> IO a) -> IO a
-getRange manager caps uri (from, to) callback = do
+         -> [HttpOption] -> URI -> (Int, Int)
+         -> (DownloadedRange -> BodyReader -> IO a) -> IO a
+getRange manager caps httpOpts uri (from, to) callback = do
     request' <- setUri def uri
-    let request = request' {
-            requestHeaders = (hRange, rangeHeader)
-                           : requestHeaders request'
-          }
+    let request = setRange from to
+                $ setHttpOptions httpOpts
+                $ request'
     withResponse request manager $ \response -> do
       updateCapabilities caps response
       let br = responseBody response
@@ -61,10 +63,6 @@ getRange manager caps uri (from, to) callback = do
         s | s == ok200             -> callback DownloadedEntireFile br
         s -> throwIO $ StatusCodeException s (responseHeaders response)
                                              (responseCookieJar response)
-  where
-    -- Content-Range header uses inclusive rather than exclusive bounds
-    -- See <http://www.w3.org/Protocols/rfc2616/rfc2616-sec14.html>
-    rangeHeader = BS.C8.pack $ "bytes=" ++ show from ++ "-" ++ show (to - 1)
 
 -- | Update recorded server capabilities given a response
 updateCapabilities :: ServerCapabilities -> Response a -> IO ()
@@ -88,3 +86,21 @@ wrapCustomEx act = catches act [
 
 hAcceptRanges :: HeaderName
 hAcceptRanges = CI.mk (BS.C8.pack "Accept-Ranges")
+
+setRange :: Int -> Int -> Request -> Request
+setRange from to req = req {
+      requestHeaders = (hRange, rangeHeader) : requestHeaders req
+    }
+  where
+    -- Content-Range header uses inclusive rather than exclusive bounds
+    -- See <http://www.w3.org/Protocols/rfc2616/rfc2616-sec14.html>
+    rangeHeader = BS.C8.pack $ "bytes=" ++ show from ++ "-" ++ show (to - 1)
+
+setHttpOptions :: [HttpOption] -> Request -> Request
+setHttpOptions opts req = req {
+      requestHeaders = map trOpt opts ++ requestHeaders req
+    }
+  where
+    trOpt :: HttpOption -> Header
+    trOpt HttpOptionMaxAge0     = (hCacheControl, BS.C8.pack "max-age=0")
+    trOpt HttpOptionNoTransform = (hCacheControl, BS.C8.pack "no-transform")

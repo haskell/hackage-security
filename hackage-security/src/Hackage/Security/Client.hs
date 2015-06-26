@@ -81,19 +81,19 @@ checkForUpdates rep checkExpiry =
     withMirror rep $ do
       -- more or less randomly chosen maximum iterations
       -- See <https://github.com/theupdateframework/tuf/issues/287>.
-      limitIterations 5
+      limitIterations FirstAttempt 5
   where
     -- The spec stipulates that on a verification error we must download new
     -- root information and start over. However, in order to prevent DoS attacks
     -- we limit how often we go round this loop.
-    limitIterations :: Int -> IO HasUpdates
-    limitIterations 0 = throwIO VerificationErrorLoop
-    limitIterations n = do
+    limitIterations :: IsRetry -> Int -> IO HasUpdates
+    limitIterations _isRetry 0 = throwIO VerificationErrorLoop
+    limitIterations  isRetry n = do
       mNow <- case checkExpiry of
                 CheckExpiry     -> Just <$> getCurrentTime
                 DontCheckExpiry -> return Nothing
 
-      catches (evalContT (go mNow)) [
+      catches (evalContT (go mNow isRetry)) [
           Handler $ \(ex :: VerificationError) -> do
             -- NOTE: This call to updateRoot is not itself protected by an
             -- exception handler, and may therefore throw a VerificationError.
@@ -101,11 +101,11 @@ checkForUpdates rep checkExpiry =
             -- update process, _and_ we cannot update the main root info, then
             -- we cannot do anything.
             log rep $ LogVerificationError ex
-            updateRoot rep mNow (Left ex)
-            limitIterations (n - 1)
+            updateRoot rep mNow isRetry (Left ex)
+            limitIterations AfterValidationError (n - 1)
         , Handler $ \RootUpdated -> do
             log rep $ LogRootUpdated
-            limitIterations (n - 1)
+            limitIterations isRetry (n - 1)
         ]
 
     -- NOTE: Every call to 'getRemote' in 'go' implicitly scopes over the
@@ -113,8 +113,8 @@ checkForUpdates rep checkExpiry =
     -- that none of the downloaded files will be cached until the entire check
     -- for updates check completes successfully.
     -- See also <https://github.com/theupdateframework/tuf/issues/283>.
-    go :: Maybe UTCTime -> ContT r IO HasUpdates
-    go mNow = do
+    go :: Maybe UTCTime -> IsRetry -> ContT r IO HasUpdates
+    go mNow isRetry = do
       -- We need the cached root information in order to resolve key IDs and
       -- verify signatures
       cachedRoot :: Trusted Root
@@ -131,7 +131,7 @@ checkForUpdates rep checkExpiry =
 
       -- Get the new timestamp
       newTS :: Trusted Timestamp
-         <- getRemote' rep RemoteTimestamp
+         <- getRemote' rep isRetry RemoteTimestamp
         >>= readJSON (repLayout rep) keyEnv
         >>= liftM trustVerified . throwErrors . verifyTimestamp
               cachedRoot
@@ -155,7 +155,7 @@ checkForUpdates rep checkExpiry =
           let expectedSnapshot =
                 RemoteSnapshot (static fileInfoLength <$$> newSnapshotInfo)
           newSS :: Trusted Snapshot
-             <- getRemote' rep expectedSnapshot
+             <- getRemote' rep isRetry expectedSnapshot
             >>= verifyFileInfo' (Just newSnapshotInfo)
             >>= readJSON (repLayout rep) keyEnv
             >>= liftM trustVerified . throwErrors . verifySnapshot
@@ -174,7 +174,7 @@ checkForUpdates rep checkExpiry =
               return ()
             Just oldRootInfo ->
               when (infoChanged (Just oldRootInfo) newRootInfo) $ liftIO $ do
-                updateRoot rep mNow (Right newRootInfo)
+                updateRoot rep mNow isRetry (Right newRootInfo)
                 throwIO RootUpdated
 
           -- If mirrors changed, download and verify
@@ -190,7 +190,7 @@ checkForUpdates rep checkExpiry =
 
             -- Verify new mirrors
             _newMirrors :: Trusted Mirrors
-               <- getRemote' rep expectedMirrors
+               <- getRemote' rep isRetry expectedMirrors
               >>= verifyFileInfo' (Just newMirrorsInfo)
               >>= readJSON (repLayout rep) keyEnv
               >>= liftM trustVerified . throwErrors . verifyMirrors
@@ -218,7 +218,7 @@ checkForUpdates rep checkExpiry =
                       FsUnGz (static fileInfoLength <$$> newTarInfo)
                              (static fileInfoLength <$$> newTarGzInfo)
           when (infoChanged mOldTarGzInfo newTarGzInfo) $ do
-            (indexFormat, indexPath) <- getRemote rep expectedIndex
+            (indexFormat, indexPath) <- getRemote rep isRetry expectedIndex
 
             -- Check against the appropriate hash, depending on which file the
             -- 'Repository' decided to download. Note that we cannot ask the
@@ -291,9 +291,10 @@ instance Exception RootUpdated
 --    (Such an attack would require a timestamp/snapshot key compromise.)
 updateRoot :: Repository
            -> Maybe UTCTime
+           -> IsRetry
            -> Either VerificationError (Trusted FileInfo)
            -> IO ()
-updateRoot rep mNow eFileInfo = evalContT $ do
+updateRoot rep mNow isRetry eFileInfo = evalContT $ do
     oldRoot :: Trusted Root
        <- getCachedRoot rep
       >>= readJSON (repLayout rep) KeyEnv.empty
@@ -302,7 +303,7 @@ updateRoot rep mNow eFileInfo = evalContT $ do
     let mFileInfo    = eitherToMaybe eFileInfo
         expectedRoot = RemoteRoot (fmap (static fileInfoLength <$$>) mFileInfo)
     _newRoot :: Trusted Root
-       <- getRemote' rep expectedRoot
+       <- getRemote' rep isRetry expectedRoot
       >>= verifyFileInfo' mFileInfo
       >>= readJSON (repLayout rep) KeyEnv.empty
       >>= liftM trustVerified . throwErrors . verifyRoot oldRoot mNow
@@ -398,7 +399,7 @@ downloadPackage rep pkgId callback = withMirror rep $ evalContT $ do
 
     -- TODO: should we check if cached package available? (spec says no)
     let expectedPkg = RemotePkgTarGz pkgId (static fileInfoLength <$$> targetMetaData)
-    tarGz <- getRemote' rep expectedPkg
+    tarGz <- getRemote' rep FirstAttempt expectedPkg
          >>= verifyFileInfo' (Just targetMetaData)
     lift $ callback tarGz
   where
@@ -436,7 +437,7 @@ requiresBootstrap rep = isNothing <$> repGetCached rep CachedRoot
 bootstrap :: Repository -> [KeyId] -> KeyThreshold -> IO ()
 bootstrap rep trustedRootKeys keyThreshold = withMirror rep $ evalContT $ do
     _newRoot :: Trusted Root
-       <- getRemote' rep (RemoteRoot Nothing)
+       <- getRemote' rep FirstAttempt (RemoteRoot Nothing)
       >>= readJSON (repLayout rep) KeyEnv.empty
       >>= liftM trustVerified . throwErrors . verifyFingerprints
             trustedRootKeys
@@ -448,22 +449,28 @@ bootstrap rep trustedRootKeys keyThreshold = withMirror rep $ evalContT $ do
   Wrapper around the Repository functions (to avoid callback hell)
 -------------------------------------------------------------------------------}
 
-getRemote :: Repository -> Some RemoteFile -> ContT r IO (Some Format, TempPath)
-getRemote r (Some file) = ContT aux
+getRemote :: Repository
+          -> IsRetry
+          -> Some RemoteFile
+          -> ContT r IO (Some Format, TempPath)
+getRemote r isRetry (Some file) = ContT aux
   where
     aux :: ((Some Format, TempPath) -> IO r) -> IO r
-    aux k = repWithRemote r file (wrapK k)
+    aux k = repWithRemote r isRetry file (wrapK k)
 
     wrapK :: ((Some Format, TempPath) -> IO r)
           -> (SelectedFormat fs -> TempPath -> IO r)
     wrapK k format tempPath = k (selectedFormatSome format, tempPath)
 
 -- | Variation on getRemote where we only expect one type of result
-getRemote' :: Repository -> RemoteFile (f :- ()) -> ContT r IO TempPath
-getRemote' r file = ContT aux
+getRemote' :: Repository
+           -> IsRetry
+           -> RemoteFile (f :- ())
+           -> ContT r IO TempPath
+getRemote' r isRetry file = ContT aux
   where
     aux :: (TempPath -> IO r) -> IO r
-    aux k = repWithRemote r file (wrapK k)
+    aux k = repWithRemote r isRetry file (wrapK k)
 
     wrapK :: (TempPath -> IO r)
           -> (SelectedFormat fs -> TempPath -> IO r)
