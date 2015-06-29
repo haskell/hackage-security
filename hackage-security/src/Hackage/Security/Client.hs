@@ -85,6 +85,7 @@ checkForUpdates rep checkExpiry =
     -- The spec stipulates that on a verification error we must download new
     -- root information and start over. However, in order to prevent DoS attacks
     -- we limit how often we go round this loop.
+    -- See als <https://github.com/theupdateframework/tuf/issues/287>.
     limitIterations :: IsRetry -> Int -> IO HasUpdates
     limitIterations _isRetry 0 = throwIO VerificationErrorLoop
     limitIterations  isRetry n = do
@@ -172,7 +173,7 @@ checkForUpdates rep checkExpiry =
               -- See also <https://github.com/theupdateframework/tuf/issues/286>
               return ()
             Just oldRootInfo ->
-              when (infoChanged (Just oldRootInfo) newRootInfo) $ liftIO $ do
+              when (oldRootInfo /= newRootInfo) $ liftIO $ do
                 updateRoot rep mNow isRetry (Right newRootInfo)
                 throwIO RootUpdated
 
