@@ -66,8 +66,8 @@ module Hackage.Security.Util.Path (
   -- ** Wrappers around Codec.Archive.Tar.*
   , TarballRoot
   , TarballPath
-  , tarPack
   , tarIndexLookup
+  , tarAppend
   -- * Paths in URIs
   , WebRoot
   , URIPath
@@ -407,20 +407,24 @@ type TarballPath = Path (Rooted TarballRoot)
 
 instance Show (Rooted TarballRoot) where show _ = "<tarball>"
 
-tarPack :: IsFileSystemRoot root
-        => Path (Rooted root) -> [TarballPath] -> IO [Tar.Entry]
-tarPack basePath contents = do
-    baseFilePath <- toAbsoluteFilePath basePath
-    Tar.pack baseFilePath contents'
-  where
-    contents' :: [FilePath]
-    contents' = map (toUnrootedFilePath . unrootPath') contents
-
 tarIndexLookup :: TarIndex.TarIndex -> TarballPath -> Maybe TarIndex.TarIndexEntry
 tarIndexLookup index path = TarIndex.lookup index path'
   where
     path' :: FilePath
     path' = toUnrootedFilePath $ unrootPath' path
+
+tarAppend :: (IsFileSystemRoot root, IsFileSystemRoot root')
+          => Path (Rooted root)  -- ^ Path of the @.tar@ file
+          -> Path (Rooted root') -- ^ Base directory
+          -> [TarballPath]       -- ^ Files to add, relative to the base dir
+          -> IO ()
+tarAppend tarFile baseDir contents = do
+    tarFile' <- toAbsoluteFilePath tarFile
+    baseDir' <- toAbsoluteFilePath baseDir
+    Tar.append tarFile' baseDir' contents'
+  where
+    contents' :: [FilePath]
+    contents' = map (toUnrootedFilePath . unrootPath') contents
 
 {-------------------------------------------------------------------------------
   Wrappers around Network.URI

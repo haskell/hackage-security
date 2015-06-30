@@ -25,10 +25,9 @@ import Hackage.Security.Server
 import Hackage.Security.Util.Some
 import Hackage.Security.Util.IO
 import Hackage.Security.Util.Path
-import qualified Hackage.Security.Key.Env             as KeyEnv
-import qualified Hackage.Security.Server.IndexTarball as Index
-import qualified Hackage.Security.TUF.FileMap         as FileMap
-import qualified Hackage.Security.Util.Lens           as Lens
+import qualified Hackage.Security.Key.Env     as KeyEnv
+import qualified Hackage.Security.TUF.FileMap as FileMap
+import qualified Hackage.Security.Util.Lens   as Lens
 
 -- hackage-secure-local
 import Hackage.Security.Local.Options
@@ -207,7 +206,7 @@ bootstrapOrUpdate opts@GlobalOpts{..} isBootstrap = do
         logInfo $ "Appending " ++ show (length newFiles)
                ++ " file(s) to " ++ showFileLoc opts (InRepo repoLayoutIndexTar)
     unless (null newFiles) $ do
-      Index.append
+      tarAppend
         (anchorRepoPath opts repoLayoutIndexTar)
         (anchorRepoPath opts repoLayoutIndexDir)
         newFiles
