@@ -93,10 +93,10 @@ protected by the snapshot key (but see [author signing](#author-signing)).
     , "delegations" : {
           "keys"  : []
         , "roles" : [
-               { "name"      : "<index>/$PKG/$VERSION/package.json"
+               { "name"      : "<index>/$NAME/$VERSION/package.json"
                , "keyids"    : []
                , "threshold" : 0
-               , "path"      : "<repo>/package/$PKG-$VERSION.tar.gz"
+               , "path"      : "<repo>/package/$NAME-$VERSION.tar.gz"
                }
              ]
        }
@@ -196,10 +196,11 @@ top-level targets file to
     , "delegations" : {
           "keys"  : /* Hackage trustee keys */
         , "roles" : [
-               { "name"      : "<index>/$PKG/$VERSION/package.json"
+               // Delegation for unsigned packages
+               { "name"      : "<index>/$NAME/$VERSION/package.json"
                , "keyids"    : []
                , "threshold" : 0
-               , "path"      : "<repo>/package/$PKG-$VERSION.tar.gz"
+               , "path"      : "<repo>/package/$NAME-$VERSION.tar.gz"
                }
              // Delegation for package Bar
              , { "name"      : "<index>/Bar/authors.json"
@@ -285,7 +286,7 @@ Some notes:
 
 6. There are two kinds of rule overlaps in these delegation rules:
    `<repo>/package/Bar-1.0.tar.gz` will match against the rule for unsigned
-   packages (`<repo>/package/$PKG-$VERSION.tar.gz`) and against the rule for
+   packages (`<repo>/package/$NAME-$VERSION.tar.gz`) and against the rule for
    signed packages (`<repo>/package/Bar-$VERSION.tar.gz`). It is important
    here that the signed rule take precedence, because author signed packages
    _must_ be author signed. The priority scheme can be simple: more specific
@@ -385,7 +386,7 @@ for each new version of a particular kind of target).
 It is important to store OOT targets under a different prefix than `/package` to
 avoid name clashes.
 
-#### Collections (SECTION OUT OF DATE)
+#### Collections
 
 [Package collections][CabalHell1] are a new Hackage feature that's [currently in
 development][ZuriHac]. We want package collections to be signed, just like
@@ -394,11 +395,11 @@ anything else.
 Like packages, collections are versioned and immutable, so we have
 
 ```
-oot/collections/StackageNightly/2015.06.02/StackageNightly.collection
-oot/collections/StackageNightly/2015.06.03/StackageNightly.collection
-oot/collections/StackageNightly/...
-oot/collections/DebianJessie/...
-oot/collections/...
+collection/StackageNightly-2015.06.02.collection
+collection/StackageNightly-2015.06.03.collection
+collection/StackageNightly-...
+collection/DebianJessie-...
+collection/...
 ```
 
 As for packages, collections should be able to opt-in for author signing (once
@@ -408,32 +409,34 @@ to create new unsigned collections without the involvement of the Hackage
 admins. This rules out listing all collections explicitly in the top-level
 `targets.json` (which is signed with offline target keys).
 
+Below we sketch a possible design (we may want to tweak this further).
+
 ##### Unsigned collections
 
 For unsigned collections we add a single delegation rule to the top-level
 `targets.json`:
 
 ``` javascript
-{ "name"      : "oot/collections/targets.json"
+{ "name"      : "<repo>/collection/collections.json"
 , "keyids"    : /* snapshot key */
 , "threshold" : 1
-, "path"      : "oot/collections/*/*/*"
+, "path"      : "<repo>/collection/$NAME-$VERSION.collection"
 }
 ```
 
-The middle-level `targets.json`, signed with the snapshot role, lists delegation
-rules for all available collections:
+The middle-level `collections.json`, signed with the snapshot role, lists
+delegation rules for all available collections:
 
 ``` javascript
-[ { "name"      : "StackageNightly/targets.json"
+[ { "name"      : "<repo>/collection/StackageNightly.json"
   , "keyids"    : /* snapshot key */
   , "threshold" : 1
-  , "path"      : "StackageNightly/*/*"
+  , "path"      : "<repo>/collection/StackageNightly-$VERSION.collection"
   }
-, { "name"      : "DebianJessie/targets.json"
+, { "name"      : "<repo>/collection/DebianJessie.json"
   , "keyids"    : /* snapshot key */
   , "threshold" : 1
-  , "path"      : "DebianJessie/*/*"
+  , "path"      : "<repo>/collection/DebianJessie-$VERSION.collection"
   }
 , ...
 ]
@@ -451,8 +454,8 @@ The final per-collection targets metadata finally lists all versions:
    , "version" : VERSION
    , "expires" : /* expiry */
    , "targets" : {
-         "2015.06.02/StackageNightly.collection" : FILEINFO
-       , "2015.06.03/StackageNightly.collection" : FILEINFO
+         "<repo>/collection/StackageNightly-2015.06.02.collection" : FILEINFO
+       , "<repo>/collection/StackageNightly-2015.06.03.collection" : FILEINFO
        , ...
        }
    }
@@ -469,22 +472,27 @@ not for each new _version_ of each collection.
 
 For author-signed collections we only need to make a single change. Suppose that
 the `DebianJessie` collection is signed. Then we move the rule for
-`DebianJessie` from `oot/collections/targets.json` and instead list it in the
+`DebianJessie` from `collection/collections.json` and instead list it in the
 top-level `targets.json` (as for packages, introducing a signed collection
 necessarily requires the involvement of the Hackage admins):
 
 ``` javascript
-{ "name"      : "oot/collections/DebianJessie/targets.json"
+{ "name"      : "<repo>/collection/DebianJessie.json"
 , "keyids"    : /* DebianJessie maintainer keys */
 , "threshold" : /* threshold */
-, "path"      : "oot/collections/DebianJessie/*/*"
+, "path"      : "<repo>/collection/DebianJessie-$VERSION.collection"
 }
 ```
 
 No other changes are required (apart from of course that
-`oot/collections/DebianJessie/targets.json` will now be signed with the
+`<repo>/collection/DebianJessie.json` will now be signed with the
 `DebianJessie` maintainer keys rather than the snapshot key). As for packages,
 this requires a priority scheme for delegation rules.
+
+(One difference between this scheme and the scheme we use for packages is that
+this means that the top-level `targets.json` file lists all keys for all
+collection authors. If we want to avoid that we need a further level of
+indirection.)
 
 Note that in a sense author-signed collections are snapshots of the server. As
 such, it would be good if these collections listed the file info (hashes and
