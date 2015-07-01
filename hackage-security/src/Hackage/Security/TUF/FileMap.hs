@@ -6,6 +6,7 @@
 -- > import qualified Hackage.Security.TUF.FileMap as FileMap
 module Hackage.Security.TUF.FileMap (
     FileMap -- opaque
+  , TargetPath(..)
     -- * Standard accessors
   , empty
   , lookup
@@ -26,7 +27,9 @@ import qualified Data.Map as Map
 
 import Hackage.Security.JSON
 import Hackage.Security.TUF.FileInfo
+import Hackage.Security.TUF.Layout
 import Hackage.Security.Util.Path
+import Hackage.Security.Util.Pretty
 
 {-------------------------------------------------------------------------------
   Datatypes
@@ -36,7 +39,18 @@ import Hackage.Security.Util.Path
 --
 -- File maps are used in target files; the paths are relative to the location
 -- of the target files containing the file map.
-newtype FileMap = FileMap { fileMap :: Map RelativePath FileInfo }
+newtype FileMap = FileMap { fileMap :: Map TargetPath FileInfo }
+  deriving (Show)
+
+-- | Entries in 'FileMap' either talk about the repository or the index
+data TargetPath =
+    TargetPathRepo  RepoPath
+  | TargetPathIndex IndexPath
+  deriving (Show, Eq, Ord)
+
+instance Pretty TargetPath where
+  pretty (TargetPathRepo  path) = pretty path
+  pretty (TargetPathIndex path) = pretty path
 
 {-------------------------------------------------------------------------------
   Standard accessors
@@ -45,26 +59,26 @@ newtype FileMap = FileMap { fileMap :: Map RelativePath FileInfo }
 empty :: FileMap
 empty = FileMap Map.empty
 
-lookup :: RelativePath -> FileMap -> Maybe FileInfo
+lookup :: TargetPath -> FileMap -> Maybe FileInfo
 lookup fp = Map.lookup fp . fileMap
 
-(!) :: FileMap -> RelativePath -> FileInfo
+(!) :: FileMap -> TargetPath -> FileInfo
 fm ! fp = fileMap fm Map.! fp
 
-insert :: RelativePath -> FileInfo -> FileMap -> FileMap
+insert :: TargetPath -> FileInfo -> FileMap -> FileMap
 insert fp nfo = FileMap . Map.insert fp nfo . fileMap
 
-fromList :: [(RelativePath, FileInfo)] -> FileMap
+fromList :: [(TargetPath, FileInfo)] -> FileMap
 fromList = FileMap . Map.fromList
 
 {-------------------------------------------------------------------------------
   Convenience accessors
 -------------------------------------------------------------------------------}
 
-lookupM :: Monad m => FileMap -> RelativePath -> m FileInfo
+lookupM :: Monad m => FileMap -> TargetPath -> m FileInfo
 lookupM m fp =
     case lookup fp m of
-      Nothing  -> fail $ "Could not find entry for " ++ show fp ++ " in filemap"
+      Nothing  -> fail $ "No entry for " ++ pretty fp ++ " in filemap"
       Just nfo -> return nfo
 
 {-------------------------------------------------------------------------------
@@ -81,15 +95,15 @@ data FileChange =
 
 fileMapChanges :: FileMap  -- ^ Old
                -> FileMap  -- ^ New
-               -> Map RelativePath FileChange
+               -> Map TargetPath FileChange
 fileMapChanges (FileMap a) (FileMap b) =
     Map.fromList $ go (Map.toList a) (Map.toList b)
   where
     -- Assumes the old and new lists are sorted alphabetically
     -- (Map.toList guarantees this)
-    go :: [(RelativePath, FileInfo)]
-       -> [(RelativePath, FileInfo)]
-       -> [(RelativePath, FileChange)]
+    go :: [(TargetPath, FileInfo)]
+       -> [(TargetPath, FileInfo)]
+       -> [(TargetPath, FileChange)]
     go [] new = map (second FileChanged) new
     go old [] = map (second (const FileDeleted)) old
     go old@((fp, nfo):old') new@((fp', nfo'):new')
@@ -107,3 +121,14 @@ instance Monad m => ToJSON m FileMap where
 
 instance ReportSchemaErrors m => FromJSON m FileMap where
   fromJSON enc = FileMap <$> fromJSON enc
+
+instance Monad m => ToObjectKey m TargetPath where
+  toObjectKey = return . pretty
+
+instance ReportSchemaErrors m => FromObjectKey m TargetPath where
+  fromObjectKey ('<':'r':'e':'p':'o':'>':'/':path) =
+    return . TargetPathRepo  . rootPath Rooted . fromUnrootedFilePath $ path
+  fromObjectKey ('<':'i':'n':'d':'e':'x':'>':'/':path) =
+    return . TargetPathIndex . rootPath Rooted . fromUnrootedFilePath $ path
+  fromObjectKey str =
+    expected "target path" (Just str)

@@ -3,11 +3,12 @@ module Hackage.Security.TUF.Layout (
     RepoRoot
   , RepoPath
   , RepoLayout(..)
-  , repoLayoutPkg
   , hackageRepoLayout
   , anchorRepoPathLocally
   , anchorRepoPathRemotely
     -- * Index tarball layout
+  , IndexRoot
+  , IndexPath
   , IndexLayout(..)
   , hackageIndexLayout
     -- * Cache layout
@@ -40,13 +41,7 @@ data RepoRoot
 -- | Paths relative to the root of the repository
 type RepoPath = Path (Rooted RepoRoot)
 
-instance Show (Rooted RepoRoot) where show _ = "<repo>"
-
--- | Directory where a package tarball is stored
-data PkgRoot
-
--- | Paths relative to a package root
-type RelativePkgPath = Path (Rooted PkgRoot)
+instance IsRoot RepoRoot where showRoot _ = "<repo>"
 
 -- | Layout of a repository
 data RepoLayout = RepoLayout {
@@ -69,16 +64,7 @@ data RepoLayout = RepoLayout {
     , repoLayoutIndexTar :: RepoPath
 
       -- | Path to the package tarball
-      --
-      -- For package @Foo-1.0@ this might @/package/Foo/1.0@
-    , repoLayoutPkgLoc :: PackageIdentifier -> RepoPath
-
-      -- | Filename of the package tarball itself
-      --
-      -- (relative to 'repoLayoutPkgLoc')
-      --
-      -- For package @Foo-1.0@ this might be @Foo-1.0.tar.gz@
-    , repoLayoutPkgFile :: PackageIdentifier -> RelativePkgPath
+    , repoLayoutPkgTarGz :: PackageIdentifier -> RepoPath
 
       -- | Layout of the index
       --
@@ -87,32 +73,24 @@ data RepoLayout = RepoLayout {
     , repoIndexLayout :: IndexLayout
     }
 
-repoLayoutPkg :: RepoLayout -> PackageIdentifier -> RepoPath
-repoLayoutPkg RepoLayout{..} pkgId =
-    repoLayoutPkgLoc pkgId </> unrootPath' (repoLayoutPkgFile pkgId)
-
 -- | The layout used on Hackage
 hackageRepoLayout :: RepoLayout
 hackageRepoLayout = RepoLayout {
-      repoLayoutRoot       = rp $ fragment "root.json"
-    , repoLayoutTimestamp  = rp $ fragment "timestamp.json"
-    , repoLayoutSnapshot   = rp $ fragment "snapshot.json"
-    , repoLayoutMirrors    = rp $ fragment "mirrors.json"
-    , repoLayoutIndexTarGz = rp $ fragment "00-index.tar.gz"
-    , repoLayoutIndexTar   = rp $ fragment "00-index.tar"
-    , repoLayoutPkgLoc     = \_pkgId -> rp $ fragment "package"
-    , repoLayoutPkgFile    = rp' . pkgFile
+      repoLayoutRoot       = rp $ fragment' "root.json"
+    , repoLayoutTimestamp  = rp $ fragment' "timestamp.json"
+    , repoLayoutSnapshot   = rp $ fragment' "snapshot.json"
+    , repoLayoutMirrors    = rp $ fragment' "mirrors.json"
+    , repoLayoutIndexTarGz = rp $ fragment' "00-index.tar.gz"
+    , repoLayoutIndexTar   = rp $ fragment' "00-index.tar"
+    , repoLayoutPkgTarGz   = \pkgId -> rp $ fragment' "package" </> pkgFile pkgId
     , repoIndexLayout      = hackageIndexLayout
     }
   where
     pkgFile :: PackageIdentifier -> UnrootedPath
-    pkgFile pkgId = fragment (display pkgId)  <.> "tar.gz"
+    pkgFile pkgId = fragment' (display pkgId) <.> "tar.gz"
 
     rp :: UnrootedPath -> RepoPath
     rp = rootPath Rooted
-
-    rp' :: UnrootedPath -> RelativePkgPath
-    rp' = rootPath Rooted
 
 anchorRepoPathLocally :: IsFileSystemRoot root
                       => Path (Rooted root) -> RepoPath -> Path (Rooted root)
@@ -125,13 +103,21 @@ anchorRepoPathRemotely remoteRoot repoPath = remoteRoot </> unrootPath' repoPath
   Index layout
 -------------------------------------------------------------------------------}
 
+-- | The root of the index tarball
+data IndexRoot
+
+-- | Paths relative to the root of the index tarball
+type IndexPath = Path (Rooted RepoRoot)
+
+instance IsRoot IndexRoot where showRoot _ = "<index>"
+
 -- | Layout of the files within the index tarball
 data IndexLayout = IndexLayout  {
       -- | TUF metadata for a package
-      indexLayoutPkgMetadata :: PackageIdentifier -> TarballPath
+      indexLayoutPkgMetadata :: PackageIdentifier -> IndexPath
 
       -- | Package .cabal file
-    , indexLayoutPkgCabal :: PackageIdentifier -> TarballPath
+    , indexLayoutPkgCabal :: PackageIdentifier -> IndexPath
     }
 
 -- | The layout of the index as maintained on Hackage
@@ -143,17 +129,17 @@ hackageIndexLayout = IndexLayout {
   where
     pkgLoc :: PackageIdentifier -> UnrootedPath
     pkgLoc pkgId = joinFragments [
-          display (packageName    pkgId)
-        , display (packageVersion pkgId)
+          mkFragment $ display (packageName    pkgId)
+        , mkFragment $ display (packageVersion pkgId)
         ]
 
     pkgCabal :: PackageIdentifier -> UnrootedPath
-    pkgCabal pkgId = fragment (display (packageName pkgId)) <.> "cabal"
+    pkgCabal pkgId = fragment' (display (packageName pkgId)) <.> "cabal"
 
     pkgMetadata :: UnrootedPath
-    pkgMetadata = fragment "package" <.> "json"
+    pkgMetadata = fragment' "package" <.> "json"
 
-    rp :: UnrootedPath -> TarballPath
+    rp :: UnrootedPath -> IndexPath
     rp = rootPath Rooted
 
 {-------------------------------------------------------------------------------
@@ -164,7 +150,7 @@ hackageIndexLayout = IndexLayout {
 data CacheRoot
 type CachePath = Path (Rooted CacheRoot)
 
-instance Show (Rooted CacheRoot) where show _ = "<cache>"
+instance IsRoot CacheRoot where showRoot _ = "<cache>"
 
 -- | Location of the various files we cache
 --
@@ -199,12 +185,12 @@ data CacheLayout = CacheLayout {
 -- the hackage-security library to get files from the index).
 cabalCacheLayout :: CacheLayout
 cabalCacheLayout = CacheLayout {
-      cacheLayoutRoot      = rp $ fragment "root.json"
-    , cacheLayoutTimestamp = rp $ fragment "timestamp.json"
-    , cacheLayoutSnapshot  = rp $ fragment "snapshot.json"
-    , cacheLayoutMirrors   = rp $ fragment "mirrors.json"
-    , cacheLayoutIndexTar  = rp $ fragment "00-index.tar"
-    , cacheLayoutIndexIdx  = rp $ fragment "00-index.tar.idx"
+      cacheLayoutRoot      = rp $ fragment' "root.json"
+    , cacheLayoutTimestamp = rp $ fragment' "timestamp.json"
+    , cacheLayoutSnapshot  = rp $ fragment' "snapshot.json"
+    , cacheLayoutMirrors   = rp $ fragment' "mirrors.json"
+    , cacheLayoutIndexTar  = rp $ fragment' "00-index.tar"
+    , cacheLayoutIndexIdx  = rp $ fragment' "00-index.tar.idx"
     }
   where
     rp :: UnrootedPath -> CachePath

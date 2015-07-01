@@ -41,7 +41,6 @@ data GlobalOpts = GlobalOpts {
     -- | Command to execute
   , globalCommand :: Command
   }
-  deriving Show
 
 data Command =
     -- | Get initial root info

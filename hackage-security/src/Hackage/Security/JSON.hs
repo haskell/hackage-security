@@ -2,7 +2,6 @@
 module Hackage.Security.JSON (
     -- * Deserialization errors
     DeserializationError(..)
-  , formatDeserializationError
   , validate
     -- * MonadKeys
   , MonadKeys(..)
@@ -50,6 +49,7 @@ import Hackage.Security.Key.Env (KeyEnv)
 import Hackage.Security.TUF.Layout
 import Hackage.Security.Util.JSON
 import Hackage.Security.Util.Path
+import Hackage.Security.Util.Pretty
 import Hackage.Security.Util.Some
 import Text.JSON.Canonical
 import qualified Hackage.Security.Key.Env as KeyEnv
@@ -77,15 +77,15 @@ data DeserializationError =
 
 instance Exception DeserializationError
 
-formatDeserializationError :: DeserializationError -> String
-formatDeserializationError (DeserializationErrorMalformed str) =
-    "Malformed: " ++ str
-formatDeserializationError (DeserializationErrorSchema str) =
-    "Schema error: " ++ str
-formatDeserializationError (DeserializationErrorUnknownKey kId) =
-    "Unknown key: " ++ keyIdString kId
-formatDeserializationError (DeserializationErrorValidation str) =
-    "Invalid: " ++ str
+instance Pretty DeserializationError where
+  pretty (DeserializationErrorMalformed str) =
+      "Malformed: " ++ str
+  pretty (DeserializationErrorSchema str) =
+      "Schema error: " ++ str
+  pretty (DeserializationErrorUnknownKey kId) =
+      "Unknown key: " ++ keyIdString kId
+  pretty (DeserializationErrorValidation str) =
+      "Invalid: " ++ str
 
 validate :: MonadError DeserializationError m => String -> Bool -> m ()
 validate _   True  = return ()
@@ -296,7 +296,7 @@ writeJSON repoLayout fp = writeLazyByteString fp . renderJSON repoLayout
 
 writeJSON_NoLayout :: (IsFileSystemRoot root, ToJSON Identity a)
                    => Path (Rooted root) -> a -> IO ()
-writeJSON_NoLayout fp = writeLazyByteString fp . renderJSON_NoLayout 
+writeJSON_NoLayout fp = writeLazyByteString fp . renderJSON_NoLayout
 
 writeKeyAsId :: Some PublicKey -> JSValue
 writeKeyAsId = JSString . keyIdString . someKeyId

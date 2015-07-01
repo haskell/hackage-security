@@ -21,7 +21,6 @@ module Hackage.Security.Client (
   , CustomException(..)
   , Repository -- opaque
   , LogMessage(..)
-  , formatLogMessage
   ) where
 
 import Prelude hiding (log)
@@ -46,6 +45,7 @@ import Hackage.Security.Trusted
 import Hackage.Security.Trusted.TCB
 import Hackage.Security.TUF
 import Hackage.Security.Util.Path
+import Hackage.Security.Util.Pretty
 import Hackage.Security.Util.Stack
 import Hackage.Security.Util.Some
 import qualified Hackage.Security.Key.Env   as KeyEnv
@@ -378,9 +378,9 @@ downloadPackage rep pkgId callback = withMirror rep $ evalContT $ do
     -- Get the metadata (from the previously updated index)
     --
     -- NOTE: Currently we hardcode the location of the package specific
-    -- @targets.json@. By rights we should read the global targets file and
-    -- apply the delegation rules. Until we have author signing however this
-    -- is unnecessary.
+    -- metadata. By rights we should read the global targets file and apply the
+    -- delegation rules. Until we have author signing however this is
+    -- unnecessary.
     targets :: Trusted Targets
        <- getFromIndex rep (IndexPkgMetadata pkgId)
       >>= packageMustExist
@@ -388,10 +388,8 @@ downloadPackage rep pkgId callback = withMirror rep $ evalContT $ do
       >>= return . trustIndex
 
     -- The path of the package, relative to the targets.json file
-    -- TODO: This assumes that the targets.json for a package is stored
-    -- in the same directory as the package .tar.gz file.
-    let filePath :: RelativePath
-        filePath = castRoot $ repoLayoutPkgFile (repLayout rep) pkgId
+    let filePath :: TargetPath
+        filePath = TargetPathRepo $ repoLayoutPkgTarGz (repLayout rep) pkgId
 
     let mTargetMetaData :: Maybe (Trusted FileInfo)
         mTargetMetaData = trustSeq
@@ -401,7 +399,7 @@ downloadPackage rep pkgId callback = withMirror rep $ evalContT $ do
     targetMetaData :: Trusted FileInfo
       <- case mTargetMetaData of
            Nothing -> liftIO $
-             throwIO $ VerificationErrorUnknownTarget (show filePath)
+             throwIO $ VerificationErrorUnknownTarget (pretty filePath)
            Just nfo ->
              return nfo
 
@@ -553,7 +551,7 @@ verifyFileInfo' :: (MonadIO m, IsFileSystemRoot root)
 verifyFileInfo' Nothing     fp = return fp
 verifyFileInfo' (Just info) fp = liftIO $ do
     verified <- verifyFileInfo fp info
-    unless verified $ throw $ VerificationErrorFileInfo (show fp)
+    unless verified $ throw $ VerificationErrorFileInfo (pretty fp)
     return fp
 
 readJSON :: (MonadIO m, IsFileSystemRoot root, FromJSON ReadJSON_Keys_Layout a)

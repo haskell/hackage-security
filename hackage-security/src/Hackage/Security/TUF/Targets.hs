@@ -13,12 +13,11 @@ import Hackage.Security.Key
 import Hackage.Security.Key.Env (KeyEnv)
 import Hackage.Security.TUF.Common
 import Hackage.Security.TUF.FileInfo
-import Hackage.Security.TUF.FileMap (FileMap)
+import Hackage.Security.TUF.FileMap (FileMap, TargetPath)
 import Hackage.Security.TUF.Header
 import Hackage.Security.TUF.Patterns
 import Hackage.Security.TUF.Signed
 import Hackage.Security.Util.Some
-import Hackage.Security.Util.Path
 import qualified Hackage.Security.TUF.FileMap as FileMap
 
 {-------------------------------------------------------------------------------
@@ -35,6 +34,7 @@ data Targets = Targets {
   , targetsTargets     :: FileMap
   , targetsDelegations :: Maybe Delegations
   }
+  deriving (Show)
 
 -- | Delegations
 --
@@ -45,6 +45,7 @@ data Delegations = Delegations {
     delegationsKeys  :: KeyEnv
   , delegationsRoles :: [DelegationSpec]
   }
+  deriving (Show)
 
 -- | Delegation specification
 --
@@ -54,6 +55,7 @@ data DelegationSpec = DelegationSpec {
   , delegationSpecThreshold :: KeyThreshold
   , delegation              :: Delegation
   }
+  deriving (Show)
 
 instance HasHeader Targets where
   fileVersion f x = (\y -> x { targetsVersion = y }) <$> f (targetsVersion x)
@@ -68,7 +70,7 @@ instance DescribeFile Targets where
   Utility
 -------------------------------------------------------------------------------}
 
-targetsLookup :: RelativePath -> Targets -> Maybe FileInfo
+targetsLookup :: TargetPath -> Targets -> Maybe FileInfo
 targetsLookup fp Targets{..} = FileMap.lookup fp targetsTargets
 
 {-------------------------------------------------------------------------------

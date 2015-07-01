@@ -23,6 +23,7 @@ import Hackage.Security.Util.Some
 newtype KeyEnv = KeyEnv {
     keyEnvMap :: Map KeyId (Some PublicKey)
   }
+  deriving (Show)
 
 {-------------------------------------------------------------------------------
   Convenience constructors

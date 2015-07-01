@@ -2,6 +2,7 @@
 --
 -- Most clients should only need to import this module if they wish to define
 -- their own Repository implementations.
+{-# LANGUAGE CPP #-}
 module Hackage.Security.Client.Repository (
     -- * Files
     RemoteFile(..)
@@ -26,8 +27,6 @@ module Hackage.Security.Client.Repository (
     -- * Utility
   , IsCached(..)
   , mustCache
-  , formatLogMessage
-  , formatUpdateFailure
   , describeRemoteFile
   ) where
 
@@ -42,6 +41,7 @@ import Hackage.Security.Client.Formats
 import Hackage.Security.Trusted
 import Hackage.Security.TUF
 import Hackage.Security.Util.Path
+import Hackage.Security.Util.Pretty
 import Hackage.Security.Util.Stack
 
 {-------------------------------------------------------------------------------
@@ -329,13 +329,15 @@ data CustomException where
 deriving instance Show CustomException
 instance Exception CustomException
 
-formatRecoverableException :: RecoverableException -> String
-formatRecoverableException = go
-  where
-    -- TODO: Can we do better than @show@ for IO and custom exceptions?
-    go (RecoverIOException       e) = show e
-    go (RecoverVerificationError e) = formatVerificationError e
-    go (RecoverCustom            e) = show e
+instance Pretty RecoverableException where
+  pretty (RecoverVerificationError e) = pretty e
+#if MIN_VERSION_base(4,8,0)
+  pretty (RecoverIOException       e) = displayException e
+  pretty (RecoverCustom            e) = displayException e
+#else
+  pretty (RecoverIOException       e) = show e
+  pretty (RecoverCustom            e) = show e
+#endif
 
 catchRecoverable :: (IO a -> IO a)                  -- ^ Wrap custom exceptions
                  -> IO a                            -- ^ Action to execute
@@ -352,24 +354,24 @@ catchRecoverable wrapCustom act handler = catches (wrapCustom act) [
 -------------------------------------------------------------------------------}
 
 remoteFilePath :: RepoLayout -> RemoteFile fs -> Formats fs RepoPath
-remoteFilePath repoLayout@RepoLayout{..} = go
+remoteFilePath RepoLayout{..} = go
   where
     go :: RemoteFile fs -> Formats fs RepoPath
-    go RemoteTimestamp        = FsUn repoLayoutTimestamp
-    go (RemoteRoot _)         = FsUn repoLayoutRoot
-    go (RemoteSnapshot _)     = FsUn repoLayoutSnapshot
-    go (RemoteMirrors _)      = FsUn repoLayoutMirrors
-    go (RemotePkgTarGz pId _) = FsGz (repoLayoutPkg repoLayout pId)
+    go RemoteTimestamp        = FsUn $ repoLayoutTimestamp
+    go (RemoteRoot _)         = FsUn $ repoLayoutRoot
+    go (RemoteSnapshot _)     = FsUn $ repoLayoutSnapshot
+    go (RemoteMirrors _)      = FsUn $ repoLayoutMirrors
+    go (RemotePkgTarGz pId _) = FsGz $ repoLayoutPkgTarGz pId
     go (RemoteIndex _ lens)   = formatsMap goIndex lens
 
     goIndex :: Format f -> a -> RepoPath
     goIndex FUn _ = repoLayoutIndexTar
     goIndex FGz _ = repoLayoutIndexTarGz
 
-indexFilePath :: IndexLayout -> IndexFile -> TarballPath
+indexFilePath :: IndexLayout -> IndexFile -> IndexPath
 indexFilePath IndexLayout{..} = go
   where
-    go :: IndexFile -> TarballPath
+    go :: IndexFile -> IndexPath
     go (IndexPkgMetadata pkgId) = indexLayoutPkgMetadata pkgId
 
 {-------------------------------------------------------------------------------
@@ -408,32 +410,31 @@ mustCache (RemoteMirrors _)    = CacheAs CachedMirrors
 mustCache (RemoteIndex {})     = CacheIndex
 mustCache (RemotePkgTarGz _ _) = DontCache
 
-formatLogMessage :: LogMessage -> String
-formatLogMessage LogRootUpdated =
-    "Root info updated"
-formatLogMessage (LogVerificationError err) =
-    "Verification error: " ++ formatVerificationError err
-formatLogMessage (LogDownloading file) =
-    "Downloading " ++ file
-formatLogMessage (LogUpdating file) =
-    "Updating " ++ file
-formatLogMessage (LogSelectedMirror mirror) =
-    "Selected mirror " ++ mirror
-formatLogMessage (LogUpdateFailed file ex) =
-    "Updating " ++ file ++ " failed (" ++ formatUpdateFailure ex ++ ")"
-formatLogMessage (LogMirrorFailed mirror ex) =
-       "Exception " ++ formatRecoverableException ex
-    ++ " when using mirror " ++ mirror
+instance Pretty LogMessage where
+  pretty LogRootUpdated =
+      "Root info updated"
+  pretty (LogVerificationError err) =
+      "Verification error: " ++ pretty err
+  pretty (LogDownloading file) =
+      "Downloading " ++ file
+  pretty (LogUpdating file) =
+      "Updating " ++ file
+  pretty (LogSelectedMirror mirror) =
+      "Selected mirror " ++ mirror
+  pretty (LogUpdateFailed file ex) =
+      "Updating " ++ file ++ " failed (" ++ pretty ex ++ ")"
+  pretty (LogMirrorFailed mirror ex) =
+      "Exception " ++ pretty ex ++ " when using mirror " ++ mirror
 
-formatUpdateFailure :: UpdateFailure -> String
-formatUpdateFailure UpdateImpossibleOnlyCompressed =
-    "server only provides file in compressed format"
-formatUpdateFailure UpdateImpossibleUnsupported =
-    "server does not provide incremental downloads"
-formatUpdateFailure UpdateImpossibleNoLocalCopy =
-    "no local copy"
-formatUpdateFailure (UpdateFailed ex) =
-    formatRecoverableException ex
+instance Pretty UpdateFailure where
+  pretty UpdateImpossibleOnlyCompressed =
+      "server only provides file in compressed pretty"
+  pretty UpdateImpossibleUnsupported =
+      "server does not provide incremental downloads"
+  pretty UpdateImpossibleNoLocalCopy =
+      "no local copy"
+  pretty (UpdateFailed ex) =
+      pretty ex
 
 describeRemoteFile :: RemoteFile fs -> String
 describeRemoteFile RemoteTimestamp          = "timestamp"

@@ -16,7 +16,6 @@ module Hackage.Security.TUF (
 
 import Hackage.Security.TUF.Common
 import Hackage.Security.TUF.FileInfo
-import Hackage.Security.TUF.FileMap (FileMap, FileChange(..), fileMapChanges)
 import Hackage.Security.TUF.Header
 import Hackage.Security.TUF.Layout
 import Hackage.Security.TUF.Mirrors
@@ -26,3 +25,11 @@ import Hackage.Security.TUF.Signed
 import Hackage.Security.TUF.Snapshot
 import Hackage.Security.TUF.Targets
 import Hackage.Security.TUF.Timestamp
+
+-- | FileMap is intended for qualified imports, so we only export a subset
+import Hackage.Security.TUF.FileMap (
+    FileMap
+  , TargetPath(..)
+  , FileChange(..)
+  , fileMapChanges
+  )

@@ -13,8 +13,6 @@ module Hackage.Security.Trusted (
   , verifyMirrors
     -- ** File info verification
   , verifyFileInfo
-    -- ** Utility
-  , formatVerificationError
   ) where
 
 import Data.Time
@@ -78,23 +76,3 @@ verifyMirrors root =
 verifyFileInfo :: IsFileSystemRoot root
                => Path (Rooted root) -> Trusted FileInfo -> IO Bool
 verifyFileInfo fp info = (== trusted info) <$> computeFileInfo fp
-
-{-------------------------------------------------------------------------------
-  Utility
--------------------------------------------------------------------------------}
-
-formatVerificationError :: VerificationError -> String
-formatVerificationError VerificationErrorSignatures =
-    "Not enough signatures signed with the appropriate keys"
-formatVerificationError (VerificationErrorExpired file) =
-    file ++ " is expired"
-formatVerificationError (VerificationErrorVersion file) =
-    "Version of " ++ file ++ " is less than the previous version"
-formatVerificationError (VerificationErrorFileInfo file) =
-    "Invalid hash for " ++ file
-formatVerificationError (VerificationErrorUnknownTarget file) =
-    file ++ " not found in corresponding target metadata"
-formatVerificationError (VerificationErrorFileTooLarge file) =
-    file ++ " too large"
-formatVerificationError VerificationErrorLoop =
-    "Verification loop"

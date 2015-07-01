@@ -103,7 +103,7 @@ getFromIndex cache indexLayout indexFile = do
         rebuildTarIndex cache
         getFromIndex cache indexLayout indexFile
       Right index ->
-        case tarIndexLookup index (indexFilePath indexLayout indexFile) of
+        case tarIndexLookup index (tarPath (indexFilePath indexLayout indexFile)) of
           Just (TarIndex.TarFileEntry offset) ->
             -- TODO: We might want to keep this handle open
             withFile (cachedIndexTarPath cache) ReadMode $ \h -> do
@@ -117,6 +117,9 @@ getFromIndex cache indexLayout indexFile = do
           _otherwise ->
             return Nothing
   where
+    tarPath :: IndexPath -> TarballPath
+    tarPath = castRoot
+
     -- TODO: How come 'deserialise' uses _strict_ ByteStrings?
     tryReadIndex :: AbsolutePath -> IO (Either (Maybe IOException) TarIndex)
     tryReadIndex fp =

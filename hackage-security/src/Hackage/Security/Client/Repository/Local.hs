@@ -9,6 +9,7 @@ import Hackage.Security.Client.Repository.Cache
 import Hackage.Security.Client.Formats
 import Hackage.Security.TUF
 import Hackage.Security.Util.Path
+import Hackage.Security.Util.Pretty
 
 -- | Location of the repository
 --
@@ -39,7 +40,7 @@ withRepository repo cache repLayout logger callback = callback Repository {
     , repWithMirror    = mirrorsUnsupported
     , repLog           = logger
     , repLayout        = repLayout
-    , repDescription   = "Local repository at " ++ show repo
+    , repDescription   = "Local repository at " ++ pretty repo
     }
 
 -- | Get a file from the server

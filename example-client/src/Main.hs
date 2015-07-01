@@ -5,11 +5,12 @@ import Distribution.Package
 
 import Hackage.Security.Client
 import Hackage.Security.Util.Path
-import qualified Hackage.Security.Client.Repository.Cache             as Cache
-import qualified Hackage.Security.Client.Repository.Local             as Local
-import qualified Hackage.Security.Client.Repository.Remote            as Remote
-import qualified Hackage.Security.Client.Repository.Remote.HTTP       as Remote.HTTP
-import qualified Hackage.Security.Client.Repository.Remote.Curl       as Remote.Curl
+import Hackage.Security.Util.Pretty
+import qualified Hackage.Security.Client.Repository.Cache       as Cache
+import qualified Hackage.Security.Client.Repository.Local       as Local
+import qualified Hackage.Security.Client.Repository.Remote      as Remote
+import qualified Hackage.Security.Client.Repository.Remote.HTTP as Remote.HTTP
+import qualified Hackage.Security.Client.Repository.Remote.Curl as Remote.Curl
 
 #if MIN_VERSION_base(4,5,0)
 import qualified Hackage.Security.Client.Repository.Remote.HttpClient as Remote.HttpClient
@@ -47,7 +48,10 @@ cmdGet opts pkgId =
         copyFile tempPath localFile
   where
     localFile :: RelativePath
-    localFile = castRoot $ repoLayoutPkgFile hackageRepoLayout pkgId
+    localFile = rootPath Rooted (fragment tarGzName)
+
+    tarGzName :: Fragment
+    tarGzName = takeFileName $ repoLayoutPkgTarGz hackageRepoLayout pkgId
 
 {-------------------------------------------------------------------------------
   Common functionality
@@ -87,7 +91,7 @@ withRepo GlobalOpts{..} =
 
     -- used for log messages from the Hackage.Security code
     logTUF :: LogMessage -> IO ()
-    logTUF msg = putStrLn $ "# " ++ formatLogMessage msg
+    logTUF msg = putStrLn $ "# " ++ pretty msg
 
     -- used for log messages from the HTTP clients
     logHTTP :: String -> IO ()

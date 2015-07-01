@@ -27,6 +27,7 @@ import Hackage.Security.Server
 import Hackage.Security.Util.Some
 import Hackage.Security.Util.IO
 import Hackage.Security.Util.Path
+import Hackage.Security.Util.Pretty
 import qualified Hackage.Security.Key.Env     as KeyEnv
 import qualified Hackage.Security.TUF.FileMap as FileMap
 import qualified Hackage.Security.Util.Lens   as Lens
@@ -95,7 +96,7 @@ readKeysAt opts keyDir = catMaybes <$> do
       let path = absPath </> entry
       mKey <- readJSON_NoKeys_NoLayout path
       case mKey of
-        Left _err -> do logWarn opts $ "Skipping unrecognized " ++ show path
+        Left _err -> do logWarn opts $ "Skipping unrecognized " ++ pretty path
                         return Nothing
         Right key -> return $ Just key
   where
@@ -103,7 +104,7 @@ readKeysAt opts keyDir = catMaybes <$> do
 
 writeKey :: GlobalOpts -> (KeyLayout -> KeyPath) -> Some Key -> IO ()
 writeKey opts keyDir key = do
-    logInfo opts $ "Writing " ++ show (relPath defaultKeyLayout)
+    logInfo opts $ "Writing " ++ pretty (relPath defaultKeyLayout)
     createDirectoryIfMissing True (takeDirectory absPath)
     writeJSON_NoLayout absPath key
   where
@@ -177,7 +178,7 @@ bootstrapOrUpdate opts@GlobalOpts{..} isBootstrap = do
 
       updateFile opts
                  whenWrite
-                 (InRepo repoLayoutRoot)
+                 (InRep repoLayoutRoot)
                  (withSignatures' (privateRoot keys))
                  root
 
@@ -190,7 +191,7 @@ bootstrapOrUpdate opts@GlobalOpts{..} isBootstrap = do
             }
       updateFile opts
                  whenWrite
-                 (InRepo repoLayoutMirrors)
+                 (InRep repoLayoutMirrors)
                  (withSignatures' (privateMirrors keys))
                  mirrors
 
@@ -203,19 +204,19 @@ bootstrapOrUpdate opts@GlobalOpts{..} isBootstrap = do
       (WriteAlways, _) -> do
         -- If we are recreating all files, also recreate the index
         _didExist <- handleDoesNotExist $ removeFile pathIndexTar
-        logInfo opts $ "Writing " ++ showFileLoc opts (InRepo repoLayoutIndexTar)
+        logInfo opts $ "Writing " ++ prettyTargetPath' opts (InRep repoLayoutIndexTar)
       (WriteIfNecessary, True) -> do
-        logInfo opts $ "Skipping " ++ showFileLoc opts (InRepo repoLayoutIndexTar)
+        logInfo opts $ "Skipping " ++ prettyTargetPath' opts (InRep repoLayoutIndexTar)
       (WriteIfNecessary, False) ->
         logInfo opts $ "Appending " ++ show (length newFiles)
-                    ++ " file(s) to " ++ showFileLoc opts (InRepo repoLayoutIndexTar)
+                    ++ " file(s) to " ++ prettyTargetPath' opts (InRep repoLayoutIndexTar)
     unless (null newFiles) $ do
       tarAppend
         (anchorRepoPath opts repoLayoutIndexTar)
         (anchorRepoPath opts repoLayoutIndexDir)
-        newFiles
+        (map castRoot newFiles)
 
-      logInfo opts $ "Writing " ++ showFileLoc opts (InRepo repoLayoutIndexTarGz)
+      logInfo opts $ "Writing " ++ prettyTargetPath' opts (InRep repoLayoutIndexTarGz)
       compress (anchorRepoPath opts repoLayoutIndexTar)
                (anchorRepoPath opts repoLayoutIndexTarGz)
 
@@ -236,7 +237,7 @@ bootstrapOrUpdate opts@GlobalOpts{..} isBootstrap = do
           }
     updateFile opts
                whenWrite
-               (InRepo repoLayoutSnapshot)
+               (InRep repoLayoutSnapshot)
                (withSignatures globalRepoLayout (privateSnapshot keys))
                snapshot
 
@@ -249,7 +250,7 @@ bootstrapOrUpdate opts@GlobalOpts{..} isBootstrap = do
           }
     updateFile opts
                whenWrite
-               (InRepo repoLayoutTimestamp)
+               (InRep repoLayoutTimestamp)
                (withSignatures globalRepoLayout (privateTimestamp keys))
                timestamp
   where
@@ -262,7 +263,7 @@ bootstrapOrUpdate opts@GlobalOpts{..} isBootstrap = do
 
 -- | Create package metadata
 createPackageMetadata :: GlobalOpts -> WhenWrite -> PackageIdentifier -> IO ()
-createPackageMetadata opts@GlobalOpts{..} whenWrite pkgId = do
+createPackageMetadata opts whenWrite pkgId = do
     fileMapEntries <- mapM computeFileMapEntry fileMapFiles
     let targets = Targets {
             targetsVersion     = versionInitial
@@ -274,41 +275,36 @@ createPackageMetadata opts@GlobalOpts{..} whenWrite pkgId = do
     -- Currently we "sign" with no keys
     updateFile opts
                whenWrite
-               (InIndex (`indexLayoutPkgMetadata` pkgId))
+               (InIdxPkg indexLayoutPkgMetadata pkgId)
                (withSignatures' [])
                targets
 
     -- Extract the cabal file from the package tarball and copy it to the index
-    copyCabalFile opts pkgId
+    extractCabalFile opts whenWrite pkgId
   where
-    computeFileMapEntry :: RelativePath -> IO (RelativePath, FileInfo)
+    computeFileMapEntry :: TargetPath' -> IO (TargetPath, FileInfo)
     computeFileMapEntry file = do
-      info <- computeFileInfo (inRepoPkg </> unrootPath' file)
-      return (file, info)
+      info <- computeFileInfo (anchorTargetPath' opts file)
+      return (applyTargetPath' opts file, info)
 
-    -- | The files we need to add to the package targets file
+    -- The files we need to add to the package targets file
     -- Currently this is just the .tar.gz file
-    -- TODO: This assumes that the package metadata is stored in the same
-    -- directory as the package tarball
-    fileMapFiles :: [RelativePath]
+    fileMapFiles :: [TargetPath']
     fileMapFiles = [
-        castRoot $ repoLayoutPkgFile globalRepoLayout pkgId
+        InRepPkg repoLayoutPkgTarGz pkgId
       ]
-
-    inRepoPkg :: AbsolutePath
-    inRepoPkg = anchorRepoPath opts (`repoLayoutPkgLoc` pkgId)
 
 {-------------------------------------------------------------------------------
   Working with the index
 -------------------------------------------------------------------------------}
 
 -- | Find the files we need to add to the index
-findNewIndexFiles :: GlobalOpts -> WhenWrite -> IO [TarballPath]
+findNewIndexFiles :: GlobalOpts -> WhenWrite -> IO [IndexPath]
 findNewIndexFiles opts whenWrite = do
     indexTS    <- getFileModificationTime $ anchorRepoPath opts repoLayoutIndexTar
     indexFiles <- getRecursiveContents    $ anchorRepoPath opts repoLayoutIndexDir
 
-    let indexFiles' :: [TarballPath]
+    let indexFiles' :: [IndexPath]
         indexFiles' = map (rootPath Rooted) indexFiles
 
     case whenWrite of
@@ -320,12 +316,15 @@ findNewIndexFiles opts whenWrite = do
                               else return Nothing
 
 -- | Extract the cabal file from the package tarball and copy it to the index
-copyCabalFile :: GlobalOpts -> PackageIdentifier -> IO ()
-copyCabalFile opts@GlobalOpts{..} pkgId = do
+extractCabalFile :: GlobalOpts -> WhenWrite -> PackageIdentifier -> IO ()
+extractCabalFile opts@GlobalOpts{..} whenWrite pkgId = do
     tarGzTS <- getFileModificationTime pathTarGz
     cabalTS <- getFileModificationTime pathCabalInIdx
-    if cabalTS > tarGzTS
-      then logInfo opts $ "Skipping " ++ showFileLoc opts (InIndex dst)
+    let skip = case whenWrite of
+                 WriteAlways      -> False
+                 WriteIfNecessary -> cabalTS >= tarGzTS
+    if skip
+      then logInfo opts $ "Skipping " ++ prettyTargetPath' opts dst
       else do
         archive <- Tar.read . GZip.decompress <$> readLazyByteString pathTarGz
         mCabalFile <- tarExtractFile pathCabalInTar archive
@@ -333,10 +332,11 @@ copyCabalFile opts@GlobalOpts{..} pkgId = do
           Nothing ->
             logWarn opts $ ".cabal file missing for package " ++ display pkgId
           Just (cabalFile, _cabalSize) -> do
-            logInfo opts $ "Extracting .cabal file from "
-                        ++ showFileLoc opts (InRepo src)
-                        ++ " to "
-                        ++ showFileLoc opts (InIndex dst)
+            logInfo opts $ "Writing "
+                        ++ prettyTargetPath' opts dst
+                        ++ " (extracted from "
+                        ++ prettyTargetPath' opts src
+                        ++ ")"
             writeLazyByteString pathCabalInIdx cabalFile
   where
     pathCabalInTar :: FilePath
@@ -346,30 +346,18 @@ copyCabalFile opts@GlobalOpts{..} pkgId = do
                        ] FilePath.<.> "cabal"
 
     pathTarGz, pathCabalInIdx :: AbsolutePath
-    pathCabalInIdx = anchorIndexPath opts dst
-    pathTarGz      = anchorRepoPath  opts src
+    pathCabalInIdx = anchorTargetPath' opts dst
+    pathTarGz      = anchorTargetPath' opts src
 
-    dst = (`indexLayoutPkgCabal` pkgId)
-    src = (`repoLayoutPkg`       pkgId)
+    src, dst :: TargetPath'
+    dst = InIdxPkg indexLayoutPkgCabal pkgId
+    src = InRepPkg repoLayoutPkgTarGz  pkgId
 
 {-------------------------------------------------------------------------------
   Updating files in the repo or in the index
 -------------------------------------------------------------------------------}
 
 data WhenWrite = WriteIfNecessary | WriteAlways
-
-data FileLoc = InRepo  (RepoLayout  -> RepoPath)
-             | InIndex (IndexLayout -> TarballPath)
-
-showFileLoc :: GlobalOpts -> FileLoc -> String
-showFileLoc GlobalOpts{..} fileLoc =
-    case fileLoc of
-      InRepo  file -> show $ file globalRepoLayout
-      InIndex file -> show $ file (repoIndexLayout globalRepoLayout)
-
-anchorFileLoc :: GlobalOpts -> FileLoc -> AbsolutePath
-anchorFileLoc opts (InRepo  file) = anchorRepoPath  opts file
-anchorFileLoc opts (InIndex file) = anchorIndexPath opts file
 
 -- | Write canonical JSON
 --
@@ -385,7 +373,7 @@ anchorFileLoc opts (InIndex file) = anchorIndexPath opts file
 updateFile :: forall a. (ToJSON WriteJSON (Signed a), HasHeader a)
            => GlobalOpts
            -> WhenWrite
-           -> FileLoc
+           -> TargetPath'
            -> (a -> Signed a)          -- ^ Signing function
            -> a                        -- ^ Unsigned file contents
            -> IO ()
@@ -413,7 +401,7 @@ updateFile opts@GlobalOpts{..} whenWrite fileLoc signPayload a = do
             wOldVersion = Lens.set fileVersion oldVersion a
             wIncVersion = Lens.set fileVersion (versionIncrement oldVersion) a
 
-        withSystemTempFile (takeFileName fp) $ \tempPath h -> do
+        withSystemTempFile (unFragment (takeFileName fp)) $ \tempPath h -> do
           -- Write new file, but using old file version
           BS.L.hPut h $ renderJSON globalRepoLayout (signPayload wOldVersion)
           hClose h
@@ -422,7 +410,7 @@ updateFile opts@GlobalOpts{..} whenWrite fileLoc signPayload a = do
           oldFileInfo <- computeFileInfo' fp
           newFileInfo <- computeFileInfo tempPath
           if oldFileInfo == Just newFileInfo
-            then logInfo opts $ "Skipping " ++ showFileLoc opts fileLoc
+            then logInfo opts $ "Skipping " ++ prettyTargetPath' opts fileLoc
             else writeDoc updating wIncVersion
   where
     -- | Actually write the file
@@ -433,13 +421,13 @@ updateFile opts@GlobalOpts{..} whenWrite fileLoc signPayload a = do
       writeJSON globalRepoLayout fp (signPayload doc)
 
     fp :: AbsolutePath
-    fp = anchorFileLoc opts fileLoc
+    fp = anchorTargetPath' opts fileLoc
 
     writing, creating, overwriting, updating :: String
-    writing     = "Writing "     ++ showFileLoc opts fileLoc
-    creating    = "Creating "    ++ showFileLoc opts fileLoc
-    overwriting = "Overwriting " ++ showFileLoc opts fileLoc ++ " (old file corrupted)"
-    updating    = "Updating "    ++ showFileLoc opts fileLoc
+    writing     = "Writing "     ++ prettyTargetPath' opts fileLoc
+    creating    = "Creating "    ++ prettyTargetPath' opts fileLoc
+    overwriting = "Overwriting " ++ prettyTargetPath' opts fileLoc ++ " (old file corrupted)"
+    updating    = "Updating "    ++ prettyTargetPath' opts fileLoc
 
     computeFileInfo' :: AbsolutePath -> IO (Maybe FileInfo)
     computeFileInfo' path =
@@ -467,7 +455,7 @@ findPackages GlobalOpts{..} =
     isPackage :: UnrootedPath -> Maybe PackageIdentifier
     isPackage path = do
       guard $ not (isIndex path)
-      pkg <- hasExtensions (takeFileName path) [".tar", ".gz"]
+      pkg <- hasExtensions path [".tar", ".gz"]
       simpleParse pkg
 
     isIndex :: UnrootedPath -> Bool
@@ -479,16 +467,16 @@ checkRepoLayout opts@GlobalOpts{..} = liftM and . mapM checkPackage
   where
     checkPackage :: PackageIdentifier -> IO Bool
     checkPackage pkgId = do
-        existsTarGz <- doesFileExist $ anchorRepoPath opts expectedTarGz
+        existsTarGz <- doesFileExist $ anchorTargetPath' opts expectedTarGz
         unless existsTarGz $
           logWarn opts $ "Package tarball " ++ display pkgId
                       ++ " expected in location "
-                      ++ showFileLoc opts (InRepo expectedTarGz)
+                      ++ prettyTargetPath' opts expectedTarGz
 
         return existsTarGz
       where
-        expectedTarGz :: RepoLayout -> RepoPath
-        expectedTarGz = (`repoLayoutPkg` pkgId)
+        expectedTarGz :: TargetPath'
+        expectedTarGz = InRepPkg repoLayoutPkgTarGz pkgId
 
 {-------------------------------------------------------------------------------
   Logging
@@ -511,14 +499,17 @@ logWarn _opts str =
 -- Returns the filename without the verified extensions. For example:
 --
 -- > hasExtensions "foo.tar.gz" [".tar", ".gz"] == Just "foo"
-hasExtensions :: FilePath -> [String] -> Maybe String
-hasExtensions = \fp exts -> go fp (reverse exts)
+hasExtensions :: Path a -> [String] -> Maybe String
+hasExtensions = \fp exts -> go (takeFileName' fp) (reverse exts)
   where
     go :: FilePath -> [String] -> Maybe String
     go fp []     = return fp
     go fp (e:es) = do let (fp', e') = FilePath.splitExtension fp
                       guard $ e == e'
                       go fp' es
+
+    takeFileName' :: Path a -> String
+    takeFileName' = unFragment . takeFileName
 
 -- | Get the modification time of the specified file
 --

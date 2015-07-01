@@ -8,14 +8,19 @@
 -- Note that his module does not import any other modules from Hackage.Security;
 -- everywhere else we use Path instead of FilePath directly.
 module Hackage.Security.Util.Path (
-  -- * Paths
-    Path
-  , Fragment
+    -- * Path fragments
+    Fragment  -- opaque
+  , mkFragment
+  , unFragment
+    -- * Paths
+  , Path
   , Unrooted
   , Rooted(..)
   , UnrootedPath
+  , IsRoot(..)
   -- ** Construcion and destruction
   , fragment
+  , fragment'
   , (</>)
   , rootPath
   , unrootPath
@@ -86,12 +91,39 @@ import Control.Monad
 import Data.Function (on)
 import qualified Data.ByteString         as BS
 import qualified Data.ByteString.Lazy    as BS.L
-import qualified System.FilePath         as FilePath
+import qualified System.FilePath         as FilePath hiding (splitPath)
 import qualified System.IO               as IO
 import qualified System.Directory        as Dir
 import qualified Codec.Archive.Tar       as Tar
 import qualified Codec.Archive.Tar.Index as TarIndex
 import qualified Network.URI             as URI
+
+import Hackage.Security.Util.Pretty
+
+{-------------------------------------------------------------------------------
+  Fragments
+-------------------------------------------------------------------------------}
+
+-- | Path fragments
+--
+-- Path fragments must be non-empty and not contain any path delimiters.
+newtype Fragment = Fragment { unFragment :: String }
+  deriving (Show, Eq, Ord)
+
+instance Pretty Fragment where
+  pretty = unFragment
+
+mkFragment :: String -> Fragment
+mkFragment str
+    | hasSep str = invalid "fragment contains path separators"
+    | null str   = invalid "empty fragment"
+    | otherwise  = Fragment str
+  where
+    invalid :: String -> a
+    invalid msg = error $ "mkFragment: " ++ show str ++ ": " ++ msg
+
+    hasSep :: String -> Bool
+    hasSep = any FilePath.isPathSeparator
 
 {-------------------------------------------------------------------------------
   Paths
@@ -106,9 +138,7 @@ data Unrooted
 --
 -- The 'a' parameter is a phantom argument; 'Rooted' is effectively a proxy.
 data Rooted a = Rooted
-
--- | Path fragments
-type Fragment = String
+  deriving (Show)
 
 -- | Paths
 --
@@ -119,12 +149,10 @@ data Path a where
     PathNil  :: Path Unrooted
     PathSnoc :: Path a -> Fragment -> Path a
 
-instance Show (Path Unrooted) where
-   show = toUnrootedFilePath
+deriving instance Show (Path a)
 
-instance Show (Rooted root) => Show (Path (Rooted root)) where
-   show path = let (root, unrooted) = unrootPath path
-               in show root FilePath.</> show unrooted
+class IsRoot root where
+  showRoot :: Rooted root -> String
 
 type UnrootedPath = Path Unrooted
 
@@ -134,12 +162,24 @@ instance Eq (Path a) where
 instance Ord (Path a) where
   (<=) = (<=) `on` (splitFragments . unrootPath')
 
+-- | Turn a path into a human-readable string
+instance IsRoot root => Pretty (Path (Rooted root)) where
+  pretty path = showRoot root FilePath.</> toUnrootedFilePath unrooted
+    where
+      (root, unrooted) = unrootPath path
+
 {-------------------------------------------------------------------------------
   Constructing and destructing paths
 -------------------------------------------------------------------------------}
 
 fragment :: Fragment -> UnrootedPath
 fragment = PathSnoc PathNil
+
+-- | For convenience: combine `fragment` and `mkFragment`
+--
+-- This can therefore throw the same runtime errors as `mkFragment`.
+fragment' :: String -> UnrootedPath
+fragment' = fragment . mkFragment
 
 (</>) :: Path a -> UnrootedPath -> Path a
 ps </> PathNil       = ps
@@ -186,10 +226,10 @@ splitFragments = go []
     go acc (PathSnoc ps p) = go (p:acc) ps
 
 toUnrootedFilePath :: UnrootedPath -> FilePath
-toUnrootedFilePath = FilePath.joinPath . splitFragments
+toUnrootedFilePath = FilePath.joinPath . map unFragment . splitFragments
 
 fromUnrootedFilePath :: FilePath -> UnrootedPath
-fromUnrootedFilePath = joinFragments . FilePath.splitPath
+fromUnrootedFilePath = joinFragments . map mkFragment . splitPath
 
 isPathPrefixOf :: UnrootedPath -> UnrootedPath -> Bool
 isPathPrefixOf = go `on` splitFragments
@@ -209,27 +249,30 @@ takeDirectory PathNil         = PathNil
 takeDirectory (PathSnoc ps _) = ps
 
 takeFileName :: Path a -> Fragment
-takeFileName (PathRoot _)   = ""
-takeFileName PathNil        = ""
+takeFileName (PathRoot _)   = error "takeFileName: empty path"
+takeFileName PathNil        = error "takeFileName: empty path"
 takeFileName (PathSnoc _ p) = p
 
 (<.>) :: Path a -> String -> Path a
-PathRoot root <.> ext = PathSnoc (PathRoot root) ext
-PathNil       <.> ext = PathSnoc PathNil ext
-PathSnoc ps p <.> ext = PathSnoc ps (p FilePath.<.> ext)
+PathRoot _    <.> _   = error "(<.>): empty path"
+PathNil       <.> _   = error "(<.>): empty path"
+PathSnoc ps p <.> ext = PathSnoc ps p'
+  where
+    p' = mkFragment $ unFragment p FilePath.<.> ext
 
 splitExtension :: Path a -> (Path a, String)
-splitExtension (PathRoot root) = (PathRoot root, "")
-splitExtension PathNil         = (PathNil, "")
-splitExtension (PathSnoc ps p) = let (p', ext) = FilePath.splitExtension p
-                                 in (PathSnoc ps p', ext)
+splitExtension (PathRoot _)    = error "splitExtension: empty path"
+splitExtension PathNil         = error "splitExtension: empty path"
+splitExtension (PathSnoc ps p) =
+    let (p', ext) = FilePath.splitExtension (unFragment p)
+    in (PathSnoc ps (mkFragment p'), ext)
 
 {-------------------------------------------------------------------------------
   File-system paths
 -------------------------------------------------------------------------------}
 
 -- | A file system root can be interpreted as an (absolute) FilePath
-class Show (Rooted root) => IsFileSystemRoot root where
+class IsRoot root => IsFileSystemRoot root where
     interpretRoot :: Rooted root -> IO FilePath
 
 data Relative
@@ -239,9 +282,9 @@ data HomeDir
 type AbsolutePath = Path (Rooted Absolute)
 type RelativePath = Path (Rooted Relative)
 
-instance Show (Rooted Relative) where show _ = "."
-instance Show (Rooted Absolute) where show _ = "/"
-instance Show (Rooted HomeDir)  where show _ = "~"
+instance IsRoot Relative where showRoot _ = "."
+instance IsRoot Absolute where showRoot _ = "/"
+instance IsRoot HomeDir  where showRoot _ = "~"
 
 instance IsFileSystemRoot Relative where
     interpretRoot _ = Dir.getCurrentDirectory
@@ -263,7 +306,7 @@ data FileSystemPath where
 -------------------------------------------------------------------------------}
 
 toFilePath :: AbsolutePath -> FilePath
-toFilePath = toUnrootedFilePath . unrootPath'
+toFilePath path = "/" FilePath.</> toUnrootedFilePath (unrootPath' path)
 
 fromFilePath :: FilePath -> FileSystemPath
 fromFilePath ('/':path) = FileSystemPath $
@@ -303,7 +346,7 @@ withBinaryFile path mode callback = do
     IO.withBinaryFile filePath mode callback
 
 openTempFile :: forall root. IsFileSystemRoot root
-             => Path (Rooted root) -> Fragment -> IO (AbsolutePath, IO.Handle)
+             => Path (Rooted root) -> String -> IO (AbsolutePath, IO.Handle)
 openTempFile path template = do
     filePath <- toAbsoluteFilePath path
     (tempFilePath, h) <- IO.openTempFile filePath template
@@ -373,9 +416,12 @@ getDirectoryContents :: IsFileSystemRoot root
                      => Path (Rooted root) -> IO [UnrootedPath]
 getDirectoryContents path = do
     filePath <- toAbsoluteFilePath path
-    (map fragment . filter (not . skip)) <$> Dir.getDirectoryContents filePath
+    fragments <$> Dir.getDirectoryContents filePath
   where
-    skip :: Fragment -> Bool
+    fragments :: [String] -> [UnrootedPath]
+    fragments = map fragment' . filter (not . skip)
+
+    skip :: String -> Bool
     skip "."  = True
     skip ".." = True
     skip _    = False
@@ -448,3 +494,24 @@ modifyUriPath uri f = uri { URI.uriPath = f' (URI.uriPath uri) }
   where
     f' :: FilePath -> FilePath
     f' = fromURIPath . f . toURIPath
+
+{-------------------------------------------------------------------------------
+  Auxiliary: operations on raw FilePaths
+-------------------------------------------------------------------------------}
+
+-- | Split a path into its components
+--
+-- Unlike 'FilePath.splitPath' this satisfies the invariants required by
+-- 'mkFragment'. That is, the fragments do NOT contain any path separators.
+--
+-- Multiple consecutive path separators are considered to be the same as a
+-- single path separator, and leading and trailing separators are ignored.
+splitPath :: FilePath -> [FilePath]
+splitPath = go []
+  where
+    go :: [FilePath] -> FilePath -> [FilePath]
+    go acc fp = case break FilePath.isPathSeparator fp of
+                  ("", [])    -> reverse acc
+                  (fr, [])    -> reverse (fr:acc)
+                  ("", _:fp') -> go acc      fp'
+                  (fr, _:fp') -> go (fr:acc) fp'

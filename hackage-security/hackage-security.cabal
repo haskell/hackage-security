@@ -30,6 +30,7 @@ library
                        Hackage.Security.Util.IO
                        Hackage.Security.Util.Lens
                        Hackage.Security.Util.Path
+                       Hackage.Security.Util.Pretty
                        Hackage.Security.Util.Some
   other-modules:       Hackage.Security.Client.Formats
                        Hackage.Security.Key

@@ -10,7 +10,6 @@ import Hackage.Security.JSON (
     ToJSON(..)
   , FromJSON(..)
   , DeserializationError(..)
-  , formatDeserializationError
   , ReadJSON_Keys_Layout
   , ReadJSON_Keys_NoLayout
   , ReadJSON_NoKeys_NoLayout

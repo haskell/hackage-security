@@ -11,7 +11,7 @@ import System.IO.Error
 import Hackage.Security.Util.Path
 
 withSystemTempFile :: forall a.
-                      Fragment -- ^ Template
+                      String -- ^ Template
                    -> (AbsolutePath -> Handle -> IO a)
                    -> IO a
 withSystemTempFile template callback = do

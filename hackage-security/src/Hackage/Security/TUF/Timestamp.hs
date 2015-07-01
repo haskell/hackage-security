@@ -7,10 +7,10 @@ import Control.Monad.Reader
 
 import Hackage.Security.JSON
 import Hackage.Security.TUF.FileInfo
+import Hackage.Security.TUF.FileMap
 import Hackage.Security.TUF.Header
 import Hackage.Security.TUF.Layout
 import Hackage.Security.TUF.Signed
-import Hackage.Security.Util.Path
 import qualified Hackage.Security.TUF.FileMap as FileMap
 
 {-------------------------------------------------------------------------------
@@ -69,5 +69,5 @@ instance (MonadKeys m, MonadReader RepoLayout m) => FromJSON m (Signed Timestamp
   timestamp"; hence, this use of 'castRoot' is okay.
 -------------------------------------------------------------------------------}
 
-pathSnapshot :: RepoLayout -> RelativePath
-pathSnapshot = castRoot . repoLayoutSnapshot
+pathSnapshot :: RepoLayout -> TargetPath
+pathSnapshot = TargetPathRepo . repoLayoutSnapshot

@@ -5,25 +5,29 @@
 -- eventually need to be replaced with a proper key management system).
 module Hackage.Security.Local.Layout (
     -- * Additional paths
-    repoLayoutCabal
-  , repoLayoutIndexDir
+    repoLayoutIndexDir
     -- * Layout of the keys directory
   , KeyRoot
   , KeyPath
   , KeyLayout(..)
   , defaultKeyLayout
   , keyLayoutKey
+    -- * Layout-parametrized version of TargetPath
+  , TargetPath'(..)
+  , prettyTargetPath'
+  , applyTargetPath'
     -- * Utility
   , anchorIndexPath
   , anchorRepoPath
   , anchorKeyPath
+  , anchorTargetPath'
   ) where
 
 import Distribution.Package
-import Distribution.Text
 
 import Hackage.Security.Client
 import Hackage.Security.Util.Path
+import Hackage.Security.Util.Pretty
 import Hackage.Security.Util.Some
 import Hackage.Security.Local.Options
 
@@ -31,28 +35,12 @@ import Hackage.Security.Local.Options
   Additional paths specifically to the kind of repository this tool manages
 -------------------------------------------------------------------------------}
 
--- | Location of the @.cabal@ file
---
--- Repositories don't have to serve the .cabal files directly; cabal will only
--- read them from the index. However, for the purposes of this tool, when we
--- _create_ the index, we expect the .cabal file to exist in the same directory
--- as the package tarball.
-repoLayoutCabal :: RepoLayout -> PackageIdentifier -> RepoPath
-repoLayoutCabal RepoLayout{..} pkgId = repoLayoutPkgLoc pkgId </> pkgCabal pkgId
-
 -- | Directory containing the unpacked index
 --
 -- Since the layout of the tarball may not match the layout of the index,
 -- we create a local directory with the unpacked contents of the index.
 repoLayoutIndexDir :: RepoLayout -> RepoPath
-repoLayoutIndexDir _ = rootPath Rooted $ fragment "index"
-
--- | The name of the .cabal file we expect to find in the local repo
---
--- NOTE: This is not necessarily the same as the name in the index
--- (though it typically will be)
-pkgCabal :: PackageIdentifier -> UnrootedPath
-pkgCabal pkgId = fragment (display (packageName pkgId)) <.> "cabal"
+repoLayoutIndexDir _ = rootPath Rooted $ fragment' "index"
 
 {-------------------------------------------------------------------------------
   Key layout
@@ -62,7 +50,7 @@ pkgCabal pkgId = fragment (display (packageName pkgId)) <.> "cabal"
 data KeyRoot
 type KeyPath = Path (Rooted KeyRoot)
 
-instance Show (Rooted KeyRoot) where show _ = "<keys>"
+instance IsRoot KeyRoot where showRoot _ = "<keys>"
 
 -- | Layout of the keys directory
 --
@@ -79,13 +67,13 @@ data KeyLayout = KeyLayout {
 
 defaultKeyLayout :: KeyLayout
 defaultKeyLayout = KeyLayout {
-      keyLayoutRoot      = rp $ fragment "root"
-    , keyLayoutTarget    = rp $ fragment "target"
-    , keyLayoutTimestamp = rp $ fragment "timestamp"
-    , keyLayoutSnapshot  = rp $ fragment "snapshot"
-    , keyLayoutMirrors   = rp $ fragment "mirrors"
+      keyLayoutRoot      = rp $ fragment' "root"
+    , keyLayoutTarget    = rp $ fragment' "target"
+    , keyLayoutTimestamp = rp $ fragment' "timestamp"
+    , keyLayoutSnapshot  = rp $ fragment' "snapshot"
+    , keyLayoutMirrors   = rp $ fragment' "mirrors"
     , keyLayoutKeyFile   = \key -> let kId = keyIdString (someKeyId key)
-                                   in fragment kId <.> "private"
+                                   in fragment' kId <.> "private"
     }
   where
     rp :: UnrootedPath -> KeyPath
@@ -96,11 +84,36 @@ keyLayoutKey dir key keyLayout@KeyLayout{..} =
    dir keyLayout </> keyLayoutKeyFile key
 
 {-------------------------------------------------------------------------------
+  TargetPath'
+-------------------------------------------------------------------------------}
+
+-- | This is a variation on 'TargetPath' parameterized by layout
+data TargetPath' =
+    InRep    (RepoLayout  -> RepoPath)
+  | InIdx    (IndexLayout -> IndexPath)
+  | InRepPkg (RepoLayout  -> PackageIdentifier -> RepoPath)  PackageIdentifier
+  | InIdxPkg (IndexLayout -> PackageIdentifier -> IndexPath) PackageIdentifier
+
+prettyTargetPath' :: GlobalOpts -> TargetPath' -> String
+prettyTargetPath' opts = pretty . applyTargetPath' opts
+
+-- | Apply the layout
+applyTargetPath' :: GlobalOpts -> TargetPath' -> TargetPath
+applyTargetPath' GlobalOpts{..} targetPath =
+    case targetPath of
+      InRep    file       -> TargetPathRepo  $ file globalRepoLayout
+      InIdx    file       -> TargetPathIndex $ file indexLayout
+      InRepPkg file pkgId -> TargetPathRepo  $ file globalRepoLayout pkgId
+      InIdxPkg file pkgId -> TargetPathIndex $ file indexLayout      pkgId
+  where
+    indexLayout = repoIndexLayout globalRepoLayout
+
+{-------------------------------------------------------------------------------
   Utility
 -------------------------------------------------------------------------------}
 
 -- | Anchor a tarball path to the repo (see 'repoLayoutIndex')
-anchorIndexPath :: GlobalOpts -> (IndexLayout -> TarballPath) -> AbsolutePath
+anchorIndexPath :: GlobalOpts -> (IndexLayout -> IndexPath) -> AbsolutePath
 anchorIndexPath opts@GlobalOpts{..} file =
         anchorRepoPath opts repoLayoutIndexDir
     </> unrootPath' (file $ repoIndexLayout globalRepoLayout)
@@ -112,3 +125,12 @@ anchorRepoPath GlobalOpts{..} file =
 anchorKeyPath :: GlobalOpts -> (KeyLayout -> KeyPath) -> AbsolutePath
 anchorKeyPath GlobalOpts{..} dir =
     globalKeys </> unrootPath' (dir defaultKeyLayout)
+
+anchorTargetPath' :: GlobalOpts -> TargetPath' -> AbsolutePath
+anchorTargetPath' opts = go
+  where
+    go :: TargetPath' -> AbsolutePath
+    go (InRep    file)       = anchorRepoPath  opts file
+    go (InIdx    file)       = anchorIndexPath opts file
+    go (InRepPkg file pkgId) = anchorRepoPath  opts (`file` pkgId)
+    go (InIdxPkg file pkgId) = anchorIndexPath opts (`file` pkgId)

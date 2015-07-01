@@ -29,6 +29,7 @@ import Data.Typeable
 import Data.Time
 import Hackage.Security.TUF
 import Hackage.Security.Key
+import Hackage.Security.Util.Pretty
 import qualified Hackage.Security.Util.Lens as Lens
 
 #if __GLASGOW_HASKELL__ >= 710
@@ -122,6 +123,22 @@ data VerificationError =
    deriving (Show, Typeable)
 
 instance Exception VerificationError
+
+instance Pretty VerificationError where
+  pretty VerificationErrorSignatures =
+      "Not enough signatures signed with the appropriate keys"
+  pretty (VerificationErrorExpired file) =
+      file ++ " is expired"
+  pretty (VerificationErrorVersion file) =
+      "Version of " ++ file ++ " is less than the previous version"
+  pretty (VerificationErrorFileInfo file) =
+      "Invalid hash for " ++ file
+  pretty (VerificationErrorUnknownTarget file) =
+      file ++ " not found in corresponding target metadata"
+  pretty (VerificationErrorFileTooLarge file) =
+      file ++ " too large"
+  pretty VerificationErrorLoop =
+      "Verification loop"
 
 -- | Role verification
 --
