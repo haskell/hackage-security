@@ -51,6 +51,9 @@ data GlobalOpts = GlobalOpts {
     -- | Local repository layout
   , globalRepoLayout :: RepoLayout
 
+    -- | Should we be verbose?
+  , globalVerbose :: Bool
+
     -- | Command to execute
   , globalCommand :: Command
   }
@@ -98,6 +101,11 @@ parseGlobalOptions = GlobalOpts
   -- TODO: Make the repository layout configurable
   -- (if we want to be able to test different layouts)
   <*> (pure hackageRepoLayout)
+  <*> (switch $ mconcat [
+          long "verbose"
+        , short 'v'
+        , help "Verbose logging"
+        ])
   <*> (subparser $ mconcat [
           command "create-keys" (info (pure CreateKeys)
               (progDesc "Create keys"))

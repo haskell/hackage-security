@@ -100,11 +100,14 @@ hackageRepoLayout = RepoLayout {
     , repoLayoutMirrors    = rp $ fragment "mirrors.json"
     , repoLayoutIndexTarGz = rp $ fragment "00-index.tar.gz"
     , repoLayoutIndexTar   = rp $ fragment "00-index.tar"
-    , repoLayoutPkgLoc     = rp  . pkgLoc
+    , repoLayoutPkgLoc     = \_pkgId -> rp $ fragment "package"
     , repoLayoutPkgFile    = rp' . pkgFile
     , repoIndexLayout      = hackageIndexLayout
     }
   where
+    pkgFile :: PackageIdentifier -> UnrootedPath
+    pkgFile pkgId = fragment (display pkgId)  <.> "tar.gz"
+
     rp :: UnrootedPath -> RepoPath
     rp = rootPath Rooted
 
@@ -134,10 +137,22 @@ data IndexLayout = IndexLayout  {
 -- | The layout of the index as maintained on Hackage
 hackageIndexLayout :: IndexLayout
 hackageIndexLayout = IndexLayout {
-      indexLayoutPkgMetadata = \pkgId -> rp $ pkgLoc pkgId </> pkgMetadata pkgId
-    , indexLayoutPkgCabal    = \pkgId -> rp $ pkgLoc pkgId </> pkgCabal    pkgId
+      indexLayoutPkgMetadata = \pkgId -> rp $ pkgLoc pkgId </> pkgMetadata
+    , indexLayoutPkgCabal    = \pkgId -> rp $ pkgLoc pkgId </> pkgCabal pkgId
     }
   where
+    pkgLoc :: PackageIdentifier -> UnrootedPath
+    pkgLoc pkgId = joinFragments [
+          display (packageName    pkgId)
+        , display (packageVersion pkgId)
+        ]
+
+    pkgCabal :: PackageIdentifier -> UnrootedPath
+    pkgCabal pkgId = fragment (display (packageName pkgId)) <.> "cabal"
+
+    pkgMetadata :: UnrootedPath
+    pkgMetadata = fragment "package" <.> "json"
+
     rp :: UnrootedPath -> TarballPath
     rp = rootPath Rooted
 
@@ -199,18 +214,3 @@ cabalCacheLayout = CacheLayout {
 anchorCachePath :: IsFileSystemRoot root
                 => Path (Rooted root) -> CachePath -> Path (Rooted root)
 anchorCachePath cacheRoot cachePath = cacheRoot </> unrootPath' cachePath
-
-{-------------------------------------------------------------------------------
-  Internal auxiliary
--------------------------------------------------------------------------------}
-
-pkgLoc :: PackageIdentifier -> UnrootedPath
-pkgLoc pkgId = joinFragments [
-      display (packageName    pkgId)
-    , display (packageVersion pkgId)
-    ]
-
-pkgFile, pkgCabal, pkgMetadata :: PackageIdentifier -> UnrootedPath
-pkgFile      pkgId = fragment (display              pkgId)  <.> "tar.gz"
-pkgCabal     pkgId = fragment (display (packageName pkgId)) <.> "cabal"
-pkgMetadata _pkgId = fragment "targets"                     <.> "json"

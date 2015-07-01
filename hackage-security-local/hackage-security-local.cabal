@@ -25,6 +25,7 @@ executable hackage-secure-local
                        tar                  >= 0.4,
                        time                 >= 1.2,
                        unix                 >= 2.5,
+                       tar                  >= 0.4,
                        zlib                 >= 0.5,
                        hackage-security
   hs-source-dirs:      src

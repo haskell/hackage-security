@@ -7,9 +7,11 @@ import Data.Maybe (catMaybes, mapMaybe)
 import Data.Time
 import System.IO
 import System.IO.Error
-import qualified Codec.Compression.GZip as GZip
-import qualified Data.ByteString.Lazy   as BS.L
-import qualified System.FilePath        as FilePath
+import qualified Codec.Archive.Tar       as Tar
+import qualified Codec.Archive.Tar.Entry as Tar
+import qualified Codec.Compression.GZip  as GZip
+import qualified Data.ByteString.Lazy    as BS.L
+import qualified System.FilePath         as FilePath
 
 -- Unlike the hackage-security library properly,
 -- this currently works on unix systems only
@@ -72,11 +74,11 @@ data PrivateKeys = PrivateKeys {
 
 readKeys :: GlobalOpts -> IO PrivateKeys
 readKeys opts =
-    PrivateKeys <$> readKeysAt (anchorKeyPath opts keyLayoutRoot)
-                <*> readKeysAt (anchorKeyPath opts keyLayoutTarget)
-                <*> readKeysAt (anchorKeyPath opts keyLayoutTimestamp)
-                <*> readKeysAt (anchorKeyPath opts keyLayoutSnapshot)
-                <*> readKeysAt (anchorKeyPath opts keyLayoutMirrors)
+    PrivateKeys <$> readKeysAt opts keyLayoutRoot
+                <*> readKeysAt opts keyLayoutTarget
+                <*> readKeysAt opts keyLayoutTimestamp
+                <*> readKeysAt opts keyLayoutSnapshot
+                <*> readKeysAt opts keyLayoutMirrors
 
 writeKeys :: GlobalOpts -> PrivateKeys -> IO ()
 writeKeys opts PrivateKeys{..} = do
@@ -86,20 +88,22 @@ writeKeys opts PrivateKeys{..} = do
     forM_ privateSnapshot  $ writeKey opts keyLayoutSnapshot
     forM_ privateMirrors   $ writeKey opts keyLayoutMirrors
 
-readKeysAt :: AbsolutePath -> IO [Some Key]
-readKeysAt dir = catMaybes <$> do
-    entries <- getDirectoryContents dir
+readKeysAt :: GlobalOpts -> (KeyLayout -> KeyPath) -> IO [Some Key]
+readKeysAt opts keyDir = catMaybes <$> do
+    entries <- getDirectoryContents absPath
     forM entries $ \entry -> do
-      let path = dir </> entry
+      let path = absPath </> entry
       mKey <- readJSON_NoKeys_NoLayout path
       case mKey of
-        Left _err -> do logWarn $ "Skipping unrecognized " ++ show path
+        Left _err -> do logWarn opts $ "Skipping unrecognized " ++ show path
                         return Nothing
         Right key -> return $ Just key
+  where
+    absPath = anchorKeyPath opts keyDir
 
 writeKey :: GlobalOpts -> (KeyLayout -> KeyPath) -> Some Key -> IO ()
 writeKey opts keyDir key = do
-    logInfo $ "Writing " ++ show (relPath defaultKeyLayout)
+    logInfo opts $ "Writing " ++ show (relPath defaultKeyLayout)
     createDirectoryIfMissing True (takeDirectory absPath)
     writeJSON_NoLayout absPath key
   where
@@ -199,19 +203,19 @@ bootstrapOrUpdate opts@GlobalOpts{..} isBootstrap = do
       (WriteAlways, _) -> do
         -- If we are recreating all files, also recreate the index
         _didExist <- handleDoesNotExist $ removeFile pathIndexTar
-        logInfo $ "Writing " ++ showFileLoc opts (InRepo repoLayoutIndexTar)
+        logInfo opts $ "Writing " ++ showFileLoc opts (InRepo repoLayoutIndexTar)
       (WriteIfNecessary, True) -> do
-        logInfo $ "Unchanged " ++ showFileLoc opts (InRepo repoLayoutIndexTar)
+        logInfo opts $ "Skipping " ++ showFileLoc opts (InRepo repoLayoutIndexTar)
       (WriteIfNecessary, False) ->
-        logInfo $ "Appending " ++ show (length newFiles)
-               ++ " file(s) to " ++ showFileLoc opts (InRepo repoLayoutIndexTar)
+        logInfo opts $ "Appending " ++ show (length newFiles)
+                    ++ " file(s) to " ++ showFileLoc opts (InRepo repoLayoutIndexTar)
     unless (null newFiles) $ do
       tarAppend
         (anchorRepoPath opts repoLayoutIndexTar)
         (anchorRepoPath opts repoLayoutIndexDir)
         newFiles
 
-      logInfo $ "Writing " ++ showFileLoc opts (InRepo repoLayoutIndexTarGz)
+      logInfo opts $ "Writing " ++ showFileLoc opts (InRepo repoLayoutIndexTarGz)
       compress (anchorRepoPath opts repoLayoutIndexTar)
                (anchorRepoPath opts repoLayoutIndexTarGz)
 
@@ -274,8 +278,8 @@ createPackageMetadata opts@GlobalOpts{..} whenWrite pkgId = do
                (withSignatures' [])
                targets
 
-    -- Copy the cabal file into the index
-    copyToIndex opts (`repoLayoutCabal` pkgId) (`indexLayoutPkgCabal` pkgId)
+    -- Extract the cabal file from the package tarball and copy it to the index
+    copyCabalFile opts pkgId
   where
     computeFileMapEntry :: RelativePath -> IO (RelativePath, FileInfo)
     computeFileMapEntry file = do
@@ -315,23 +319,38 @@ findNewIndexFiles opts whenWrite = do
           if fileTS > indexTS then return $ Just indexFile
                               else return Nothing
 
--- | Copy a file to the index (if required)
-copyToIndex :: GlobalOpts
-            -> (RepoLayout  -> RepoPath)
-            -> (IndexLayout -> TarballPath)
-            -> IO ()
-copyToIndex opts src dst = do
-    createDirectoryIfMissing True (takeDirectory dst')
-    srcTS <- getFileModificationTime src'
-    dstTS <- getFileModificationTime dst'
-    when (srcTS > dstTS) $ do
-      logInfo $ "Copying " ++ showFileLoc opts (InRepo  src)
-             ++ " to "     ++ showFileLoc opts (InIndex dst)
-      copyFile src' dst'
+-- | Extract the cabal file from the package tarball and copy it to the index
+copyCabalFile :: GlobalOpts -> PackageIdentifier -> IO ()
+copyCabalFile opts@GlobalOpts{..} pkgId = do
+    tarGzTS <- getFileModificationTime pathTarGz
+    cabalTS <- getFileModificationTime pathCabalInIdx
+    if cabalTS > tarGzTS
+      then logInfo opts $ "Skipping " ++ showFileLoc opts (InIndex dst)
+      else do
+        archive <- Tar.read . GZip.decompress <$> readLazyByteString pathTarGz
+        mCabalFile <- tarExtractFile pathCabalInTar archive
+        case mCabalFile of
+          Nothing ->
+            logWarn opts $ ".cabal file missing for package " ++ display pkgId
+          Just (cabalFile, _cabalSize) -> do
+            logInfo opts $ "Extracting .cabal file from "
+                        ++ showFileLoc opts (InRepo src)
+                        ++ " to "
+                        ++ showFileLoc opts (InIndex dst)
+            writeLazyByteString pathCabalInIdx cabalFile
   where
-    src', dst' :: AbsolutePath
-    src' = anchorRepoPath  opts src
-    dst' = anchorIndexPath opts dst
+    pathCabalInTar :: FilePath
+    pathCabalInTar = FilePath.joinPath [
+                         display pkgId
+                       , display (packageName pkgId)
+                       ] FilePath.<.> "cabal"
+
+    pathTarGz, pathCabalInIdx :: AbsolutePath
+    pathCabalInIdx = anchorIndexPath opts dst
+    pathTarGz      = anchorRepoPath  opts src
+
+    dst = (`indexLayoutPkgCabal` pkgId)
+    src = (`repoLayoutPkg`       pkgId)
 
 {-------------------------------------------------------------------------------
   Updating files in the repo or in the index
@@ -403,13 +422,13 @@ updateFile opts@GlobalOpts{..} whenWrite fileLoc signPayload a = do
           oldFileInfo <- computeFileInfo' fp
           newFileInfo <- computeFileInfo tempPath
           if oldFileInfo == Just newFileInfo
-            then logInfo $ "Unchanged " ++ showFileLoc opts fileLoc
+            then logInfo opts $ "Skipping " ++ showFileLoc opts fileLoc
             else writeDoc updating wIncVersion
   where
     -- | Actually write the file
     writeDoc :: String -> a -> IO ()
     writeDoc reason doc = do
-      logInfo reason
+      logInfo opts reason
       createDirectoryIfMissing True (takeDirectory fp)
       writeJSON globalRepoLayout fp (signPayload doc)
 
@@ -462,31 +481,26 @@ checkRepoLayout opts@GlobalOpts{..} = liftM and . mapM checkPackage
     checkPackage pkgId = do
         existsTarGz <- doesFileExist $ anchorRepoPath opts expectedTarGz
         unless existsTarGz $
-          logWarn $ "Package tarball " ++ display pkgId
-                 ++ " expected in location "
-                 ++ showFileLoc opts (InRepo expectedTarGz)
+          logWarn opts $ "Package tarball " ++ display pkgId
+                      ++ " expected in location "
+                      ++ showFileLoc opts (InRepo expectedTarGz)
 
-        existsCabal <- doesFileExist $ anchorRepoPath opts expectedCabal
-        unless existsCabal $
-          logWarn $ "Cabal file for package " ++ display pkgId
-                 ++ " expected in location "
-                 ++ showFileLoc opts (InRepo expectedCabal)
-
-        return $ and [existsTarGz, existsCabal]
+        return existsTarGz
       where
-        expectedTarGz, expectedCabal :: RepoLayout -> RepoPath
+        expectedTarGz :: RepoLayout -> RepoPath
         expectedTarGz = (`repoLayoutPkg` pkgId)
-        expectedCabal = (`repoLayoutCabal` pkgId)
 
 {-------------------------------------------------------------------------------
   Logging
 -------------------------------------------------------------------------------}
 
-logInfo :: String -> IO ()
-logInfo str = putStrLn $ "Info: " ++ str
+logInfo :: GlobalOpts -> String -> IO ()
+logInfo GlobalOpts{..} str = when globalVerbose $
+    putStrLn $ "Info: " ++ str
 
-logWarn :: String -> IO ()
-logWarn str = putStrLn $ "Warning: " ++ str
+logWarn :: GlobalOpts -> String -> IO ()
+logWarn _opts str =
+    putStrLn $ "Warning: " ++ str
 
 {-------------------------------------------------------------------------------
   Auxiliary
@@ -520,3 +534,24 @@ getFileModificationTime fp = handle handler $
 compress :: AbsolutePath -> AbsolutePath -> IO ()
 compress src dst =
     writeLazyByteString dst =<< GZip.compress <$> readLazyByteString src
+
+-- | Extract a file from a tar archive
+--
+-- Throws an exception if there is an error in the archive or when the entry
+-- is not a file. Returns nothing if the entry cannot be found.
+tarExtractFile :: forall e. Exception e
+               => FilePath
+               -> Tar.Entries e
+               -> IO (Maybe (BS.L.ByteString, Tar.FileSize))
+tarExtractFile path = go
+  where
+    go :: Tar.Entries e -> IO (Maybe (BS.L.ByteString, Tar.FileSize))
+    go Tar.Done        = return Nothing
+    go (Tar.Fail err)  = throwIO err
+    go (Tar.Next e es) =
+      if Tar.entryPath e == path
+        then case Tar.entryContent e of
+               Tar.NormalFile bs sz -> return $ Just (bs, sz)
+               _ -> throwIO $ userError "tarExtractFile: Not a normal file"
+        else do -- putStrLn $ show (Tar.entryPath e) ++ " /= " ++ show path
+                go es
