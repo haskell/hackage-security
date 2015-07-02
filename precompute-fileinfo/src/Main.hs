@@ -99,8 +99,12 @@ precomputePkg state pkg dst = do
     if alreadyKnown
       then putStrLn " (skipped)"
       else do
-        sha256 <- SHA.showDigest . SHA.sha256 <$> BS.L.readFile dst
-        recordHash state md5 sha256
+        (sha256, len) <- withFile dst ReadMode $ \h -> do
+          len    <- hFileSize h
+          sha256 <- SHA.showDigest . SHA.sha256 <$> BS.L.hGetContents h
+          evaluate $ rnf (sha256, len)
+          return (sha256, len)
+        recordHash state md5 sha256 len
         putStrLn " OK"
 
 {-------------------------------------------------------------------------------
@@ -109,6 +113,7 @@ precomputePkg state pkg dst = do
 
 type MD5    = String
 type SHA256 = String
+type Length = Integer
 
 data State = State {
       -- | The directory where the backup is stored
@@ -119,7 +124,7 @@ data State = State {
       -- | Mutable variable where we store the hashes computed so far
       --
       -- We use this so that even on CTRL-C we can still output a partial map
-    , stateVar :: MVar (Map MD5 SHA256)
+    , stateVar :: MVar (Map MD5 (SHA256, Length))
     }
 
 initState :: Options -> IO State
@@ -137,32 +142,34 @@ writeState Options{..} State{..} = do
     putStrLn $ "Writing " ++ optionsOutput
     writeMap optionsOutput =<< readMVar stateVar
 
-recordHash :: State -> MD5 -> SHA256 -> IO ()
-recordHash State{..} md5 sha256 = do
-    evaluate $ rnf (md5, sha256)
-    modifyMVar_ stateVar $ return . Map.insert md5 sha256
+recordHash :: State -> MD5 -> SHA256 -> Length -> IO ()
+recordHash State{..} md5 sha256 len =
+    modifyMVar_ stateVar $ return . Map.insert md5 (sha256, len)
 
 isKnownHash :: State -> MD5 -> IO Bool
 isKnownHash State{..} md5 = withMVar stateVar $ return . Map.member md5
 
-writeMap :: FilePath -> Map MD5 SHA256 -> IO ()
+writeMap :: FilePath -> Map MD5 (SHA256, Length) -> IO ()
 writeMap fp hashes = withFile fp WriteMode $ \h ->
     mapM_ (uncurry (writeEntry h)) $ Map.toList hashes
   where
-    writeEntry :: Handle -> MD5 -> SHA256 -> IO ()
-    writeEntry h md5 sha256 = hPutStrLn h (md5 ++ " " ++ sha256)
+    writeEntry :: Handle -> MD5 -> (SHA256, Length) -> IO ()
+    writeEntry h md5 (sha256, len) =
+        hPutStrLn h $ unwords [md5, sha256, show len]
 
 -- | Read an existing hashmap
 --
 -- The result is guaranteed to be in normal form.
-readMap :: FilePath -> IO (Map MD5 SHA256)
-readMap fp = withFile fp ReadMode $ \h -> do
-    hashes <- Map.fromList . map parseEntry . lines <$> hGetContents h
-    evaluate $ rnf hashes
-    return hashes
+readMap :: FilePath -> IO (Map MD5 (SHA256, Length))
+readMap fp =
+    withFile fp ReadMode $ \h -> do
+      hashes <- Map.fromList . map parseEntry . lines <$> hGetContents h
+      evaluate $ rnf hashes
+      return hashes
   where
-    parseEntry :: String -> (MD5, SHA256)
-    parseEntry line = let [md5, sha256] = words line in (md5, sha256)
+    parseEntry :: String -> (MD5, (SHA256, Length))
+    parseEntry line = let [md5, sha256, len] = words line
+                      in (md5, (sha256, read len))
 
 {-------------------------------------------------------------------------------
   Auxiliary
