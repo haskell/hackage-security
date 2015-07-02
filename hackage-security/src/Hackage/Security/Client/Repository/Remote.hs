@@ -186,7 +186,7 @@ withRepository
 withRepository http outOfBandMirrors cache repLayout logger callback = do
     selectedMirror <- newMVar Nothing
     callback Repository {
-        repWithRemote    = fileLast $ withRemote repLayout http selectedMirror cache logger
+        repWithRemote    = withRemote repLayout http selectedMirror cache logger
       , repGetCached     = Cache.getCached     cache
       , repGetCachedRoot = Cache.getCachedRoot cache
       , repClearCache    = Cache.clearCache    cache
@@ -196,8 +196,6 @@ withRepository http outOfBandMirrors cache repLayout logger callback = do
       , repLayout        = repLayout
       , repDescription   = "Remote repository at " ++ show outOfBandMirrors
       }
-  where
-    fileLast f = flip . f
 
 {-------------------------------------------------------------------------------
   Implementations of the various methods of Repository
@@ -211,14 +209,21 @@ withRepository http outOfBandMirrors cache repLayout logger callback = do
 type SelectedMirror = MVar (Maybe URI)
 
 -- | Get a file from the server
-withRemote :: forall fs a.
-              RepoLayout -> HttpClient -> SelectedMirror -> Cache
+withRemote :: RepoLayout -> HttpClient -> SelectedMirror -> Cache
            -> (LogMessage -> IO ())
            -> IsRetry
-           -> (SelectedFormat fs -> TempPath -> IO a)
            -> RemoteFile fs
+           -> (SelectedFormat fs -> TempPath -> IO a)
            -> IO a
-withRemote repoLayout httpClient selectedMirror cache logger isRetry callback = \remoteFile -> do
+withRemote repoLayout
+           httpClient
+           selectedMirror
+           cache
+           logger
+           isRetry
+           remoteFile
+           callback
+           = do
    -- NOTE: Cannot use withMVar here, because the callback would be inside
    -- the scope of the withMVar, and there might be further calls to
    -- withRemote made by this callback, leading to deadlock.
