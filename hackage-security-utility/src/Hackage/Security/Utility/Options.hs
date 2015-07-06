@@ -11,42 +11,16 @@ import System.IO.Unsafe (unsafePerformIO)
 import Hackage.Security.Client
 import Hackage.Security.Util.Path
 
+import Hackage.Security.Utility.Layout
+
 {-------------------------------------------------------------------------------
   Types
 -------------------------------------------------------------------------------}
 
 -- | Command line options
 data GlobalOpts = GlobalOpts {
-    -- | Root directory of the repository
-    --
-    -- We expect the repo to have the format
-    --
-    -- > foo/1.0/foo-1.0.tar.gz
-    -- > foo/1.0/foo.cabal
-    -- > foo/1.1/foo-1.1.tar.gz
-    -- > foo/1.1/foo.cabal
-    -- > foo/1.2/..
-    -- > bar/..
-    -- > baz/..
-    -- > ..
-    globalRepo :: AbsolutePath
-
-    -- | Root directory of the keys
-    --
-    -- We expect this directory to have the format
-    --
-    -- root/<keyid1>.private
-    -- root/<keyid2>.private
-    -- root/..
-    -- target/..
-    -- snapshot/..
-    -- timestamp/..
-    --
-    -- The @create-keys@ option can be used to create this directory.
-  , globalKeys :: AbsolutePath
-
-    -- | Mirrors (to add to @mirrors.json@)
-  , globalMirrors :: [URI]
+    -- | Key directory layout
+    globalKeysLayout :: KeysLayout
 
     -- | Local repository layout
   , globalRepoLayout :: RepoLayout
@@ -60,14 +34,19 @@ data GlobalOpts = GlobalOpts {
 
 data Command =
     -- | Create keys
-    CreateKeys
+    CreateKeys KeysLoc
 
-    -- | Create initial secure files
-  | Bootstrap
+    -- | Bootstrap a secure local repository
+  | Bootstrap KeysLoc RepoLoc
 
-    -- | Update a previously bootstrapped repo
-  | Update
-  deriving Show
+    -- | Update a previously bootstrapped local repository
+  | Update KeysLoc RepoLoc
+
+    -- | Create root metadta
+  | CreateRoot KeysLoc AbsolutePath
+
+    -- | Create mirrors metadata
+  | CreateMirrors KeysLoc AbsolutePath [URI]
 
 {-------------------------------------------------------------------------------
   Parsers
@@ -81,25 +60,54 @@ getOptions = execParser opts
       , header "Manage local Hackage repositories"
       ]
 
+parseRepoLoc :: Parser RepoLoc
+parseRepoLoc = RepoLoc <$> (option (str >>= readAbsolutePath) $ mconcat [
+      long "repo"
+    , metavar "PATH"
+    , help "Path to local repository"
+    ])
+
+parseKeysLoc :: Parser KeysLoc
+parseKeysLoc = KeysLoc <$> (option (str >>= readAbsolutePath) $ mconcat [
+      long "keys"
+    , metavar "PATH"
+    , help "Path to key store"
+    ])
+
+parseCreateKeys :: Parser Command
+parseCreateKeys = CreateKeys <$> parseKeysLoc
+
+parseBootstrap :: Parser Command
+parseBootstrap = Bootstrap <$> parseKeysLoc <*> parseRepoLoc
+
+parseUpdate :: Parser Command
+parseUpdate = Update <$> parseKeysLoc <*> parseRepoLoc
+
+parseCreateRoot :: Parser Command
+parseCreateRoot = CreateRoot
+  <$> parseKeysLoc
+  <*> (option (str >>= readAbsolutePath) $ mconcat [
+          short 'o'
+        , metavar "FILE"
+        , help "Location of the root file"
+        ])
+
+parseCreateMirrors :: Parser Command
+parseCreateMirrors = CreateMirrors
+  <$> parseKeysLoc
+  <*> (option (str >>= readAbsolutePath) $ mconcat [
+          short 'o'
+        , metavar "FILE"
+        , help "Location of the mirrors file"
+        ])
+  <*> (many $ argument (str >>= readURI) (metavar "MIRROR"))
+
+-- | Global options
+--
+-- TODO: Make repo and keys layout configurable
 parseGlobalOptions :: Parser GlobalOpts
 parseGlobalOptions = GlobalOpts
-  <$> (option (str >>= readAbsolutePath) $ mconcat [
-          long "repo"
-        , metavar "PATH"
-        , help "Path to local repository"
-        ])
-  <*> (option (str >>= readAbsolutePath) $ mconcat [
-          long "keys"
-        , metavar "PATH"
-        , help "Path to key store"
-        ])
-  <*> (many . option (str >>= readURI) $ mconcat [
-          long "mirror"
-        , metavar "URI"
-        , help "Mirror (to add to mirrors.json)"
-        ])
-  -- TODO: Make the repository layout configurable
-  -- (if we want to be able to test different layouts)
+  <$> (pure defaultKeysLayout)
   <*> (pure hackageRepoLayout)
   <*> (switch $ mconcat [
           long "verbose"
@@ -107,12 +115,16 @@ parseGlobalOptions = GlobalOpts
         , help "Verbose logging"
         ])
   <*> (subparser $ mconcat [
-          command "create-keys" (info (pure CreateKeys)
+          command "create-keys" (info parseCreateKeys
               (progDesc "Create keys"))
-        , command "bootstrap" (info (pure Bootstrap)
+        , command "bootstrap" (info parseBootstrap
             (progDesc "Bootstrap a local repository"))
-        , command "update" (info (pure Update)
+        , command "update" (info parseUpdate
             (progDesc "Update a (previously bootstrapped) local repository"))
+        , command "create-root" (info parseCreateRoot
+            (progDesc "Create root metadata"))
+        , command "create-mirrors" (info parseCreateMirrors
+            (progDesc "Create mirrors metadata. All MIRRORs specified on the command line will be written to the file."))
         ])
 
 readURI :: String -> ReadM URI

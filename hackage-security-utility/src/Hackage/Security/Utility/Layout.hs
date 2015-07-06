@@ -4,14 +4,17 @@
 -- files. In addition, we also manage a directory of keys (although this will
 -- eventually need to be replaced with a proper key management system).
 module Hackage.Security.Utility.Layout (
-    -- * Additional paths
-    repoLayoutIndexDir
+    -- * File system locations
+    RepoLoc(..)
+  , KeysLoc(..)
+    -- * Additional paths in the repository
+  , repoLayoutIndexDir
     -- * Layout of the keys directory
   , KeyRoot
   , KeyPath
-  , KeyLayout(..)
-  , defaultKeyLayout
-  , keyLayoutKey
+  , KeysLayout(..)
+  , defaultKeysLayout
+  , keysLayoutKey
     -- * Layout-parametrized version of TargetPath
   , TargetPath'(..)
   , prettyTargetPath'
@@ -30,7 +33,12 @@ import Hackage.Security.Util.Path
 import Hackage.Security.Util.Pretty
 import Hackage.Security.Util.Some
 
-import Hackage.Security.Utility.Options
+{-------------------------------------------------------------------------------
+  File system locations
+-------------------------------------------------------------------------------}
+
+newtype RepoLoc = RepoLoc AbsolutePath
+newtype KeysLoc = KeysLoc AbsolutePath
 
 {-------------------------------------------------------------------------------
   Additional paths specifically to the kind of repository this tool manages
@@ -55,34 +63,34 @@ instance IsRoot KeyRoot where showRoot _ = "<keys>"
 
 -- | Layout of the keys directory
 --
--- Specifies the directories containing the keys (relative to 'globalKeys'),
+-- Specifies the directories containing the keys (relative to the keys loc),
 -- as well as the filename for individual keys.
-data KeyLayout = KeyLayout {
-      keyLayoutRoot      :: KeyPath
-    , keyLayoutTarget    :: KeyPath
-    , keyLayoutTimestamp :: KeyPath
-    , keyLayoutSnapshot  :: KeyPath
-    , keyLayoutMirrors   :: KeyPath
-    , keyLayoutKeyFile   :: Some Key -> UnrootedPath
+data KeysLayout = KeysLayout {
+      keysLayoutRoot      :: KeyPath
+    , keysLayoutTarget    :: KeyPath
+    , keysLayoutTimestamp :: KeyPath
+    , keysLayoutSnapshot  :: KeyPath
+    , keysLayoutMirrors   :: KeyPath
+    , keysLayoutKeyFile   :: Some Key -> UnrootedPath
     }
 
-defaultKeyLayout :: KeyLayout
-defaultKeyLayout = KeyLayout {
-      keyLayoutRoot      = rp $ fragment' "root"
-    , keyLayoutTarget    = rp $ fragment' "target"
-    , keyLayoutTimestamp = rp $ fragment' "timestamp"
-    , keyLayoutSnapshot  = rp $ fragment' "snapshot"
-    , keyLayoutMirrors   = rp $ fragment' "mirrors"
-    , keyLayoutKeyFile   = \key -> let kId = keyIdString (someKeyId key)
-                                   in fragment' kId <.> "private"
+defaultKeysLayout :: KeysLayout
+defaultKeysLayout = KeysLayout {
+      keysLayoutRoot      = rp $ fragment' "root"
+    , keysLayoutTarget    = rp $ fragment' "target"
+    , keysLayoutTimestamp = rp $ fragment' "timestamp"
+    , keysLayoutSnapshot  = rp $ fragment' "snapshot"
+    , keysLayoutMirrors   = rp $ fragment' "mirrors"
+    , keysLayoutKeyFile   = \key -> let kId = keyIdString (someKeyId key)
+                                    in fragment' kId <.> "private"
     }
   where
     rp :: UnrootedPath -> KeyPath
     rp = rootPath Rooted
 
-keyLayoutKey :: (KeyLayout -> KeyPath) -> Some Key -> KeyLayout -> KeyPath
-keyLayoutKey dir key keyLayout@KeyLayout{..} =
-   dir keyLayout </> keyLayoutKeyFile key
+keysLayoutKey :: (KeysLayout -> KeyPath) -> Some Key -> KeysLayout -> KeyPath
+keysLayoutKey dir key keysLayout@KeysLayout{..} =
+   dir keysLayout </> keysLayoutKeyFile key
 
 {-------------------------------------------------------------------------------
   TargetPath'
@@ -95,43 +103,43 @@ data TargetPath' =
   | InRepPkg (RepoLayout  -> PackageIdentifier -> RepoPath)  PackageIdentifier
   | InIdxPkg (IndexLayout -> PackageIdentifier -> IndexPath) PackageIdentifier
 
-prettyTargetPath' :: GlobalOpts -> TargetPath' -> String
-prettyTargetPath' opts = pretty . applyTargetPath' opts
+prettyTargetPath' :: RepoLayout -> TargetPath' -> String
+prettyTargetPath' repoLayout = pretty . applyTargetPath' repoLayout
 
 -- | Apply the layout
-applyTargetPath' :: GlobalOpts -> TargetPath' -> TargetPath
-applyTargetPath' GlobalOpts{..} targetPath =
+applyTargetPath' :: RepoLayout -> TargetPath' -> TargetPath
+applyTargetPath' repoLayout targetPath =
     case targetPath of
-      InRep    file       -> TargetPathRepo  $ file globalRepoLayout
+      InRep    file       -> TargetPathRepo  $ file repoLayout
       InIdx    file       -> TargetPathIndex $ file indexLayout
-      InRepPkg file pkgId -> TargetPathRepo  $ file globalRepoLayout pkgId
-      InIdxPkg file pkgId -> TargetPathIndex $ file indexLayout      pkgId
+      InRepPkg file pkgId -> TargetPathRepo  $ file repoLayout  pkgId
+      InIdxPkg file pkgId -> TargetPathIndex $ file indexLayout pkgId
   where
-    indexLayout = repoIndexLayout globalRepoLayout
+    indexLayout = repoIndexLayout repoLayout
 
 {-------------------------------------------------------------------------------
   Utility
 -------------------------------------------------------------------------------}
 
 -- | Anchor a tarball path to the repo (see 'repoLayoutIndex')
-anchorIndexPath :: GlobalOpts -> (IndexLayout -> IndexPath) -> AbsolutePath
-anchorIndexPath opts@GlobalOpts{..} file =
-        anchorRepoPath opts repoLayoutIndexDir
-    </> unrootPath' (file $ repoIndexLayout globalRepoLayout)
+anchorIndexPath :: RepoLayout -> RepoLoc -> (IndexLayout -> IndexPath) -> AbsolutePath
+anchorIndexPath repoLayout repoLoc file =
+        anchorRepoPath repoLayout repoLoc repoLayoutIndexDir
+    </> unrootPath' (file $ repoIndexLayout repoLayout)
 
-anchorRepoPath :: GlobalOpts -> (RepoLayout -> RepoPath) -> AbsolutePath
-anchorRepoPath GlobalOpts{..} file =
-    anchorRepoPathLocally globalRepo $ file globalRepoLayout
+anchorRepoPath :: RepoLayout -> RepoLoc -> (RepoLayout -> RepoPath) -> AbsolutePath
+anchorRepoPath repoLayout (RepoLoc repoLoc) file =
+    anchorRepoPathLocally repoLoc $ file repoLayout
 
-anchorKeyPath :: GlobalOpts -> (KeyLayout -> KeyPath) -> AbsolutePath
-anchorKeyPath GlobalOpts{..} dir =
-    globalKeys </> unrootPath' (dir defaultKeyLayout)
+anchorKeyPath :: KeysLayout -> KeysLoc -> (KeysLayout -> KeyPath) -> AbsolutePath
+anchorKeyPath keysLayout (KeysLoc keysLoc) dir =
+    keysLoc </> unrootPath' (dir keysLayout)
 
-anchorTargetPath' :: GlobalOpts -> TargetPath' -> AbsolutePath
-anchorTargetPath' opts = go
+anchorTargetPath' :: RepoLayout -> RepoLoc -> TargetPath' -> AbsolutePath
+anchorTargetPath' repoLayout repoLoc = go
   where
     go :: TargetPath' -> AbsolutePath
-    go (InRep    file)       = anchorRepoPath  opts file
-    go (InIdx    file)       = anchorIndexPath opts file
-    go (InRepPkg file pkgId) = anchorRepoPath  opts (`file` pkgId)
-    go (InIdxPkg file pkgId) = anchorIndexPath opts (`file` pkgId)
+    go (InRep    file)       = anchorRepoPath  repoLayout repoLoc file
+    go (InIdx    file)       = anchorIndexPath repoLayout repoLoc file
+    go (InRepPkg file pkgId) = anchorRepoPath  repoLayout repoLoc (`file` pkgId)
+    go (InIdxPkg file pkgId) = anchorIndexPath repoLayout repoLoc (`file` pkgId)

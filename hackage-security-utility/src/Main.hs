@@ -5,6 +5,7 @@ import Control.Exception
 import Control.Monad
 import Data.Maybe (catMaybes, mapMaybe)
 import Data.Time
+import Network.URI (URI)
 import System.IO
 import System.IO.Error
 import qualified Codec.Archive.Tar       as Tar
@@ -32,7 +33,7 @@ import qualified Hackage.Security.Key.Env     as KeyEnv
 import qualified Hackage.Security.TUF.FileMap as FileMap
 import qualified Hackage.Security.Util.Lens   as Lens
 
--- hackage-secure-local
+-- hackage-security-utility
 import Hackage.Security.Utility.Options
 import Hackage.Security.Utility.Layout
 
@@ -44,22 +45,29 @@ main :: IO ()
 main = do
     opts@GlobalOpts{..} <- getOptions
     case globalCommand of
-      CreateKeys -> createKeys opts
-      Bootstrap  -> bootstrapOrUpdate opts True
-      Update     -> bootstrapOrUpdate opts False
+      CreateKeys keysLoc ->
+        createKeys opts keysLoc
+      Bootstrap keysLoc repoLoc ->
+        bootstrapOrUpdate opts keysLoc repoLoc True
+      Update keysLoc repoLoc ->
+        bootstrapOrUpdate opts keysLoc repoLoc False
+      CreateRoot keysLoc rootLoc ->
+        createRoot opts keysLoc rootLoc
+      CreateMirrors keysLoc mirrorsLoc mirrors ->
+        createMirrors opts keysLoc mirrorsLoc mirrors
 
 {-------------------------------------------------------------------------------
   Creating keys
 -------------------------------------------------------------------------------}
 
-createKeys :: GlobalOpts -> IO ()
-createKeys opts = do
+createKeys :: GlobalOpts -> KeysLoc -> IO ()
+createKeys opts keysLoc = do
     privateRoot      <- replicateM 3 $ createKey' KeyTypeEd25519
     privateTarget    <- replicateM 3 $ createKey' KeyTypeEd25519
     privateTimestamp <- replicateM 1 $ createKey' KeyTypeEd25519
     privateSnapshot  <- replicateM 1 $ createKey' KeyTypeEd25519
     privateMirrors   <- replicateM 3 $ createKey' KeyTypeEd25519
-    writeKeys opts PrivateKeys{..}
+    writeKeys opts keysLoc PrivateKeys{..}
 
 {-------------------------------------------------------------------------------
   Dealing with (private) keys
@@ -73,24 +81,24 @@ data PrivateKeys = PrivateKeys {
   , privateMirrors   :: [Some Key]
   }
 
-readKeys :: GlobalOpts -> IO PrivateKeys
-readKeys opts =
-    PrivateKeys <$> readKeysAt opts keyLayoutRoot
-                <*> readKeysAt opts keyLayoutTarget
-                <*> readKeysAt opts keyLayoutTimestamp
-                <*> readKeysAt opts keyLayoutSnapshot
-                <*> readKeysAt opts keyLayoutMirrors
+readKeys :: GlobalOpts -> KeysLoc -> IO PrivateKeys
+readKeys opts keysLoc =
+    PrivateKeys <$> readKeysAt opts keysLoc keysLayoutRoot
+                <*> readKeysAt opts keysLoc keysLayoutTarget
+                <*> readKeysAt opts keysLoc keysLayoutTimestamp
+                <*> readKeysAt opts keysLoc keysLayoutSnapshot
+                <*> readKeysAt opts keysLoc keysLayoutMirrors
 
-writeKeys :: GlobalOpts -> PrivateKeys -> IO ()
-writeKeys opts PrivateKeys{..} = do
-    forM_ privateRoot      $ writeKey opts keyLayoutRoot
-    forM_ privateTarget    $ writeKey opts keyLayoutTarget
-    forM_ privateTimestamp $ writeKey opts keyLayoutTimestamp
-    forM_ privateSnapshot  $ writeKey opts keyLayoutSnapshot
-    forM_ privateMirrors   $ writeKey opts keyLayoutMirrors
+writeKeys :: GlobalOpts -> KeysLoc -> PrivateKeys -> IO ()
+writeKeys opts keysLoc PrivateKeys{..} = do
+    forM_ privateRoot      $ writeKey opts keysLoc keysLayoutRoot
+    forM_ privateTarget    $ writeKey opts keysLoc keysLayoutTarget
+    forM_ privateTimestamp $ writeKey opts keysLoc keysLayoutTimestamp
+    forM_ privateSnapshot  $ writeKey opts keysLoc keysLayoutSnapshot
+    forM_ privateMirrors   $ writeKey opts keysLoc keysLayoutMirrors
 
-readKeysAt :: GlobalOpts -> (KeyLayout -> KeyPath) -> IO [Some Key]
-readKeysAt opts keyDir = catMaybes <$> do
+readKeysAt :: GlobalOpts -> KeysLoc -> (KeysLayout -> KeyPath) -> IO [Some Key]
+readKeysAt opts@GlobalOpts{..} keysLoc subDir = catMaybes <$> do
     entries <- getDirectoryContents absPath
     forM entries $ \entry -> do
       let path = absPath </> entry
@@ -100,16 +108,56 @@ readKeysAt opts keyDir = catMaybes <$> do
                         return Nothing
         Right key -> return $ Just key
   where
-    absPath = anchorKeyPath opts keyDir
+    absPath = anchorKeyPath globalKeysLayout keysLoc subDir
 
-writeKey :: GlobalOpts -> (KeyLayout -> KeyPath) -> Some Key -> IO ()
-writeKey opts keyDir key = do
-    logInfo opts $ "Writing " ++ pretty (relPath defaultKeyLayout)
+writeKey :: GlobalOpts -> KeysLoc -> (KeysLayout -> KeyPath) -> Some Key -> IO ()
+writeKey opts@GlobalOpts{..} keysLoc subDir key = do
+    logInfo opts $ "Writing " ++ pretty (relPath globalKeysLayout)
     createDirectoryIfMissing True (takeDirectory absPath)
     writeJSON_NoLayout absPath key
   where
-    relPath = keyLayoutKey keyDir key
-    absPath = anchorKeyPath opts relPath
+    relPath = keysLayoutKey subDir key
+    absPath = anchorKeyPath globalKeysLayout keysLoc relPath
+
+{-------------------------------------------------------------------------------
+  Creating individual files
+
+  We translate absolute paths to repo layout to fit with rest of infrastructure.
+-------------------------------------------------------------------------------}
+
+createRoot :: GlobalOpts -> KeysLoc -> AbsolutePath -> IO ()
+createRoot opts@GlobalOpts{..} keysLoc rootLoc = do
+    keys <- readKeys opts keysLoc
+    now  <- getCurrentTime
+    updateRoot opts { globalRepoLayout = layout }
+               repoLoc
+               WriteUpdate
+               keys
+               now
+  where
+    repoLoc = RepoLoc $ takeDirectory rootLoc
+    layout  = globalRepoLayout {
+                  repoLayoutRoot = rootFragment $ takeFileName rootLoc
+                }
+
+createMirrors :: GlobalOpts -> KeysLoc -> AbsolutePath -> [URI] -> IO ()
+createMirrors opts@GlobalOpts{..} keysLoc mirrorsLoc mirrors = do
+    keys <- readKeys opts keysLoc
+    now  <- getCurrentTime
+    updateMirrors opts { globalRepoLayout = layout }
+                  repoLoc
+                  WriteUpdate
+                  keys
+                  now
+                  mirrors
+  where
+    repoLoc = RepoLoc $ takeDirectory mirrorsLoc
+    layout  = globalRepoLayout {
+                  repoLayoutMirrors = rootFragment $ takeFileName mirrorsLoc
+                }
+
+rootFragment :: Fragment -> RepoPath
+rootFragment = rootPath Rooted . fragment
 
 {-------------------------------------------------------------------------------
   Bootstrapping / updating
@@ -119,15 +167,15 @@ writeKey opts keyDir key = do
   secure-local),  but I'm not sure precisely in what form yet.
 -------------------------------------------------------------------------------}
 
-bootstrapOrUpdate :: GlobalOpts -> Bool -> IO ()
-bootstrapOrUpdate opts@GlobalOpts{..} isBootstrap = do
+bootstrapOrUpdate :: GlobalOpts -> KeysLoc -> RepoLoc -> Bool -> IO ()
+bootstrapOrUpdate opts@GlobalOpts{..} keysLoc repoLoc isBootstrap = do
     -- Collect info
-    keys <- readKeys opts
+    keys <- readKeys opts keysLoc
     now  <- getCurrentTime
-    pkgs <- findPackages opts
+    pkgs <- findPackages opts repoLoc
 
     -- Sanity check
-    repoLayoutOk <- checkRepoLayout opts pkgs
+    repoLayoutOk <- checkRepoLayout opts repoLoc pkgs
     unless repoLayoutOk $
       throwIO $ userError "Unexpected repository layout"
 
@@ -136,89 +184,38 @@ bootstrapOrUpdate opts@GlobalOpts{..} isBootstrap = do
     -- files to the tarball, so the user deletes the tarball and then calls
     -- update (rather than bootstrap) the tarball will be missing files.
     let whenWrite = if isBootstrap
-                      then WriteAlways
-                      else WriteIfNecessary
+                      then WriteInitial
+                      else WriteUpdate
 
-    -- If doing bootstrap: create root, mirrors, and top-level target files
+    -- If doing bootstrap: create root and mirrors
     when isBootstrap $ do
-      -- Create root metadata
-      let root = Root {
-              rootVersion = versionInitial
-            , rootExpires = expiresInDays now 365
-            , rootKeys    = KeyEnv.fromKeys $ concat [
-                                privateRoot      keys
-                              , privateTarget    keys
-                              , privateSnapshot  keys
-                              , privateTimestamp keys
-                              , privateMirrors   keys
-                              ]
-            , rootRoles   = RootRoles {
-                  rootRolesRoot = RoleSpec {
-                      roleSpecKeys      = map somePublicKey (privateRoot keys)
-                    , roleSpecThreshold = KeyThreshold 2
-                    }
-                , rootRolesTargets = RoleSpec {
-                      roleSpecKeys      = map somePublicKey (privateTarget keys)
-                    , roleSpecThreshold = KeyThreshold 1
-                    }
-                , rootRolesSnapshot = RoleSpec {
-                      roleSpecKeys      = map somePublicKey (privateSnapshot keys)
-                    , roleSpecThreshold = KeyThreshold 1
-                    }
-                , rootRolesTimestamp = RoleSpec {
-                      roleSpecKeys      = map somePublicKey (privateTimestamp keys)
-                    , roleSpecThreshold = KeyThreshold 1
-                    }
-                , rootRolesMirrors = RoleSpec {
-                      roleSpecKeys      = map somePublicKey (privateMirrors keys)
-                    , roleSpecThreshold = KeyThreshold 1
-                    }
-                }
-            }
-
-      updateFile opts
-                 whenWrite
-                 (InRep repoLayoutRoot)
-                 (withSignatures' (privateRoot keys))
-                 root
-
-      -- Create mirrors
-      let mkMirror uri = Mirror uri MirrorFull
-      let mirrors = Mirrors {
-              mirrorsVersion = versionInitial
-            , mirrorsExpires = expiresInDays now (10 * 365)
-            , mirrorsMirrors = map mkMirror globalMirrors
-            }
-      updateFile opts
-                 whenWrite
-                 (InRep repoLayoutMirrors)
-                 (withSignatures' (privateMirrors keys))
-                 mirrors
+      updateRoot    opts repoLoc whenWrite keys now
+      updateMirrors opts repoLoc whenWrite keys now []
 
     -- Create targets.json for each package version
-    forM_ pkgs $ createPackageMetadata opts whenWrite
+    forM_ pkgs $ createPackageMetadata opts repoLoc whenWrite
 
     -- Recreate index tarball
-    newFiles <- findNewIndexFiles opts whenWrite
+    newFiles <- findNewIndexFiles opts repoLoc whenWrite
     case (whenWrite, null newFiles) of
-      (WriteAlways, _) -> do
+      (WriteInitial, _) -> do
         -- If we are recreating all files, also recreate the index
         _didExist <- handleDoesNotExist $ removeFile pathIndexTar
-        logInfo opts $ "Writing " ++ prettyTargetPath' opts (InRep repoLayoutIndexTar)
-      (WriteIfNecessary, True) -> do
-        logInfo opts $ "Skipping " ++ prettyTargetPath' opts (InRep repoLayoutIndexTar)
-      (WriteIfNecessary, False) ->
+        logInfo opts $ "Writing " ++ prettyRepo repoLayoutIndexTar
+      (WriteUpdate, True) -> do
+        logInfo opts $ "Skipping " ++ prettyRepo repoLayoutIndexTar
+      (WriteUpdate, False) ->
         logInfo opts $ "Appending " ++ show (length newFiles)
-                    ++ " file(s) to " ++ prettyTargetPath' opts (InRep repoLayoutIndexTar)
+                    ++ " file(s) to " ++ prettyRepo repoLayoutIndexTar
     unless (null newFiles) $ do
       tarAppend
-        (anchorRepoPath opts repoLayoutIndexTar)
-        (anchorRepoPath opts repoLayoutIndexDir)
+        (anchorRepoPath globalRepoLayout repoLoc repoLayoutIndexTar)
+        (anchorRepoPath globalRepoLayout repoLoc repoLayoutIndexDir)
         (map castRoot newFiles)
 
-      logInfo opts $ "Writing " ++ prettyTargetPath' opts (InRep repoLayoutIndexTarGz)
-      compress (anchorRepoPath opts repoLayoutIndexTar)
-               (anchorRepoPath opts repoLayoutIndexTarGz)
+      logInfo opts $ "Writing " ++ prettyRepo repoLayoutIndexTarGz
+      compress (anchorRepoPath globalRepoLayout repoLoc repoLayoutIndexTar)
+               (anchorRepoPath globalRepoLayout repoLoc repoLayoutIndexTarGz)
 
     -- Create snapshot
     -- TODO: If we are updating we should be incrementing the version, not
@@ -236,6 +233,7 @@ bootstrapOrUpdate opts@GlobalOpts{..} isBootstrap = do
           , snapshotInfoTarGz   = tarGzInfo
           }
     updateFile opts
+               repoLoc
                whenWrite
                (InRep repoLayoutSnapshot)
                (withSignatures globalRepoLayout (privateSnapshot keys))
@@ -249,21 +247,102 @@ bootstrapOrUpdate opts@GlobalOpts{..} isBootstrap = do
           , timestampInfoSnapshot = snapshotInfo
           }
     updateFile opts
+               repoLoc
                whenWrite
                (InRep repoLayoutTimestamp)
                (withSignatures globalRepoLayout (privateTimestamp keys))
                timestamp
   where
     pathIndexTar :: AbsolutePath
-    pathIndexTar = anchorRepoPath opts repoLayoutIndexTar
+    pathIndexTar = anchorRepoPath globalRepoLayout repoLoc repoLayoutIndexTar
 
     -- | Compute file information for a file in the repo
     computeFileInfo' :: (RepoLayout -> RepoPath) -> IO FileInfo
-    computeFileInfo' = computeFileInfo . anchorRepoPath opts
+    computeFileInfo' = computeFileInfo . anchorRepoPath globalRepoLayout repoLoc
+
+    prettyRepo :: (RepoLayout -> RepoPath) -> String
+    prettyRepo = prettyTargetPath' globalRepoLayout . InRep
+
+-- | Create root metadata
+updateRoot :: GlobalOpts
+           -> RepoLoc
+           -> WhenWrite
+           -> PrivateKeys
+           -> UTCTime
+           -> IO ()
+updateRoot opts repoLoc whenWrite keys now =
+    updateFile opts
+               repoLoc
+               whenWrite
+               (InRep repoLayoutRoot)
+               (withSignatures' (privateRoot keys))
+               root
+  where
+    root :: Root
+    root = Root {
+        rootVersion = versionInitial
+      , rootExpires = expiresInDays now 365
+      , rootKeys    = KeyEnv.fromKeys $ concat [
+                          privateRoot      keys
+                        , privateTarget    keys
+                        , privateSnapshot  keys
+                        , privateTimestamp keys
+                        , privateMirrors   keys
+                        ]
+      , rootRoles   = RootRoles {
+            rootRolesRoot = RoleSpec {
+                roleSpecKeys      = map somePublicKey (privateRoot keys)
+              , roleSpecThreshold = KeyThreshold 2
+              }
+          , rootRolesTargets = RoleSpec {
+                roleSpecKeys      = map somePublicKey (privateTarget keys)
+              , roleSpecThreshold = KeyThreshold 1
+              }
+          , rootRolesSnapshot = RoleSpec {
+                roleSpecKeys      = map somePublicKey (privateSnapshot keys)
+              , roleSpecThreshold = KeyThreshold 1
+              }
+          , rootRolesTimestamp = RoleSpec {
+                roleSpecKeys      = map somePublicKey (privateTimestamp keys)
+              , roleSpecThreshold = KeyThreshold 1
+              }
+          , rootRolesMirrors = RoleSpec {
+                roleSpecKeys      = map somePublicKey (privateMirrors keys)
+              , roleSpecThreshold = KeyThreshold 1
+              }
+          }
+      }
+
+
+-- | Create root metadata
+updateMirrors :: GlobalOpts
+              -> RepoLoc
+              -> WhenWrite
+              -> PrivateKeys
+              -> UTCTime
+              -> [URI]
+              -> IO ()
+updateMirrors opts repoLoc whenWrite keys now uris =
+    updateFile opts
+               repoLoc
+               whenWrite
+               (InRep repoLayoutMirrors)
+               (withSignatures' (privateMirrors keys))
+               mirrors
+  where
+    mirrors :: Mirrors
+    mirrors = Mirrors {
+        mirrorsVersion = versionInitial
+      , mirrorsExpires = expiresInDays now (10 * 365)
+      , mirrorsMirrors = map mkMirror uris
+      }
+
+    mkMirror :: URI -> Mirror
+    mkMirror uri = Mirror uri MirrorFull
 
 -- | Create package metadata
-createPackageMetadata :: GlobalOpts -> WhenWrite -> PackageIdentifier -> IO ()
-createPackageMetadata opts whenWrite pkgId = do
+createPackageMetadata :: GlobalOpts -> RepoLoc -> WhenWrite -> PackageIdentifier -> IO ()
+createPackageMetadata opts@GlobalOpts{..} repoLoc whenWrite pkgId = do
     fileMapEntries <- mapM computeFileMapEntry fileMapFiles
     let targets = Targets {
             targetsVersion     = versionInitial
@@ -274,18 +353,19 @@ createPackageMetadata opts whenWrite pkgId = do
 
     -- Currently we "sign" with no keys
     updateFile opts
+               repoLoc
                whenWrite
                (InIdxPkg indexLayoutPkgMetadata pkgId)
                (withSignatures' [])
                targets
 
     -- Extract the cabal file from the package tarball and copy it to the index
-    extractCabalFile opts whenWrite pkgId
+    extractCabalFile opts repoLoc whenWrite pkgId
   where
     computeFileMapEntry :: TargetPath' -> IO (TargetPath, FileInfo)
     computeFileMapEntry file = do
-      info <- computeFileInfo (anchorTargetPath' opts file)
-      return (applyTargetPath' opts file, info)
+      info <- computeFileInfo $ anchorTargetPath' globalRepoLayout repoLoc file
+      return (applyTargetPath' globalRepoLayout file, info)
 
     -- The files we need to add to the package targets file
     -- Currently this is just the .tar.gz file
@@ -299,32 +379,32 @@ createPackageMetadata opts whenWrite pkgId = do
 -------------------------------------------------------------------------------}
 
 -- | Find the files we need to add to the index
-findNewIndexFiles :: GlobalOpts -> WhenWrite -> IO [IndexPath]
-findNewIndexFiles opts whenWrite = do
-    indexTS    <- getFileModificationTime $ anchorRepoPath opts repoLayoutIndexTar
-    indexFiles <- getRecursiveContents    $ anchorRepoPath opts repoLayoutIndexDir
+findNewIndexFiles :: GlobalOpts -> RepoLoc -> WhenWrite -> IO [IndexPath]
+findNewIndexFiles GlobalOpts{..} repoLoc whenWrite = do
+    indexTS    <- getFileModificationTime $ anchorRepoPath globalRepoLayout repoLoc repoLayoutIndexTar
+    indexFiles <- getRecursiveContents    $ anchorRepoPath globalRepoLayout repoLoc repoLayoutIndexDir
 
     let indexFiles' :: [IndexPath]
         indexFiles' = map (rootPath Rooted) indexFiles
 
     case whenWrite of
-      WriteAlways      -> return indexFiles'
-      WriteIfNecessary -> liftM catMaybes $
+      WriteInitial -> return indexFiles'
+      WriteUpdate  -> liftM catMaybes $
         forM indexFiles' $ \indexFile -> do
-          fileTS <- getFileModificationTime $ anchorIndexPath opts (const indexFile)
+          fileTS <- getFileModificationTime $ anchorIndexPath globalRepoLayout repoLoc (const indexFile)
           if fileTS > indexTS then return $ Just indexFile
                               else return Nothing
 
 -- | Extract the cabal file from the package tarball and copy it to the index
-extractCabalFile :: GlobalOpts -> WhenWrite -> PackageIdentifier -> IO ()
-extractCabalFile opts@GlobalOpts{..} whenWrite pkgId = do
+extractCabalFile :: GlobalOpts -> RepoLoc -> WhenWrite -> PackageIdentifier -> IO ()
+extractCabalFile opts@GlobalOpts{..} repoLoc whenWrite pkgId = do
     tarGzTS <- getFileModificationTime pathTarGz
     cabalTS <- getFileModificationTime pathCabalInIdx
     let skip = case whenWrite of
-                 WriteAlways      -> False
-                 WriteIfNecessary -> cabalTS >= tarGzTS
+                 WriteInitial -> False
+                 WriteUpdate  -> cabalTS >= tarGzTS
     if skip
-      then logInfo opts $ "Skipping " ++ prettyTargetPath' opts dst
+      then logInfo opts $ "Skipping " ++ prettyTargetPath' globalRepoLayout dst
       else do
         archive <- Tar.read . GZip.decompress <$> readLazyByteString pathTarGz
         mCabalFile <- tarExtractFile pathCabalInTar archive
@@ -333,9 +413,9 @@ extractCabalFile opts@GlobalOpts{..} whenWrite pkgId = do
             logWarn opts $ ".cabal file missing for package " ++ display pkgId
           Just (cabalFile, _cabalSize) -> do
             logInfo opts $ "Writing "
-                        ++ prettyTargetPath' opts dst
+                        ++ prettyTargetPath' globalRepoLayout dst
                         ++ " (extracted from "
-                        ++ prettyTargetPath' opts src
+                        ++ prettyTargetPath' globalRepoLayout src
                         ++ ")"
             writeLazyByteString pathCabalInIdx cabalFile
   where
@@ -346,8 +426,8 @@ extractCabalFile opts@GlobalOpts{..} whenWrite pkgId = do
                        ] FilePath.<.> "cabal"
 
     pathTarGz, pathCabalInIdx :: AbsolutePath
-    pathCabalInIdx = anchorTargetPath' opts dst
-    pathTarGz      = anchorTargetPath' opts src
+    pathCabalInIdx = anchorTargetPath' globalRepoLayout repoLoc dst
+    pathTarGz      = anchorTargetPath' globalRepoLayout repoLoc src
 
     src, dst :: TargetPath'
     dst = InIdxPkg indexLayoutPkgCabal pkgId
@@ -357,7 +437,16 @@ extractCabalFile opts@GlobalOpts{..} whenWrite pkgId = do
   Updating files in the repo or in the index
 -------------------------------------------------------------------------------}
 
-data WhenWrite = WriteIfNecessary | WriteAlways
+data WhenWrite =
+    -- | Write the initial version of a file
+    --
+    -- If applicable, set file version to 1.
+    WriteInitial
+
+    -- | Update an existing
+    --
+    -- If applicable, increment file version number.
+  | WriteUpdate
 
 -- | Write canonical JSON
 --
@@ -372,23 +461,24 @@ data WhenWrite = WriteIfNecessary | WriteAlways
 -- directory on the same file system. A worry for later.
 updateFile :: forall a. (ToJSON WriteJSON (Signed a), HasHeader a)
            => GlobalOpts
+           -> RepoLoc
            -> WhenWrite
            -> TargetPath'
            -> (a -> Signed a)          -- ^ Signing function
            -> a                        -- ^ Unsigned file contents
            -> IO ()
-updateFile opts@GlobalOpts{..} whenWrite fileLoc signPayload a = do
+updateFile opts@GlobalOpts{..} repoLoc whenWrite fileLoc signPayload a = do
     mOldHeader :: Maybe (Either DeserializationError (IgnoreSigned Header)) <-
       handleDoesNotExist $ readJSON_NoKeys_NoLayout fp
 
     case (whenWrite, mOldHeader) of
-      (WriteAlways, _) ->
+      (WriteInitial, _) ->
         writeDoc writing a
-      (WriteIfNecessary, Nothing) -> -- no previous version
+      (WriteUpdate, Nothing) -> -- no previous version
         writeDoc creating a
-      (WriteIfNecessary, Just (Left _err)) -> -- old file corrupted
+      (WriteUpdate, Just (Left _err)) -> -- old file corrupted
         writeDoc overwriting a
-      (WriteIfNecessary, Just (Right (IgnoreSigned oldHeader))) -> do
+      (WriteUpdate, Just (Right (IgnoreSigned oldHeader))) -> do
         -- We cannot quite read the entire old file, because we don't know
         -- what key environment to use. Instead, we write the _new_ file,
         -- but setting the version number to be able to the version number
@@ -410,7 +500,7 @@ updateFile opts@GlobalOpts{..} whenWrite fileLoc signPayload a = do
           oldFileInfo <- computeFileInfo' fp
           newFileInfo <- computeFileInfo tempPath
           if oldFileInfo == Just newFileInfo
-            then logInfo opts $ "Skipping " ++ prettyTargetPath' opts fileLoc
+            then logInfo opts $ "Skipping " ++ prettyTargetPath' globalRepoLayout fileLoc
             else writeDoc updating wIncVersion
   where
     -- | Actually write the file
@@ -421,13 +511,13 @@ updateFile opts@GlobalOpts{..} whenWrite fileLoc signPayload a = do
       writeJSON globalRepoLayout fp (signPayload doc)
 
     fp :: AbsolutePath
-    fp = anchorTargetPath' opts fileLoc
+    fp = anchorTargetPath' globalRepoLayout repoLoc fileLoc
 
     writing, creating, overwriting, updating :: String
-    writing     = "Writing "     ++ prettyTargetPath' opts fileLoc
-    creating    = "Creating "    ++ prettyTargetPath' opts fileLoc
-    overwriting = "Overwriting " ++ prettyTargetPath' opts fileLoc ++ " (old file corrupted)"
-    updating    = "Updating "    ++ prettyTargetPath' opts fileLoc
+    writing     = "Writing "     ++ prettyTargetPath' globalRepoLayout fileLoc
+    creating    = "Creating "    ++ prettyTargetPath' globalRepoLayout fileLoc
+    overwriting = "Overwriting " ++ prettyTargetPath' globalRepoLayout fileLoc ++ " (old file corrupted)"
+    updating    = "Updating "    ++ prettyTargetPath' globalRepoLayout fileLoc
 
     computeFileInfo' :: AbsolutePath -> IO (Maybe FileInfo)
     computeFileInfo' path =
@@ -448,9 +538,9 @@ updateFile opts@GlobalOpts{..} whenWrite fileLoc signPayload a = do
 -- through the directory looking for anything that looks like a package.
 -- We can then verify that this list of packages actually matches the layout as
 -- a separate step.
-findPackages :: GlobalOpts -> IO [PackageIdentifier]
-findPackages GlobalOpts{..} =
-    mapMaybe isPackage <$> getRecursiveContents globalRepo
+findPackages :: GlobalOpts -> RepoLoc -> IO [PackageIdentifier]
+findPackages GlobalOpts{..} (RepoLoc repoLoc) =
+    mapMaybe isPackage <$> getRecursiveContents repoLoc
   where
     isPackage :: UnrootedPath -> Maybe PackageIdentifier
     isPackage path = do
@@ -462,16 +552,16 @@ findPackages GlobalOpts{..} =
     isIndex = (==) (unrootPath' (repoLayoutIndexTarGz globalRepoLayout))
 
 -- | Check that packages are in their expected location
-checkRepoLayout :: GlobalOpts -> [PackageIdentifier] -> IO Bool
-checkRepoLayout opts@GlobalOpts{..} = liftM and . mapM checkPackage
+checkRepoLayout :: GlobalOpts -> RepoLoc -> [PackageIdentifier] -> IO Bool
+checkRepoLayout opts@GlobalOpts{..} repoLoc = liftM and . mapM checkPackage
   where
     checkPackage :: PackageIdentifier -> IO Bool
     checkPackage pkgId = do
-        existsTarGz <- doesFileExist $ anchorTargetPath' opts expectedTarGz
+        existsTarGz <- doesFileExist $ anchorTargetPath' globalRepoLayout repoLoc expectedTarGz
         unless existsTarGz $
           logWarn opts $ "Package tarball " ++ display pkgId
                       ++ " expected in location "
-                      ++ prettyTargetPath' opts expectedTarGz
+                      ++ prettyTargetPath' globalRepoLayout expectedTarGz
 
         return existsTarGz
       where
