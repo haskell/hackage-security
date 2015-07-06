@@ -33,8 +33,8 @@ import qualified Hackage.Security.TUF.FileMap as FileMap
 import qualified Hackage.Security.Util.Lens   as Lens
 
 -- hackage-secure-local
-import Hackage.Security.Local.Options
-import Hackage.Security.Local.Layout
+import Hackage.Security.Utility.Options
+import Hackage.Security.Utility.Layout
 
 {-------------------------------------------------------------------------------
   Main application driver

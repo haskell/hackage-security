@@ -3,7 +3,7 @@
 -- The local repository follows a RepoLayout exactly, but adds some additional
 -- files. In addition, we also manage a directory of keys (although this will
 -- eventually need to be replaced with a proper key management system).
-module Hackage.Security.Local.Layout (
+module Hackage.Security.Utility.Layout (
     -- * Additional paths
     repoLayoutIndexDir
     -- * Layout of the keys directory
@@ -29,7 +29,8 @@ import Hackage.Security.Client
 import Hackage.Security.Util.Path
 import Hackage.Security.Util.Pretty
 import Hackage.Security.Util.Some
-import Hackage.Security.Local.Options
+
+import Hackage.Security.Utility.Options
 
 {-------------------------------------------------------------------------------
   Additional paths specifically to the kind of repository this tool manages

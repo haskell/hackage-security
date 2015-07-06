@@ -11,9 +11,10 @@ category:            Distribution
 build-type:          Simple
 cabal-version:       >=1.10
 
-executable hackage-secure-local
+executable hackage-security
   main-is:             Main.hs
-  other-modules:       Hackage.Security.Local.Options
+  other-modules:       Hackage.Security.Utility.Options
+                       Hackage.Security.Utility.Layout
                        Prelude
   build-depends:       base                 >= 4.4,
                        bytestring           >= 0.9,

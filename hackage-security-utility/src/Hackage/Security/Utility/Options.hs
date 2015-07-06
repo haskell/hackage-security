@@ -1,4 +1,4 @@
-module Hackage.Security.Local.Options (
+module Hackage.Security.Utility.Options (
     GlobalOpts(..)
   , Command(..)
   , getOptions
