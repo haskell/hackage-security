@@ -96,17 +96,9 @@ data FileSize =
     -- be able to provide an upper bound (timestamp, root info)
   | FileSizeBound Int
 
-    -- | If we don't want to guess, we can also just indicate we have no idea
-    -- what size file we are expecting. This means we cannot protect against
-    -- endless data attacks however.
-    --
-    -- TODO: Once we put in estimates we should get rid of this.
-  | FileSizeUnknown
-
 fileSizeWithinBounds :: Int -> FileSize -> Bool
 fileSizeWithinBounds sz (FileSizeExact sz') = sz <= sz'
 fileSizeWithinBounds sz (FileSizeBound sz') = sz <= sz'
-fileSizeWithinBounds _  FileSizeUnknown     = True
 
 data DownloadedRange = DownloadedRange | DownloadedEntireFile
 
@@ -480,13 +472,13 @@ remoteFileURI repoLayout baseURI = fmap aux . remoteFilePath repoLayout
     aux repoPath = modifyUriPath baseURI (`anchorRepoPathRemotely` repoPath)
 
 -- | Extracting or estimating file sizes
---
--- TODO: Put in estimates
 remoteFileSize :: RemoteFile fs -> Formats fs FileSize
 remoteFileSize (RemoteTimestamp) =
-    FsUn FileSizeUnknown
+    FsUn $ FileSizeBound fileSizeBoundTimestamp
 remoteFileSize (RemoteRoot mLen) =
-    FsUn $ maybe FileSizeUnknown (FileSizeExact . fileLength . trusted) mLen
+    FsUn $ maybe (FileSizeBound fileSizeBoundRoot)
+                 (FileSizeExact . fileLength . trusted)
+                 mLen
 remoteFileSize (RemoteSnapshot len) =
     FsUn $ FileSizeExact (fileLength (trusted len))
 remoteFileSize (RemoteMirrors len) =
@@ -495,6 +487,41 @@ remoteFileSize (RemoteIndex _ lens) =
     fmap (FileSizeExact . fileLength . trusted) lens
 remoteFileSize (RemotePkgTarGz _pkgId len) =
     FsGz $ FileSizeExact (fileLength (trusted len))
+
+-- | Bound on the size of the timestamp
+--
+-- This is intended as a permissive rather than tight bound.
+--
+-- The timestamp signed with a single key is 420 bytes; the signature makes up
+-- just under 200 bytes of that. So even if the timestamp is signed with 10
+-- keys it would still only be 2420 bytes. Doubling this amount, an upper bound
+-- of 4kB should definitely be sufficient.
+fileSizeBoundTimestamp :: Int
+fileSizeBoundTimestamp = 4096
+
+-- | Bound on the size of the root
+--
+-- This is intended as a permissive rather than tight bound.
+--
+-- The variable parts of the root metadata are
+--
+-- * Signatures, each of which are about 200 bytes
+-- * A key environment (mapping from key IDs to public keys), each is of
+--   which is also about 200 bytes
+-- * Mirrors, root, snapshot, targets, and timestamp role specifications.
+--   These contains key IDs, each of which is about 80 bytes.
+--
+-- A skeleton root metadata is about 580 bytes. Allowing for
+--
+-- * 100 signatures
+-- * 100 mirror keys, 1000 root keys, 100 snapshot keys, 1000 target keys,
+--   100 timestamp keys
+-- * the corresponding 2300 entries in the key environment
+--
+-- We end up with a bound of about 665,000 bytes. Doubling this amount, an
+-- upper bound of 2MB should definitely be sufficient.
+fileSizeBoundRoot :: Int
+fileSizeBoundRoot = 2 * 1024 * 2014
 
 {-------------------------------------------------------------------------------
   Configuration
