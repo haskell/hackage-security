@@ -1,11 +1,13 @@
-{-# LANGUAGE TemplateHaskell #-}
+{-# LANGUAGE CPP #-}
 module Main (main) where
 
 import Control.Exception
 import Control.Monad
 import Data.Maybe (catMaybes, mapMaybe)
 import Data.Time
+import GHC.Conc.Sync (setUncaughtExceptionHandler)
 import Network.URI (URI)
+import System.Exit
 import System.IO
 import System.IO.Error
 import qualified Codec.Archive.Tar       as Tar
@@ -37,12 +39,15 @@ import qualified Hackage.Security.Util.Lens   as Lens
 import Hackage.Security.Utility.Options
 import Hackage.Security.Utility.Layout
 
+import Data.Typeable
+
 {-------------------------------------------------------------------------------
   Main application driver
 -------------------------------------------------------------------------------}
 
 main :: IO ()
 main = do
+    setUncaughtExceptionHandler topLevelExceptionHandler
     opts@GlobalOpts{..} <- getOptions
     case globalCommand of
       CreateKeys keysLoc ->
@@ -55,6 +60,24 @@ main = do
         createRoot opts keysLoc rootLoc
       CreateMirrors keysLoc mirrorsLoc mirrors ->
         createMirrors opts keysLoc mirrorsLoc mirrors
+
+-- | Top-level exception handler that uses 'displayException'
+--
+-- Although base 4.8 introduces 'displayException', the top-level exception
+-- handler still uses 'show', sadly. See "PROPOSAL: Add displayException to
+-- Exception typeclass" thread on the libraries mailing list.
+--
+-- NOTE: This is a terrible hack. See the above thread for some insights into
+-- how we should do this better. For now it will do however.
+topLevelExceptionHandler :: SomeException -> IO ()
+topLevelExceptionHandler e = do
+    putStrLn $ displayException e
+    exitFailure
+
+#if !MIN_VERSION_base(4,8,0)
+displayException :: Exception e => e -> String
+displayException = show
+#endif
 
 {-------------------------------------------------------------------------------
   Creating keys
@@ -193,7 +216,9 @@ bootstrapOrUpdate opts@GlobalOpts{..} keysLoc repoLoc isBootstrap = do
       updateMirrors opts repoLoc whenWrite keys now []
 
     -- Create targets.json for each package version
-    forM_ pkgs $ createPackageMetadata opts repoLoc whenWrite
+    forM_ pkgs $ \pkgId -> do
+      createPackageMetadata opts repoLoc whenWrite pkgId
+      extractCabalFile      opts repoLoc whenWrite pkgId
 
     -- Recreate index tarball
     newFiles <- findNewIndexFiles opts repoLoc whenWrite
@@ -355,12 +380,9 @@ createPackageMetadata opts@GlobalOpts{..} repoLoc whenWrite pkgId = do
     updateFile opts
                repoLoc
                whenWrite
-               (InIdxPkg indexLayoutPkgMetadata pkgId)
+               targetPathJson
                (withSignatures' [])
                targets
-
-    -- Extract the cabal file from the package tarball and copy it to the index
-    extractCabalFile opts repoLoc whenWrite pkgId
   where
     computeFileMapEntry :: TargetPath' -> IO (TargetPath, FileInfo)
     computeFileMapEntry file = do
@@ -370,9 +392,11 @@ createPackageMetadata opts@GlobalOpts{..} repoLoc whenWrite pkgId = do
     -- The files we need to add to the package targets file
     -- Currently this is just the .tar.gz file
     fileMapFiles :: [TargetPath']
-    fileMapFiles = [
-        InRepPkg repoLayoutPkgTarGz pkgId
-      ]
+    fileMapFiles = [targetPathTarGz]
+
+    targetPathTarGz, targetPathJson :: TargetPath'
+    targetPathTarGz = InRepPkg repoLayoutPkgTarGz     pkgId
+    targetPathJson  = InIdxPkg indexLayoutPkgMetadata pkgId
 
 {-------------------------------------------------------------------------------
   Working with the index
@@ -380,9 +404,9 @@ createPackageMetadata opts@GlobalOpts{..} repoLoc whenWrite pkgId = do
 
 -- | Find the files we need to add to the index
 findNewIndexFiles :: GlobalOpts -> RepoLoc -> WhenWrite -> IO [IndexPath]
-findNewIndexFiles GlobalOpts{..} repoLoc whenWrite = do
-    indexTS    <- getFileModificationTime $ anchorRepoPath globalRepoLayout repoLoc repoLayoutIndexTar
-    indexFiles <- getRecursiveContents    $ anchorRepoPath globalRepoLayout repoLoc repoLayoutIndexDir
+findNewIndexFiles opts@GlobalOpts{..} repoLoc whenWrite = do
+    indexTS    <- getFileModTime opts repoLoc (InRep repoLayoutIndexTar)
+    indexFiles <- getRecursiveContents absIndexDir
 
     let indexFiles' :: [IndexPath]
         indexFiles' = map (rootPath Rooted) indexFiles
@@ -391,27 +415,32 @@ findNewIndexFiles GlobalOpts{..} repoLoc whenWrite = do
       WriteInitial -> return indexFiles'
       WriteUpdate  -> liftM catMaybes $
         forM indexFiles' $ \indexFile -> do
-          fileTS <- getFileModificationTime $ anchorIndexPath globalRepoLayout repoLoc (const indexFile)
+          fileTS <- getFileModTime opts repoLoc $ InIdx (const indexFile)
           if fileTS > indexTS then return $ Just indexFile
                               else return Nothing
+  where
+    absIndexDir :: AbsolutePath
+    absIndexDir = anchorRepoPath globalRepoLayout repoLoc repoLayoutIndexDir
 
 -- | Extract the cabal file from the package tarball and copy it to the index
 extractCabalFile :: GlobalOpts -> RepoLoc -> WhenWrite -> PackageIdentifier -> IO ()
 extractCabalFile opts@GlobalOpts{..} repoLoc whenWrite pkgId = do
-    tarGzTS <- getFileModificationTime pathTarGz
-    cabalTS <- getFileModificationTime pathCabalInIdx
+    tarGzTS <- getFileModTime opts repoLoc src
+    cabalTS <- getFileModTime opts repoLoc dst
     let skip = case whenWrite of
                  WriteInitial -> False
                  WriteUpdate  -> cabalTS >= tarGzTS
     if skip
       then logInfo opts $ "Skipping " ++ prettyTargetPath' globalRepoLayout dst
       else do
-        archive <- Tar.read . GZip.decompress <$> readLazyByteString pathTarGz
-        mCabalFile <- tarExtractFile pathCabalInTar archive
+        mCabalFile <- try $ tarExtractFile opts repoLoc src pathCabalInTar
         case mCabalFile of
-          Nothing ->
+          Left (ex :: SomeException) ->
+            logWarn opts $ "Failed to extract .cabal from package " ++ display pkgId
+                        ++ ": " ++ displayException ex
+          Right Nothing ->
             logWarn opts $ ".cabal file missing for package " ++ display pkgId
-          Just (cabalFile, _cabalSize) -> do
+          Right (Just (cabalFile, _cabalSize)) -> do
             logInfo opts $ "Writing "
                         ++ prettyTargetPath' globalRepoLayout dst
                         ++ " (extracted from "
@@ -425,9 +454,8 @@ extractCabalFile opts@GlobalOpts{..} repoLoc whenWrite pkgId = do
                        , display (packageName pkgId)
                        ] FilePath.<.> "cabal"
 
-    pathTarGz, pathCabalInIdx :: AbsolutePath
+    pathCabalInIdx :: AbsolutePath
     pathCabalInIdx = anchorTargetPath' globalRepoLayout repoLoc dst
-    pathTarGz      = anchorTargetPath' globalRepoLayout repoLoc src
 
     src, dst :: TargetPath'
     dst = InIdxPkg indexLayoutPkgCabal pkgId
@@ -604,10 +632,13 @@ hasExtensions = \fp exts -> go (takeFileName' fp) (reverse exts)
 -- | Get the modification time of the specified file
 --
 -- Returns 0 if the file does not exist .
-getFileModificationTime :: AbsolutePath -> IO EpochTime
-getFileModificationTime fp = handle handler $
-    modificationTime <$> getFileStatus (toFilePath fp)
+getFileModTime :: GlobalOpts -> RepoLoc -> TargetPath' -> IO EpochTime
+getFileModTime GlobalOpts{..} repoLoc targetPath =
+    handle handler $ modificationTime <$> getFileStatus (toFilePath fp)
   where
+    fp :: AbsolutePath
+    fp = anchorTargetPath' globalRepoLayout repoLoc targetPath
+
     handler :: IOException -> IO EpochTime
     handler ex = if isDoesNotExistError ex then return 0
                                            else throwIO ex
@@ -620,19 +651,38 @@ compress src dst =
 --
 -- Throws an exception if there is an error in the archive or when the entry
 -- is not a file. Returns nothing if the entry cannot be found.
-tarExtractFile :: forall e. Exception e
-               => FilePath
-               -> Tar.Entries e
+tarExtractFile :: GlobalOpts
+               -> RepoLoc
+               -> TargetPath'
+               -> FilePath
                -> IO (Maybe (BS.L.ByteString, Tar.FileSize))
-tarExtractFile path = go
+tarExtractFile GlobalOpts{..} repoLoc pathTarGz pathToExtract =
+     handle (throwIO . TarGzError (prettyTargetPath' globalRepoLayout pathTarGz)) $ do
+       let pathTarGz' = anchorTargetPath' globalRepoLayout repoLoc pathTarGz
+       go =<< Tar.read . GZip.decompress <$> readLazyByteString pathTarGz'
   where
-    go :: Tar.Entries e -> IO (Maybe (BS.L.ByteString, Tar.FileSize))
+    go :: Exception e => Tar.Entries e -> IO (Maybe (BS.L.ByteString, Tar.FileSize))
     go Tar.Done        = return Nothing
     go (Tar.Fail err)  = throwIO err
     go (Tar.Next e es) =
-      if Tar.entryPath e == path
+      if Tar.entryPath e == pathToExtract
         then case Tar.entryContent e of
                Tar.NormalFile bs sz -> return $ Just (bs, sz)
-               _ -> throwIO $ userError "tarExtractFile: Not a normal file"
+               _ -> throwIO $ userError
+                            $ "tarExtractFile: "
+                           ++ pathToExtract ++ " not a normal file"
         else do -- putStrLn $ show (Tar.entryPath e) ++ " /= " ++ show path
                 go es
+
+data TarGzError = TarGzError FilePath SomeException
+  deriving (Typeable)
+
+instance Exception TarGzError where
+#if MIN_VERSION_base(4,8,0)
+  displayException (TarGzError path e) = path ++ ": " ++ displayException e
+
+deriving instance Show TarGzError
+#else
+instance Show TarGzError where
+  show (TarGzError path e) = path ++ ": " ++ show e
+#endif
