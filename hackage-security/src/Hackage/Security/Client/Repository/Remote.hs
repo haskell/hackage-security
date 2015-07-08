@@ -36,6 +36,7 @@ module Hackage.Security.Client.Repository.Remote (
 import Control.Concurrent
 import Control.Exception
 import Control.Monad.Except
+import Data.List (nub)
 import Network.URI hiding (uriPath, path)
 import System.IO
 import qualified Data.ByteString      as BS
@@ -401,8 +402,7 @@ withMirror :: forall a.
            -> IO a                   -- ^ Callback
            -> IO a
 withMirror HttpClient{..} selectedMirror logger oobMirrors tufMirrors callback =
-    -- TODO: We will want to make the construction of this list configurable.
-    go $ oobMirrors ++ maybe [] (map mirrorUrlBase) tufMirrors
+    go orderedMirrors
   where
     go :: [URI] -> IO a
     -- Empty list of mirrors is a bug
@@ -418,6 +418,10 @@ withMirror HttpClient{..} selectedMirror logger oobMirrors tufMirrors callback =
       catchRecoverable httpWrapCustomEx (select m callback) $ \ex -> do
         logger $ LogMirrorFailed (show m) ex
         go ms
+
+    -- TODO: We will want to make the construction of this list configurable.
+    orderedMirrors :: [URI]
+    orderedMirrors = nub $ oobMirrors ++ maybe [] (map mirrorUrlBase) tufMirrors
 
     select :: URI -> IO a -> IO a
     select uri =
