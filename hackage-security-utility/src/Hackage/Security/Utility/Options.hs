@@ -115,16 +115,16 @@ parseGlobalOptions = GlobalOpts
         , help "Verbose logging"
         ])
   <*> (subparser $ mconcat [
-          command "create-keys" (info parseCreateKeys
-              (progDesc "Create keys"))
-        , command "bootstrap" (info parseBootstrap
-            (progDesc "Bootstrap a local repository"))
-        , command "update" (info parseUpdate
-            (progDesc "Update a (previously bootstrapped) local repository"))
-        , command "create-root" (info parseCreateRoot
-            (progDesc "Create root metadata"))
-        , command "create-mirrors" (info parseCreateMirrors
-            (progDesc "Create mirrors metadata. All MIRRORs specified on the command line will be written to the file."))
+          command "create-keys" $ info (helper <*> parseCreateKeys) $
+            progDesc "Create keys"
+        , command "bootstrap" $ info (helper <*> parseBootstrap) $
+            progDesc "Bootstrap a local repository"
+        , command "update" $ info (helper <*> parseUpdate) $
+            progDesc "Update a (previously bootstrapped) local repository"
+        , command "create-root" $ info (helper <*> parseCreateRoot) $
+            progDesc "Create root metadata"
+        , command "create-mirrors" $ info (helper <*> parseCreateMirrors) $
+            progDesc "Create mirrors metadata. All MIRRORs specified on the command line will be written to the file."
         ])
 
 readURI :: String -> ReadM URI

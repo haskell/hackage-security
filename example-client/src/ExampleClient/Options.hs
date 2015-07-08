@@ -65,6 +65,15 @@ getOptions = execParser opts
       , header "Example Hackage client"
       ]
 
+parseBootstrap :: Parser Command
+parseBootstrap = Bootstrap <$> argument readKeyThreshold (metavar "THRESHOLD")
+
+parseCheck :: Parser Command
+parseCheck = pure Check
+
+parseGet :: Parser Command
+parseGet = Get <$> argument readPackageIdentifier (metavar "PKG")
+
 parseGlobalOptions :: Parser GlobalOpts
 parseGlobalOptions = GlobalOpts
   <$> (option (str >>= readRepo) $ mconcat [
@@ -98,15 +107,12 @@ parseGlobalOptions = GlobalOpts
        , help "Don't check expiry dates (should only be used in exceptional circumstances)"
        ])
   <*> (subparser $ mconcat [
-          command "bootstrap" $
-            info (Bootstrap <$> argument readKeyThreshold (metavar "THRESHOLD"))
-                 (progDesc "Get the initial root information. If using a key threshold larger than 0, you will need to use the --root-key option to specify one or more trusted root keys.")
-        , command "check" $
-            info (pure Check)
-                 (progDesc "Check for updates")
-        , command "get" $
-            info (Get <$> argument readPackageIdentifier (metavar "PKG"))
-                 (progDesc "Download a package")
+          command "bootstrap" $ info (helper <*> parseBootstrap) $
+            progDesc "Get the initial root information. If using a key threshold larger than 0, you will need to use the --root-key option to specify one or more trusted root keys."
+        , command "check" $ info (helper <*> parseCheck) $
+            progDesc "Check for updates"
+        , command "get" $ info (helper <*> parseGet) $
+            progDesc "Download a package"
         ])
 
 readKeyId :: ReadM KeyId
