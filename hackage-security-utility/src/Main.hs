@@ -368,21 +368,30 @@ updateMirrors opts repoLoc whenWrite keys now uris =
 -- | Create package metadata
 createPackageMetadata :: GlobalOpts -> RepoLoc -> WhenWrite -> PackageIdentifier -> IO ()
 createPackageMetadata opts@GlobalOpts{..} repoLoc whenWrite pkgId = do
-    fileMapEntries <- mapM computeFileMapEntry fileMapFiles
-    let targets = Targets {
-            targetsVersion     = versionInitial
-          , targetsExpires     = expiresNever
-          , targetsTargets     = FileMap.fromList fileMapEntries
-          , targetsDelegations = Nothing
-          }
+    srcTS <- getFileModTime opts repoLoc src
+    dstTS <- getFileModTime opts repoLoc dst
+    let skip = case whenWrite of
+                 WriteInitial -> False
+                 WriteUpdate  -> dstTS >= srcTS
 
-    -- Currently we "sign" with no keys
-    updateFile opts
-               repoLoc
-               whenWrite
-               targetPathJson
-               (withSignatures' [])
-               targets
+    if skip
+      then logInfo opts $ "Skipping " ++ prettyTargetPath' globalRepoLayout dst
+      else do
+        fileMapEntries <- mapM computeFileMapEntry fileMapFiles
+        let targets = Targets {
+                targetsVersion     = versionInitial
+              , targetsExpires     = expiresNever
+              , targetsTargets     = FileMap.fromList fileMapEntries
+              , targetsDelegations = Nothing
+              }
+
+        -- Currently we "sign" with no keys
+        updateFile opts
+                   repoLoc
+                   whenWrite
+                   dst
+                   (withSignatures' [])
+                   targets
   where
     computeFileMapEntry :: TargetPath' -> IO (TargetPath, FileInfo)
     computeFileMapEntry file = do
@@ -392,11 +401,11 @@ createPackageMetadata opts@GlobalOpts{..} repoLoc whenWrite pkgId = do
     -- The files we need to add to the package targets file
     -- Currently this is just the .tar.gz file
     fileMapFiles :: [TargetPath']
-    fileMapFiles = [targetPathTarGz]
+    fileMapFiles = [src]
 
-    targetPathTarGz, targetPathJson :: TargetPath'
-    targetPathTarGz = InRepPkg repoLayoutPkgTarGz     pkgId
-    targetPathJson  = InIdxPkg indexLayoutPkgMetadata pkgId
+    src, dst :: TargetPath'
+    src = InRepPkg repoLayoutPkgTarGz     pkgId
+    dst = InIdxPkg indexLayoutPkgMetadata pkgId
 
 {-------------------------------------------------------------------------------
   Working with the index
@@ -425,11 +434,11 @@ findNewIndexFiles opts@GlobalOpts{..} repoLoc whenWrite = do
 -- | Extract the cabal file from the package tarball and copy it to the index
 extractCabalFile :: GlobalOpts -> RepoLoc -> WhenWrite -> PackageIdentifier -> IO ()
 extractCabalFile opts@GlobalOpts{..} repoLoc whenWrite pkgId = do
-    tarGzTS <- getFileModTime opts repoLoc src
-    cabalTS <- getFileModTime opts repoLoc dst
+    srcTS <- getFileModTime opts repoLoc src
+    dstTS <- getFileModTime opts repoLoc dst
     let skip = case whenWrite of
                  WriteInitial -> False
-                 WriteUpdate  -> cabalTS >= tarGzTS
+                 WriteUpdate  -> dstTS >= srcTS
     if skip
       then logInfo opts $ "Skipping " ++ prettyTargetPath' globalRepoLayout dst
       else do
@@ -528,7 +537,7 @@ updateFile opts@GlobalOpts{..} repoLoc whenWrite fileLoc signPayload a = do
           oldFileInfo <- computeFileInfo' fp
           newFileInfo <- computeFileInfo tempPath
           if oldFileInfo == Just newFileInfo
-            then logInfo opts $ "Skipping " ++ prettyTargetPath' globalRepoLayout fileLoc
+            then logInfo opts $ "Unchanged " ++ prettyTargetPath' globalRepoLayout fileLoc
             else writeDoc updating wIncVersion
   where
     -- | Actually write the file
