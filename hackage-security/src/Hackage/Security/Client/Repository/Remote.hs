@@ -120,7 +120,7 @@ data HttpClient = HttpClient {
     -- Range is starting and (exclusive) end offset in bytes.
     --
     -- Servers can respond to a range request by sending the entire file
-    -- instead. We tell the callback if it got the range of the entire file.
+    -- instead. We tell the callback if it got the range or the entire file.
   , httpClientGetRange :: forall a.
                           [HttpOption]
                        -> URI
