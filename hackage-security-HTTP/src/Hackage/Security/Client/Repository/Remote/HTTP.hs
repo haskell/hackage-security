@@ -7,6 +7,8 @@ import Control.Concurrent
 import Control.Exception
 import Control.Monad
 import Data.IORef
+import Data.Monoid
+import Data.List (intercalate)
 import Data.Typeable
 import Network.Browser
 import Network.HTTP
@@ -17,6 +19,7 @@ import qualified Control.Monad.State  as State
 
 import Hackage.Security.Client
 import Hackage.Security.Client.Repository.Remote
+import qualified Hackage.Security.Util.Lens as Lens
 
 {-------------------------------------------------------------------------------
   Top-level API
@@ -163,8 +166,22 @@ setRange from to = insertHeader HdrRange rangeHeader
     rangeHeader = "bytes=" ++ show from ++ "-" ++ show (to - 1)
 
 setHttpOptions :: HasHeaders a => [HttpOption] -> a -> a
-setHttpOptions = foldr (.) id . map (uncurry insertHeader . trOpt)
+setHttpOptions =
+    foldr (.) id . map (uncurry insertHeader) . trOpt []
   where
-    trOpt :: HttpOption -> (HeaderName, String)
-    trOpt HttpOptionMaxAge0     = (HdrCacheControl, "max-age=0")
-    trOpt HttpOptionNoTransform = (HdrCacheControl, "no-transform")
+    trOpt :: [(HeaderName, [String])] -> [HttpOption] -> [(HeaderName, String)]
+    trOpt acc [] =
+      concatMap finalizeHeader acc
+    trOpt acc (HttpOptionMaxAge0:os) =
+      trOpt (insert HdrCacheControl ["max-age=0"] acc) os
+    trOpt acc (HttpOptionNoTransform:os) =
+      trOpt (insert HdrCacheControl ["no-transform"] acc) os
+
+    -- Some headers are comma-separated, others need multiple headers for
+    -- multiple options. Since right now we deal with HdrCacheControl only,
+    -- we just comma-separate all of them.
+    finalizeHeader :: (HeaderName, [String]) -> [(HeaderName, String)]
+    finalizeHeader (name, strs) = [(name, intercalate ", " (reverse strs))]
+
+    insert :: (Eq a, Monoid b) => a -> b -> [(a, b)] -> [(a, b)]
+    insert x y = Lens.modify (Lens.lookupM x) (mappend y)

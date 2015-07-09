@@ -1,19 +1,24 @@
+{-# LANGUAGE OverloadedStrings #-}
 module Hackage.Security.Client.Repository.Remote.HttpClient (
     withClient
   ) where
 
 import Control.Exception
 import Control.Monad
+import Data.ByteString (ByteString)
 import Data.Default.Class (def)
+import Data.Monoid
 import Network.URI
 import Network.HTTP.Client hiding (BodyReader)
 import Network.HTTP.Client.Internal (setUri)
 import Network.HTTP.Types
 import qualified Data.CaseInsensitive  as CI
+import qualified Data.ByteString       as BS
 import qualified Data.ByteString.Char8 as BS.C8
 
 import Hackage.Security.Client hiding (Header)
 import Hackage.Security.Client.Repository.Remote
+import qualified Hackage.Security.Util.Lens as Lens
 
 {-------------------------------------------------------------------------------
   Top-level API
@@ -67,7 +72,7 @@ getRange manager caps httpOpts uri (from, to) callback = do
 -- | Update recorded server capabilities given a response
 updateCapabilities :: ServerCapabilities -> Response a -> IO ()
 updateCapabilities caps response = do
-    when ((hAcceptRanges, BS.C8.pack "bytes") `elem` headers) $
+    when ((hAcceptRanges, "bytes") `elem` headers) $
       setServerSupportsAcceptBytes caps True
   where
     headers = responseHeaders response
@@ -85,7 +90,7 @@ wrapCustomEx act = catches act [
 -------------------------------------------------------------------------------}
 
 hAcceptRanges :: HeaderName
-hAcceptRanges = CI.mk (BS.C8.pack "Accept-Ranges")
+hAcceptRanges = CI.mk "Accept-Ranges"
 
 setRange :: Int -> Int -> Request -> Request
 setRange from to req = req {
@@ -98,9 +103,22 @@ setRange from to req = req {
 
 setHttpOptions :: [HttpOption] -> Request -> Request
 setHttpOptions opts req = req {
-      requestHeaders = map trOpt opts ++ requestHeaders req
+      requestHeaders = trOpt [] opts ++ requestHeaders req
     }
   where
-    trOpt :: HttpOption -> Header
-    trOpt HttpOptionMaxAge0     = (hCacheControl, BS.C8.pack "max-age=0")
-    trOpt HttpOptionNoTransform = (hCacheControl, BS.C8.pack "no-transform")
+    trOpt :: [(HeaderName, [ByteString])] -> [HttpOption] -> [Header]
+    trOpt acc [] =
+      concatMap finalizeHeader acc
+    trOpt acc (HttpOptionMaxAge0:os) =
+      trOpt (insert hCacheControl ["max-age=0"] acc) os
+    trOpt acc (HttpOptionNoTransform:os) =
+      trOpt (insert hCacheControl ["no-transform"] acc) os
+
+    -- Some headers are comma-separated, others need multiple headers for
+    -- multiple options. Since right now we deal with HdrCacheControl only,
+    -- we just comma-separate all of them.
+    finalizeHeader :: (HeaderName, [ByteString]) -> [Header]
+    finalizeHeader (name, strs) = [(name, BS.intercalate ", " (reverse strs))]
+
+    insert :: (Eq a, Monoid b) => a -> b -> [(a, b)] -> [(a, b)]
+    insert x y = Lens.modify (Lens.lookupM x) (mappend y)
