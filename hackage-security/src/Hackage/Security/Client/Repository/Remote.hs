@@ -254,33 +254,31 @@ withRemote repoLayout
 
        -- Figure out if we should do an incremental download
        mIncremental <- shouldDoIncremental config remoteFile
-
-       -- If so, attempt it. However, if this throws an I/O exception or a
-       -- verification error we try again using a full download
-       didDownload <- case mIncremental of
+       didDownload  <- case mIncremental of
          Left Nothing ->
            return Nothing
          Left (Just failure) -> do
            logger $ LogUpdateFailed (describeRemoteFile remoteFile) failure
            return Nothing
          Right (sf, len, fp) -> do
-           -- TODO: Currently we immediately attempt to download the entire
-           -- file on a verification error. However, if the verification error
-           -- is due to cache incoherence, it could be much faster to go round
-           -- the TUF loop again, re-downloading timestamp/snapshot, and then
-           -- attempting another incremental download. (Issue #8)
+           -- Attempt to download the index incrementally.
            --
-           -- Therefore we should download the full file ONLY if this is
-           -- already a retry. (Though it would be good if we could detect
-           -- a problem without verifying the entire hash, just by looking
-           -- at the length.)
+           -- If verification of the index fails, and this is the first attempt,
+           -- we let the exception be thrown up to the security layer, so that
+           -- it will try again with instructions to the cache to fetch stuff
+           -- upstream. Hopefully this will resolve the issue. However, if
+           -- an incrementally updated index cannot be verified on the next
+           -- attempt, we then try to download the whole index.
            logger $ LogUpdating (describeRemoteFile remoteFile)
            let wrapCustomEx = httpWrapCustomEx httpClient
                incr = incTar config httpOpts len fp $ callback sf
-           catchRecoverable wrapCustomEx (Just <$> incr) $ \ex -> do
-             let failure = UpdateFailed ex
-             logger $ LogUpdateFailed (describeRemoteFile remoteFile) failure
-             return Nothing
+           catchRecoverable wrapCustomEx (Just <$> incr) $ \ex ->
+             case isRetry of
+               FirstAttempt -> rethrowRecoverable ex
+               AfterValidationError -> do
+                let failure = UpdateFailed ex
+                logger $ LogUpdateFailed (describeRemoteFile remoteFile) failure
+                return Nothing
 
        case didDownload of
          Just did -> return did
