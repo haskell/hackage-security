@@ -72,8 +72,6 @@ getRange browser httpOpts uri (from, to) callback = do
 withResponse :: Browser
              -> Response BS.L.ByteString -> (BodyReader -> IO a) -> IO a
 withResponse browser response callback = do
-    -- TODO: This is a very crude way of "chunking" the input, probably should
-    -- make this more sophisticated.
     -- TODO: Unfortunately we have no way of closing the connection when the
     -- callback decides it doens't require any further input.
     -- See <https://github.com/haskell/HTTP/issues/86>.
