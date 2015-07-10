@@ -21,12 +21,14 @@ import Hackage.Security.Client.Repository.Remote
 -- This is currently just a proof of concept. With a bit of luck we'll be
 -- able to reuse most of https://github.com/haskell/cabal/pull/2613 for a
 -- more serious implementation.
-withClient :: (String -> IO ()) -> (HttpClient -> IO a) -> IO a
-withClient _logger callback = do
+--
+-- TODO: Deal with _proxy
+withClient :: ProxyConfig String -> (String -> IO ()) -> (HttpClient -> IO a) -> IO a
+withClient _proxy _logger callback = do
     caps <- newServerCapabilities
     callback HttpClient {
       httpClientGet          = get
-    , httpClientGetRange     = undefined -- range requests unsupported for now
+    , httpClientGetRange     = undefined -- TODO: support range requests
     , httpClientCapabilities = caps
     , httpWrapCustomEx       = id
     }

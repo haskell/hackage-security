@@ -18,7 +18,7 @@ module Hackage.Security.Client (
   , module Hackage.Security.Key
     -- ** We only a few bits from .Repository
     -- TODO: Maybe this is a sign that these should be in a different module?
-  , CustomException(..)
+  , CustomRecoverableException(..)
   , Repository -- opaque
   , LogMessage(..)
   ) where

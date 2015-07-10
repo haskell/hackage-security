@@ -22,7 +22,7 @@ module Hackage.Security.Client.Repository (
   , indexFilePath
     -- * Recoverable exceptions
   , RecoverableException(..)
-  , CustomException(..)
+  , CustomRecoverableException(..)
   , catchRecoverable
     -- * Utility
   , IsCached(..)
@@ -319,15 +319,19 @@ data UpdateFailure =
 data RecoverableException =
     RecoverIOException IOException
   | RecoverVerificationError VerificationError
-  | RecoverCustom CustomException
+  | RecoverCustom CustomRecoverableException
 
--- | Wrapper for custom exceptions (for example, those defined in HTTP clients)
-data CustomException where
-    CustomException :: Exception e => e -> CustomException
+-- | Wrapper for custom recoverable exceptions
+-- (for example, those defined in HTTP clients)
+--
+-- NOTE: Exceptions such as misconfigurations that we cannot recover from do
+-- not need to be wrapped.
+data CustomRecoverableException where
+    CustomRecoverableException :: Exception e => e -> CustomRecoverableException
   deriving (Typeable)
 
-deriving instance Show CustomException
-instance Exception CustomException
+deriving instance Show CustomRecoverableException
+instance Exception CustomRecoverableException
 
 instance Pretty RecoverableException where
   pretty (RecoverVerificationError e) = pretty e

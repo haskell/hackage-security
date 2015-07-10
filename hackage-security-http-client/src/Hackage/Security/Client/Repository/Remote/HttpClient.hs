@@ -24,16 +24,22 @@ import qualified Hackage.Security.Util.Lens as Lens
   Top-level API
 -------------------------------------------------------------------------------}
 
-withClient :: (String -> IO ()) -> (HttpClient -> IO a) -> IO a
-withClient _logger callback = do
+withClient :: ProxyConfig Proxy -> (String -> IO ()) -> (HttpClient -> IO a) -> IO a
+withClient proxyConfig _logger callback = do
     caps <- newServerCapabilities
-    withManager defaultManagerSettings $ \manager ->
+    withManager (setProxy defaultManagerSettings) $ \manager ->
       callback HttpClient {
           httpClientGet          = get      manager caps
         , httpClientGetRange     = getRange manager caps
         , httpClientCapabilities = caps
         , httpWrapCustomEx       = wrapCustomEx
         }
+  where
+    setProxy = managerSetProxy $
+      case proxyConfig of
+        ProxyConfigNone  -> noProxy
+        ProxyConfigUse p -> useProxy p
+        ProxyConfigAuto  -> proxyEnvironment Nothing
 
 {-------------------------------------------------------------------------------
   Individual methods
@@ -79,11 +85,15 @@ updateCapabilities caps response = do
 
 -- | Wrap custom exceptions
 --
--- TODO: Are there any others we should catch?
+-- NOTE: The only other exception defined in @http-client@ is @TimeoutTriggered@
+-- but it is currently disabled <https://github.com/snoyberg/http-client/issues/116>
 wrapCustomEx :: IO a -> IO a
 wrapCustomEx act = catches act [
-      Handler $ \(ex :: HttpException) -> throwIO (CustomException ex)
+      Handler $ \(ex :: HttpException) -> go ex
     ]
+  where
+    go :: Exception e => e -> IO a
+    go = throwIO . CustomRecoverableException
 
 {-------------------------------------------------------------------------------
   http-client auxiliary

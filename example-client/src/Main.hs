@@ -82,12 +82,16 @@ withRepo GlobalOpts{..} =
     withClient :: (Remote.HttpClient -> IO a) -> IO a
     withClient =
         case globalHttpClient of
-          "HTTP"        -> Remote.HTTP.withClient logHTTP logHTTP
-          "curl"        -> Remote.Curl.withClient logHTTP
+          "HTTP"        -> Remote.HTTP.withClient proxyConfig logHTTP logHTTP
+          "curl"        -> Remote.Curl.withClient proxyConfig logHTTP
 #if MIN_VERSION_base(4,5,0)
-          "http-client" -> Remote.HttpClient.withClient logHTTP
+          "http-client" -> Remote.HttpClient.withClient proxyConfig logHTTP
 #endif
           _otherwise    -> error "unsupported HTTP client"
+
+    -- use automatic proxy configuration
+    proxyConfig :: forall a. Remote.ProxyConfig a
+    proxyConfig = Remote.ProxyConfigAuto
 
     -- used for log messages from the Hackage.Security code
     logTUF :: LogMessage -> IO ()

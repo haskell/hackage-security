@@ -27,6 +27,7 @@ module Hackage.Security.Client.Repository.Remote (
   , HttpClient(..)
   , HttpOption(..)
   , FileSize(..)
+  , ProxyConfig(..)
     -- ** Utility
   , fileSizeWithinBounds
     -- * Top-level API
@@ -147,6 +148,28 @@ data HttpOption =
 
     -- | Set @Cache-Control: no-transform@
   | HttpOptionNoTransform
+
+-- | Proxy configuration
+--
+-- Although actually setting the proxy is the purview of the initialization
+-- function for individual 'HttpClient' implementations and therefore outside
+-- the scope of this module, we offer this 'ProxyConfiguration' type here as a
+-- way to uniformly configure proxies across all 'HttpClient's.
+data ProxyConfig a =
+    -- | Don't use a proxy
+    ProxyConfigNone
+
+    -- | Use this specific proxy
+    --
+    -- Individual HTTP backends use their own types for specifying proxies.
+  | ProxyConfigUse a
+
+    -- | Use automatic proxy settings
+    --
+    -- What precisely automatic means is 'HttpClient' specific, though
+    -- typically it will involve looking at the @HTTP_PROXY@ environment
+    -- variable or the (Windows) registry.
+  | ProxyConfigAuto
 
 {-------------------------------------------------------------------------------
   Top-level API
