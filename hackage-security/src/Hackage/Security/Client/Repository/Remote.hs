@@ -23,7 +23,6 @@ module Hackage.Security.Client.Repository.Remote (
   , setServerSupportsAcceptBytes
     -- * Abstracting over HTTP libraries
   , BodyReader
-  , DownloadedRange(..)
   , HttpClient(..)
   , HttpOption(..)
   , FileSize(..)
@@ -102,8 +101,6 @@ fileSizeWithinBounds :: Int -> FileSize -> Bool
 fileSizeWithinBounds sz (FileSizeExact sz') = sz <= sz'
 fileSizeWithinBounds sz (FileSizeBound sz') = sz <= sz'
 
-data DownloadedRange = DownloadedRange | DownloadedEntireFile
-
 -- | Abstraction over HTTP clients
 --
 -- This avoids insisting on a particular implementation (such as the HTTP
@@ -126,7 +123,7 @@ data HttpClient = HttpClient {
                           [HttpOption]
                        -> URI
                        -> (Int, Int)
-                       -> (DownloadedRange -> BodyReader -> IO a)
+                       -> (BodyReader -> IO a)
                        -> IO a
 
     -- | Server capabilities
@@ -267,6 +264,16 @@ withRemote repoLayout
            logger $ LogUpdateFailed (describeRemoteFile remoteFile) failure
            return Nothing
          Right (sf, len, fp) -> do
+           -- TODO: Currently we immediately attempt to download the entire
+           -- file on a verification error. However, if the verification error
+           -- is due to cache incoherence, it could be much faster to go round
+           -- the TUF loop again, re-downloading timestamp/snapshot, and then
+           -- attempting another incremental download. (Issue #8)
+           --
+           -- Therefore we should download the full file ONLY if this is
+           -- already a retry. (Though it would be good if we could detect
+           -- a problem without verifying the entire hash, just by looking
+           -- at the length.)
            logger $ LogUpdating (describeRemoteFile remoteFile)
            let wrapCustomEx = httpWrapCustomEx httpClient
                incr = incTar config httpOpts len fp $ callback sf
@@ -387,24 +394,12 @@ incTar RemoteConfig{..} httpOpts len cachedFile callback = do
         fileSz  = fileLength (trusted len)
         range   = (fromInteger currentMinusTrailer, fileSz)
         rangeSz = FileSizeExact (snd range - fst range)
-        totalSz = FileSizeExact fileSz
     withSystemTempFile (uriTemplate uri) $ \tempPath h -> do
       BS.L.hPut h =<< readLazyByteString cachedFile
       hSeek h AbsoluteSeek currentMinusTrailer
       -- As in 'getFile', make sure we don't scope the remainder of the
       -- computation underneath the httpClientGetRange
-      httpClientGetRange httpOpts uri range $ \downloadedRange br -> do
-        case downloadedRange of
-          DownloadedRange ->
-            execBodyReader "index" rangeSz h br
-          DownloadedEntireFile -> do
-            -- If we downloaded the entire file we wasted some work here. The
-            -- alternative is to only copy in the file once we know for sure
-            -- that we did get the range we requested, but this would require
-            -- keeping the connection to the server open for longer. Not sure
-            -- what the best tradeoff is here. Either way, this should be rare.
-            hSeek h AbsoluteSeek 0
-            execBodyReader "index" totalSz h br
+      httpClientGetRange httpOpts uri range $ execBodyReader "index" rangeSz h
       hClose h
       result <- callback tempPath
       Cache.cacheRemoteFile cfgCache tempPath (Some FUn) CacheIndex

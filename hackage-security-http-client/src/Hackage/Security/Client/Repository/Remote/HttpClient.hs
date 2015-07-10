@@ -45,7 +45,6 @@ withClient proxyConfig _logger callback = do
   Individual methods
 -------------------------------------------------------------------------------}
 
--- See TODOs in the HTTP client
 get :: Manager -> ServerCapabilities
     -> [HttpOption] -> URI -> (BodyReader -> IO a) -> IO a
 get manager caps httpOpts uri callback = do
@@ -60,7 +59,7 @@ get manager caps httpOpts uri callback = do
 
 getRange :: Manager -> ServerCapabilities
          -> [HttpOption] -> URI -> (Int, Int)
-         -> (DownloadedRange -> BodyReader -> IO a) -> IO a
+         -> (BodyReader -> IO a) -> IO a
 getRange manager caps httpOpts uri (from, to) callback = do
     request' <- setUri def uri
     let request = setRange from to
@@ -70,8 +69,7 @@ getRange manager caps httpOpts uri (from, to) callback = do
       updateCapabilities caps response
       let br = responseBody response
       case responseStatus response of
-        s | s == partialContent206 -> callback DownloadedRange      br
-        s | s == ok200             -> callback DownloadedEntireFile br
+        s | s == partialContent206 -> callback br
         s -> throwIO $ StatusCodeException s (responseHeaders response)
                                              (responseCookieJar response)
 

@@ -43,8 +43,6 @@ withClient proxyConfig outLog errLog callback =
   Individual methods
 -------------------------------------------------------------------------------}
 
--- TODO: We should verify that the file we downloaded is the expected size
--- (that it didn't get truncated); here and in getRange
 get :: Browser -> [HttpOption] -> URI -> (BodyReader -> IO a) -> IO a
 get browser httpOpts uri callback = do
     response <- request' browser
@@ -56,17 +54,14 @@ get browser httpOpts uri callback = do
 
 getRange :: Browser
          -> [HttpOption] -> URI -> (Int, Int)
-         -> (DownloadedRange -> BodyReader -> IO a) -> IO a
+         -> (BodyReader -> IO a) -> IO a
 getRange browser httpOpts uri (from, to) callback = do
     response <- request' browser
       $ setRange from to
       $ setHttpOptions httpOpts
       $ mkRequest GET uri
-    -- TODO: Should verify HdrContentRange in response
-    -- which will look like "bytes 734-1233/1234"
     case rspCode response of
-      (2, 0, 6)  -> withResponse browser response (callback DownloadedRange)
-      (2, 0, 0)  -> withResponse browser response (callback DownloadedEntireFile)
+      (2, 0, 6)  -> withResponse browser response callback
       _otherwise -> throwIO $ UnexpectedResponse uri (rspCode response)
 
 withResponse :: Browser
