@@ -388,7 +388,9 @@ incTar :: RemoteConfig        -- ^ Internal configuration
        -> (TempPath -> IO a)  -- ^ Callback on the updated tar
        -> IO a
 incTar RemoteConfig{..} httpOpts len cachedFile callback = do
-    -- TODO: Once we have a local tarball index, this is not necessary
+    -- TODO: This hardcodes the trailer length as 1024.
+    -- We should instead take advantage of the tarball index to find out
+    -- where the trailer starts.
     currentSize <- getFileSize cachedFile
     let currentMinusTrailer = currentSize - 1024
         fileSz  = fileLength (trusted len)
