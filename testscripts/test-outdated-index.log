@@ -1,0 +1,440 @@
++ BINDIR=../sandbox/7.8.3/bin
++ EXAMPLE_CLIENT=../sandbox/7.8.3/bin/example-client
++ SECURITY_UTILITY=../sandbox/7.8.3/bin/hackage-security
++ REPO=http://127.0.0.1/~e/local-repo
++ PROXY=http://localhost:3128
++ LOCAL_REPO=../unversioned/local-repo
++ KEYS=../unversioned/keys
++ LOCAL_CACHE=./tmp
++ rm -rf ../unversioned/local-repo/index
++ ../sandbox/7.8.3/bin/hackage-security -v bootstrap --repo ../unversioned/local-repo --keys ../unversioned/keys
+Info: Writing <repo>/root.json
+Info: Writing <repo>/mirrors.json
+Info: Writing <repo>/generics-sop/0.1.0.0/package.json
+Info: Writing <repo>/generics-sop/0.1.0.0/generics-sop.cabal (extracted from <repo>/package/generics-sop-0.1.0.0.tar.gz)
+Info: Writing <repo>/generics-sop/0.1.0.1/package.json
+Info: Writing <repo>/generics-sop/0.1.0.1/generics-sop.cabal (extracted from <repo>/package/generics-sop-0.1.0.1.tar.gz)
+Info: Writing <repo>/generics-sop/0.1.0.2/package.json
+Info: Writing <repo>/generics-sop/0.1.0.2/generics-sop.cabal (extracted from <repo>/package/generics-sop-0.1.0.2.tar.gz)
+Info: Writing <repo>/generics-sop/0.1.0.3/package.json
+Info: Writing <repo>/generics-sop/0.1.0.3/generics-sop.cabal (extracted from <repo>/package/generics-sop-0.1.0.3.tar.gz)
+Info: Writing <repo>/generics-sop/0.1.0.4/package.json
+Info: Writing <repo>/generics-sop/0.1.0.4/generics-sop.cabal (extracted from <repo>/package/generics-sop-0.1.0.4.tar.gz)
+Info: Writing <repo>/generics-sop/0.1.1.1/package.json
+Info: Writing <repo>/generics-sop/0.1.1.1/generics-sop.cabal (extracted from <repo>/package/generics-sop-0.1.1.1.tar.gz)
+Info: Writing <repo>/generics-sop/0.1.1.2/package.json
+Warning: Failed to extract .cabal from package generics-sop-0.1.1.2: <repo>/package/generics-sop-0.1.1.2.tar.gz: Codec.Compression.Zlib: compressed data stream format error (incorrect header check)
+Info: Writing <repo>/pretty-show/1.4.1/package.json
+Info: Writing <repo>/pretty-show/1.4.1/pretty-show.cabal (extracted from <repo>/package/pretty-show-1.4.1.tar.gz)
+Info: Writing <repo>/pretty-show/1.5/package.json
+Info: Writing <repo>/pretty-show/1.5/pretty-show.cabal (extracted from <repo>/package/pretty-show-1.5.tar.gz)
+Info: Writing <repo>/pretty-show/1.6/package.json
+Info: Writing <repo>/pretty-show/1.6/pretty-show.cabal (extracted from <repo>/package/pretty-show-1.6.tar.gz)
+Info: Writing <repo>/pretty-sop/0.1.0.0/package.json
+Info: Writing <repo>/pretty-sop/0.1.0.0/pretty-sop.cabal (extracted from <repo>/package/pretty-sop-0.1.0.0.tar.gz)
+Info: Writing <repo>/pretty-sop/0.1.0.1/package.json
+Info: Writing <repo>/pretty-sop/0.1.0.1/pretty-sop.cabal (extracted from <repo>/package/pretty-sop-0.1.0.1.tar.gz)
+Info: Writing <repo>/tagged/0.6.1/package.json
+Info: Writing <repo>/tagged/0.6.1/tagged.cabal (extracted from <repo>/package/tagged-0.6.1.tar.gz)
+Info: Writing <repo>/tagged/0.7.1/package.json
+Info: Writing <repo>/tagged/0.7.1/tagged.cabal (extracted from <repo>/package/tagged-0.7.1.tar.gz)
+Info: Writing <repo>/tagged/0.7.2/package.json
+Info: Writing <repo>/tagged/0.7.2/tagged.cabal (extracted from <repo>/package/tagged-0.7.2.tar.gz)
+Info: Writing <repo>/tagged/0.7.3/package.json
+Info: Writing <repo>/tagged/0.7.3/tagged.cabal (extracted from <repo>/package/tagged-0.7.3.tar.gz)
+Info: Writing <repo>/tagged/0.8.0.1/package.json
+Info: Writing <repo>/tagged/0.8.0.1/tagged.cabal (extracted from <repo>/package/tagged-0.8.0.1.tar.gz)
+Info: Writing <repo>/00-index.tar
+Info: Writing <repo>/00-index.tar.gz
+Info: Writing <repo>/snapshot.json
+Info: Writing <repo>/timestamp.json
++ unset HTTP_PROXY
++ unset http_proxy
++ rm -rf ./tmp
++ ../sandbox/7.8.3/bin/example-client --repo http://127.0.0.1/~e/local-repo --cache ./tmp bootstrap 0
+# Selected mirror http://127.0.0.1/~e/local-repo
+# Downloading root
+Sending:
+GET /~e/local-repo/root.json HTTP/1.1
+Host: 127.0.0.1
+Cache-Control: no-transform
+Content-Length: 0
+User-Agent: haskell-HTTP/4000.2.20
+
+
+Creating new connection to 127.0.0.1
+Received:
+HTTP/1.1 200 OK 
+Date: Mon, 13 Jul 2015 15:16:39 GMT
+Server: Apache/2.4.10 (Unix)
+Last-Modified: Mon, 13 Jul 2015 15:16:39 GMT
+ETag: W/"cfb-51ac3355103c0"
+Accept-Ranges: bytes
+Content-Length: 3323
+Cache-Control: max-age=300, public, no-transform
+Content-Type: application/json
+
+
+OK
++ ../sandbox/7.8.3/bin/example-client --repo http://127.0.0.1/~e/local-repo --cache ./tmp check
+# Selected mirror http://127.0.0.1/~e/local-repo
+# Downloading timestamp
+Sending:
+GET /~e/local-repo/timestamp.json HTTP/1.1
+Host: 127.0.0.1
+Cache-Control: no-transform
+Content-Length: 0
+User-Agent: haskell-HTTP/4000.2.20
+
+
+Creating new connection to 127.0.0.1
+Received:
+HTTP/1.1 200 OK 
+Date: Mon, 13 Jul 2015 15:16:39 GMT
+Server: Apache/2.4.10 (Unix)
+Last-Modified: Mon, 13 Jul 2015 15:16:39 GMT
+ETag: W/"1a3-51ac3355103c0"
+Accept-Ranges: bytes
+Content-Length: 419
+Cache-Control: max-age=300, public, no-transform
+Content-Type: application/json
+
+
+# Downloading snapshot
+Sending:
+GET /~e/local-repo/snapshot.json HTTP/1.1
+Host: 127.0.0.1
+Cache-Control: no-transform
+Content-Length: 0
+User-Agent: haskell-HTTP/4000.2.20
+
+
+Recovering connection to 127.0.0.1
+Received:
+HTTP/1.1 200 OK 
+Date: Mon, 13 Jul 2015 15:16:39 GMT
+Server: Apache/2.4.10 (Unix)
+Last-Modified: Mon, 13 Jul 2015 15:16:39 GMT
+ETag: W/"319-51ac3355103c0"
+Accept-Ranges: bytes
+Content-Length: 793
+Cache-Control: max-age=300, public, no-transform
+Content-Type: application/json
+
+
+# Downloading mirrors
+Sending:
+GET /~e/local-repo/mirrors.json HTTP/1.1
+Host: 127.0.0.1
+Cache-Control: no-transform
+Content-Length: 0
+User-Agent: haskell-HTTP/4000.2.20
+
+
+Recovering connection to 127.0.0.1
+Received:
+HTTP/1.1 200 OK 
+Date: Mon, 13 Jul 2015 15:16:39 GMT
+Server: Apache/2.4.10 (Unix)
+Last-Modified: Mon, 13 Jul 2015 15:16:39 GMT
+ETag: W/"2ad-51ac3355103c0"
+Accept-Ranges: bytes
+Content-Length: 685
+Cache-Control: max-age=300, public, no-transform
+Content-Type: application/json
+
+
+# Updating index failed (no local copy)
+# Downloading index
+Sending:
+GET /~e/local-repo/00-index.tar.gz HTTP/1.1
+Host: 127.0.0.1
+Cache-Control: no-transform
+Content-Length: 0
+User-Agent: haskell-HTTP/4000.2.20
+
+
+Recovering connection to 127.0.0.1
+Received:
+HTTP/1.1 200 OK 
+Date: Mon, 13 Jul 2015 15:16:39 GMT
+Server: Apache/2.4.10 (Unix)
+Last-Modified: Mon, 13 Jul 2015 15:16:39 GMT
+ETag: W/"1241-51ac3355103c0"
+Accept-Ranges: bytes
+Content-Length: 4673
+Cache-Control: max-age=300, public, no-transform
+Content-Type: application/x-gzip
+
+
+HasUpdates
++ export HTTP_PROXY=http://localhost:3128
++ HTTP_PROXY=http://localhost:3128
++ export http_proxy=http://localhost:3128
++ http_proxy=http://localhost:3128
++ curl -Lv http://127.0.0.1/~e/local-repo/00-index.tar
+* Hostname was NOT found in DNS cache
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0*   Trying 127.0.0.1...
+* Connected to localhost (127.0.0.1) port 3128 (#0)
+> GET http://127.0.0.1/~e/local-repo/00-index.tar HTTP/1.1
+> User-Agent: curl/7.37.1
+> Host: 127.0.0.1
+> Accept: */*
+> Proxy-Connection: Keep-Alive
+> 
+< HTTP/1.1 200 OK
+< Date: Mon, 13 Jul 2015 15:16:39 GMT
+* Server Apache/2.4.10 (Unix) is not blacklisted
+< Server: Apache/2.4.10 (Unix)
+< Last-Modified: Mon, 13 Jul 2015 15:16:39 GMT
+< ETag: W/"10000-51ac3355103c0"
+< Accept-Ranges: bytes
+< Content-Length: 65536
+< Cache-Control: max-age=300, public, no-transform
+< Content-Type: application/x-tar
+< X-Cache: MISS from server.local
+< Via: 1.1 server.local (squid/3.5.6)
+< Connection: keep-alive
+< 
+{ [data not shown]
+100 65536  100 65536    0     0  7622k      0 --:--:-- --:--:-- --:--:-- 8000k
+* Connection #0 to host localhost left intact
++ sleep 5
++ dd bs=1 count=16384 if=/dev/random of=../unversioned/local-repo/index/extra-file
+16384+0 records in
+16384+0 records out
+16384 bytes transferred in 0.050569 secs (323993 bytes/sec)
++ ../sandbox/7.8.3/bin/hackage-security -v update --repo ../unversioned/local-repo --keys ../unversioned/keys
+Info: Skipping <repo>/generics-sop/0.1.0.0/package.json
+Info: Skipping <repo>/generics-sop/0.1.0.0/generics-sop.cabal
+Info: Skipping <repo>/generics-sop/0.1.0.1/package.json
+Info: Skipping <repo>/generics-sop/0.1.0.1/generics-sop.cabal
+Info: Skipping <repo>/generics-sop/0.1.0.2/package.json
+Info: Skipping <repo>/generics-sop/0.1.0.2/generics-sop.cabal
+Info: Skipping <repo>/generics-sop/0.1.0.3/package.json
+Info: Skipping <repo>/generics-sop/0.1.0.3/generics-sop.cabal
+Info: Skipping <repo>/generics-sop/0.1.0.4/package.json
+Info: Skipping <repo>/generics-sop/0.1.0.4/generics-sop.cabal
+Info: Skipping <repo>/generics-sop/0.1.1.1/package.json
+Info: Skipping <repo>/generics-sop/0.1.1.1/generics-sop.cabal
+Info: Skipping <repo>/generics-sop/0.1.1.2/package.json
+Warning: Failed to extract .cabal from package generics-sop-0.1.1.2: <repo>/package/generics-sop-0.1.1.2.tar.gz: Codec.Compression.Zlib: compressed data stream format error (incorrect header check)
+Info: Skipping <repo>/pretty-show/1.4.1/package.json
+Info: Skipping <repo>/pretty-show/1.4.1/pretty-show.cabal
+Info: Skipping <repo>/pretty-show/1.5/package.json
+Info: Skipping <repo>/pretty-show/1.5/pretty-show.cabal
+Info: Skipping <repo>/pretty-show/1.6/package.json
+Info: Skipping <repo>/pretty-show/1.6/pretty-show.cabal
+Info: Skipping <repo>/pretty-sop/0.1.0.0/package.json
+Info: Skipping <repo>/pretty-sop/0.1.0.0/pretty-sop.cabal
+Info: Skipping <repo>/pretty-sop/0.1.0.1/package.json
+Info: Skipping <repo>/pretty-sop/0.1.0.1/pretty-sop.cabal
+Info: Skipping <repo>/tagged/0.6.1/package.json
+Info: Skipping <repo>/tagged/0.6.1/tagged.cabal
+Info: Skipping <repo>/tagged/0.7.1/package.json
+Info: Skipping <repo>/tagged/0.7.1/tagged.cabal
+Info: Skipping <repo>/tagged/0.7.2/package.json
+Info: Skipping <repo>/tagged/0.7.2/tagged.cabal
+Info: Skipping <repo>/tagged/0.7.3/package.json
+Info: Skipping <repo>/tagged/0.7.3/tagged.cabal
+Info: Skipping <repo>/tagged/0.8.0.1/package.json
+Info: Skipping <repo>/tagged/0.8.0.1/tagged.cabal
+Info: Appending 1 file(s) to <repo>/00-index.tar
+Info: Writing <repo>/00-index.tar.gz
+Info: Updating <repo>/snapshot.json
+Info: Updating <repo>/timestamp.json
++ ../sandbox/7.8.3/bin/example-client --repo http://127.0.0.1/~e/local-repo --cache ./tmp check
+# Selected mirror http://127.0.0.1/~e/local-repo
+# Downloading timestamp
+Sending:
+GET http://127.0.0.1/~e/local-repo/timestamp.json HTTP/1.1
+Cache-Control: no-transform
+Content-Length: 0
+User-Agent: haskell-HTTP/4000.2.20
+Host: 127.0.0.1
+
+
+proxy uri host: localhost, port: :3128
+Creating new connection to localhost:3128
+Received:
+HTTP/1.1 200 OK 
+Date: Mon, 13 Jul 2015 15:16:45 GMT
+Server: Apache/2.4.10 (Unix)
+Last-Modified: Mon, 13 Jul 2015 15:16:44 GMT
+ETag: "1a3-51ac3359d4f00"
+Accept-Ranges: bytes
+Content-Length: 419
+Cache-Control: max-age=300, public, no-transform
+Content-Type: application/json
+X-Cache: MISS from server.local
+Via: 1.1 server.local (squid/3.5.6)
+Connection: keep-alive
+
+
+# Downloading snapshot
+Sending:
+GET http://127.0.0.1/~e/local-repo/snapshot.json HTTP/1.1
+Cache-Control: no-transform
+Content-Length: 0
+User-Agent: haskell-HTTP/4000.2.20
+Host: 127.0.0.1
+
+
+proxy uri host: localhost, port: :3128
+Recovering connection to localhost:3128
+Received:
+HTTP/1.1 200 OK 
+Date: Mon, 13 Jul 2015 15:16:45 GMT
+Server: Apache/2.4.10 (Unix)
+Last-Modified: Mon, 13 Jul 2015 15:16:44 GMT
+ETag: "31a-51ac3359d4f00"
+Accept-Ranges: bytes
+Content-Length: 794
+Cache-Control: max-age=300, public, no-transform
+Content-Type: application/json
+X-Cache: MISS from server.local
+Via: 1.1 server.local (squid/3.5.6)
+Connection: keep-alive
+
+
+# Updating index
+Sending:
+GET http://127.0.0.1/~e/local-repo/00-index.tar HTTP/1.1
+Range: bytes=64512-82431
+Cache-Control: no-transform
+Content-Length: 0
+User-Agent: haskell-HTTP/4000.2.20
+Host: 127.0.0.1
+
+
+proxy uri host: localhost, port: :3128
+Recovering connection to localhost:3128
+Received:
+HTTP/1.1 206 Partial Content 
+Date: Mon, 13 Jul 2015 15:16:39 GMT
+Server: Apache/2.4.10 (Unix)
+Last-Modified: Mon, 13 Jul 2015 15:16:39 GMT
+ETag: W/"10000-51ac3355103c0"
+Accept-Ranges: bytes
+Cache-Control: max-age=300, public, no-transform
+Content-Type: application/x-tar
+Age: 6
+X-Cache: HIT from server.local
+Via: 1.1 server.local (squid/3.5.6)
+Connection: keep-alive
+Content-Range: bytes 64512-65535/65536
+Content-Length: 1024
+
+
+# Verification error: Invalid hash for <repo>/00-index.tar
+# Downloading root
+Sending:
+GET http://127.0.0.1/~e/local-repo/root.json HTTP/1.1
+Cache-Control: no-transform, max-age=0
+Content-Length: 0
+User-Agent: haskell-HTTP/4000.2.20
+Host: 127.0.0.1
+
+
+proxy uri host: localhost, port: :3128
+Recovering connection to localhost:3128
+Received:
+HTTP/1.1 200 OK 
+Date: Mon, 13 Jul 2015 15:16:45 GMT
+Server: Apache/2.4.10 (Unix)
+Last-Modified: Mon, 13 Jul 2015 15:16:39 GMT
+ETag: "cfb-51ac3355103c0"
+Accept-Ranges: bytes
+Content-Length: 3323
+Cache-Control: max-age=300, public, no-transform
+Content-Type: application/json
+X-Cache: MISS from server.local
+Via: 1.1 server.local (squid/3.5.6)
+Connection: keep-alive
+
+
+# Downloading timestamp
+Sending:
+GET http://127.0.0.1/~e/local-repo/timestamp.json HTTP/1.1
+Cache-Control: no-transform, max-age=0
+Content-Length: 0
+User-Agent: haskell-HTTP/4000.2.20
+Host: 127.0.0.1
+
+
+proxy uri host: localhost, port: :3128
+Recovering connection to localhost:3128
+Received:
+HTTP/1.1 200 OK 
+Last-Modified: Mon, 13 Jul 2015 15:16:44 GMT
+Accept-Ranges: bytes
+Content-Length: 419
+Content-Type: application/json
+Date: Mon, 13 Jul 2015 15:16:45 GMT
+Server: Apache/2.4.10 (Unix)
+ETag: "1a3-51ac3359d4f00"
+Cache-Control: max-age=300, public, no-transform
+Age: 0
+X-Cache: HIT from server.local
+Via: 1.1 server.local (squid/3.5.6)
+Connection: keep-alive
+
+
+# Downloading snapshot
+Sending:
+GET http://127.0.0.1/~e/local-repo/snapshot.json HTTP/1.1
+Cache-Control: no-transform, max-age=0
+Content-Length: 0
+User-Agent: haskell-HTTP/4000.2.20
+Host: 127.0.0.1
+
+
+proxy uri host: localhost, port: :3128
+Recovering connection to localhost:3128
+Received:
+HTTP/1.1 200 OK 
+Last-Modified: Mon, 13 Jul 2015 15:16:44 GMT
+Accept-Ranges: bytes
+Content-Length: 794
+Content-Type: application/json
+Date: Mon, 13 Jul 2015 15:16:45 GMT
+Server: Apache/2.4.10 (Unix)
+ETag: "31a-51ac3359d4f00"
+Cache-Control: max-age=300, public, no-transform
+Age: 0
+X-Cache: HIT from server.local
+Via: 1.1 server.local (squid/3.5.6)
+Connection: keep-alive
+
+
+# Updating index
+Sending:
+GET http://127.0.0.1/~e/local-repo/00-index.tar HTTP/1.1
+Range: bytes=64512-82431
+Cache-Control: no-transform, max-age=0
+Content-Length: 0
+User-Agent: haskell-HTTP/4000.2.20
+Host: 127.0.0.1
+
+
+proxy uri host: localhost, port: :3128
+Recovering connection to localhost:3128
+Received:
+HTTP/1.1 206 Partial Content 
+Date: Mon, 13 Jul 2015 15:16:45 GMT
+Server: Apache/2.4.10 (Unix)
+Last-Modified: Mon, 13 Jul 2015 15:16:44 GMT
+ETag: "14200-51ac3359d4f00"
+Accept-Ranges: bytes
+Content-Length: 17920
+Cache-Control: max-age=300, public, no-transform
+Content-Range: bytes 64512-82431/82432
+Content-Type: application/x-tar
+X-Cache: MISS from server.local
+Via: 1.1 server.local (squid/3.5.6)
+Connection: keep-alive
+
+
+HasUpdates

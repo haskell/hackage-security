@@ -1,0 +1,280 @@
++ export HTTP_PROXY=http://localhost:3128
++ HTTP_PROXY=http://localhost:3128
++ export http_proxy=http://localhost:3128
++ http_proxy=http://localhost:3128
++ rm -rf ./tmp
++ ../sandbox/7.8.3/bin/example-client --repo http://127.0.0.1:8080 --cache ./tmp bootstrap 0
+# Selected mirror http://127.0.0.1:8080
+# Downloading root
+Sending:
+GET http://127.0.0.1:8080/root.json HTTP/1.1
+Cache-Control: no-transform
+Content-Length: 0
+User-Agent: haskell-HTTP/4000.2.20
+Host: 127.0.0.1:8080
+
+
+proxy uri host: localhost, port: :3128
+Creating new connection to localhost:3128
+Received:
+HTTP/1.1 200 OK 
+Cache-Control: public, no-transform, max-age=60
+Content-Length: 3323
+Content-MD5: 914e6bed90bde8179af0b657937ca1d9
+Content-Type: text/json
+Date: Mon, 13 Jul 2015 14:46:41 GMT
+ETag: "914e6bed90bde8179af0b657937ca1d9"
+Last-Modified: Thu, 11 Jun 2015 14:37:51 GMT
+Server: Happstack/7.4.4
+X-Cache: MISS from server.local
+Via: 1.1 server.local (squid/3.5.6)
+Connection: keep-alive
+
+
+OK
++ curl -Lv http://127.0.0.1:8080/timestamp.json
+* Hostname was NOT found in DNS cache
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0*   Trying 127.0.0.1...
+* Connected to localhost (127.0.0.1) port 3128 (#0)
+> GET http://127.0.0.1:8080/timestamp.json HTTP/1.1
+> User-Agent: curl/7.37.1
+> Host: 127.0.0.1:8080
+> Accept: */*
+> Proxy-Connection: Keep-Alive
+> 
+< HTTP/1.1 200 OK
+< Cache-Control: public, no-transform, max-age=60
+< Content-Length: 420
+< Content-MD5: fea6f07b4caa591625bcf4a2f27fe9af
+< Content-Type: text/json
+< Date: Mon, 13 Jul 2015 14:46:41 GMT
+< ETag: "fea6f07b4caa591625bcf4a2f27fe9af"
+< Last-Modified: Mon, 13 Jul 2015 14:45:38 GMT
+* Server Happstack/7.4.4 is not blacklisted
+< Server: Happstack/7.4.4
+< X-Cache: MISS from server.local
+< Via: 1.1 server.local (squid/3.5.6)
+< Connection: keep-alive
+< 
+{ [data not shown]
+100   420  100   420    0     0  52135      0 --:--:-- --:--:-- --:--:-- 60000
+* Connection #0 to host localhost left intact
++ killall -SIGHUP hackage-server
++ sleep 5
++ ../sandbox/7.8.3/bin/example-client --repo http://127.0.0.1:8080 --cache ./tmp check
+# Selected mirror http://127.0.0.1:8080
+# Downloading timestamp
+Sending:
+GET http://127.0.0.1:8080/timestamp.json HTTP/1.1
+Cache-Control: no-transform
+Content-Length: 0
+User-Agent: haskell-HTTP/4000.2.20
+Host: 127.0.0.1:8080
+
+
+proxy uri host: localhost, port: :3128
+Creating new connection to localhost:3128
+Received:
+HTTP/1.1 200 OK 
+Cache-Control: public, no-transform, max-age=60
+Content-Length: 420
+Content-MD5: fea6f07b4caa591625bcf4a2f27fe9af
+Content-Type: text/json
+Date: Mon, 13 Jul 2015 14:46:41 GMT
+ETag: "fea6f07b4caa591625bcf4a2f27fe9af"
+Last-Modified: Mon, 13 Jul 2015 14:45:38 GMT
+Server: Happstack/7.4.4
+Age: 6
+X-Cache: HIT from server.local
+Via: 1.1 server.local (squid/3.5.6)
+Connection: keep-alive
+
+
+# Downloading snapshot
+Sending:
+GET http://127.0.0.1:8080/snapshot.json HTTP/1.1
+Cache-Control: no-transform
+Content-Length: 0
+User-Agent: haskell-HTTP/4000.2.20
+Host: 127.0.0.1:8080
+
+
+proxy uri host: localhost, port: :3128
+Recovering connection to localhost:3128
+Received:
+HTTP/1.1 200 OK 
+Cache-Control: public, no-transform, max-age=60
+Content-Length: 791
+Content-MD5: 90a469a7bedd38afe12951dc774a555d
+Content-Type: text/json
+Date: Mon, 13 Jul 2015 14:46:46 GMT
+ETag: "90a469a7bedd38afe12951dc774a555d"
+Last-Modified: Mon, 13 Jul 2015 14:46:42 GMT
+Server: Happstack/7.4.4
+X-Cache: MISS from server.local
+Via: 1.1 server.local (squid/3.5.6)
+Connection: keep-alive
+
+
+# Verification error: Invalid hash for <repo>/snapshot.json
+# Downloading root
+Sending:
+GET http://127.0.0.1:8080/root.json HTTP/1.1
+Cache-Control: no-transform, max-age=0
+Content-Length: 0
+User-Agent: haskell-HTTP/4000.2.20
+Host: 127.0.0.1:8080
+
+
+proxy uri host: localhost, port: :3128
+Recovering connection to localhost:3128
+Received:
+HTTP/1.1 200 OK 
+Content-Length: 3323
+Content-MD5: 914e6bed90bde8179af0b657937ca1d9
+Content-Type: text/json
+Last-Modified: Thu, 11 Jun 2015 14:37:51 GMT
+Cache-Control: public, no-transform, max-age=60
+Date: Mon, 13 Jul 2015 14:46:46 GMT
+ETag: "914e6bed90bde8179af0b657937ca1d9"
+Server: Happstack/7.4.4
+Age: 1
+X-Cache: HIT from server.local
+Via: 1.1 server.local (squid/3.5.6)
+Connection: keep-alive
+
+
+# Downloading timestamp
+Sending:
+GET http://127.0.0.1:8080/timestamp.json HTTP/1.1
+Cache-Control: no-transform, max-age=0
+Content-Length: 0
+User-Agent: haskell-HTTP/4000.2.20
+Host: 127.0.0.1:8080
+
+
+proxy uri host: localhost, port: :3128
+Recovering connection to localhost:3128
+Received:
+HTTP/1.1 200 OK 
+Cache-Control: public, no-transform, max-age=60
+Content-Length: 420
+Content-MD5: 25aa54b986c278d7ec4a2d9514fe1316
+Content-Type: text/json
+Date: Mon, 13 Jul 2015 14:46:46 GMT
+ETag: "25aa54b986c278d7ec4a2d9514fe1316"
+Last-Modified: Mon, 13 Jul 2015 14:46:42 GMT
+Server: Happstack/7.4.4
+X-Cache: MISS from server.local
+Via: 1.1 server.local (squid/3.5.6)
+Connection: keep-alive
+
+
+# Downloading snapshot
+Sending:
+GET http://127.0.0.1:8080/snapshot.json HTTP/1.1
+Cache-Control: no-transform, max-age=0
+Content-Length: 0
+User-Agent: haskell-HTTP/4000.2.20
+Host: 127.0.0.1:8080
+
+
+proxy uri host: localhost, port: :3128
+Recovering connection to localhost:3128
+Received:
+HTTP/1.1 200 OK 
+Content-Length: 791
+Content-MD5: 90a469a7bedd38afe12951dc774a555d
+Content-Type: text/json
+Last-Modified: Mon, 13 Jul 2015 14:46:42 GMT
+Cache-Control: public, no-transform, max-age=60
+Date: Mon, 13 Jul 2015 14:46:46 GMT
+ETag: "90a469a7bedd38afe12951dc774a555d"
+Server: Happstack/7.4.4
+Age: 1
+X-Cache: HIT from server.local
+Via: 1.1 server.local (squid/3.5.6)
+Connection: keep-alive
+
+
+# Downloading mirrors
+Sending:
+GET http://127.0.0.1:8080/mirrors.json HTTP/1.1
+Cache-Control: no-transform, max-age=0
+Content-Length: 0
+User-Agent: haskell-HTTP/4000.2.20
+Host: 127.0.0.1:8080
+
+
+proxy uri host: localhost, port: :3128
+Recovering connection to localhost:3128
+Received:
+HTTP/1.1 200 OK 
+Cache-Control: public, no-transform, max-age=60
+Content-Length: 685
+Content-MD5: e98e8b013404cf085be353a055b723be
+Content-Type: text/json
+Date: Mon, 13 Jul 2015 14:46:46 GMT
+ETag: "e98e8b013404cf085be353a055b723be"
+Last-Modified: Thu, 11 Jun 2015 14:37:59 GMT
+Server: Happstack/7.4.4
+X-Cache: MISS from server.local
+Via: 1.1 server.local (squid/3.5.6)
+Connection: keep-alive
+
+
+# Updating index failed (server does not provide incremental downloads)
+# Downloading index
+Sending:
+GET http://127.0.0.1:8080/00-index.tar.gz HTTP/1.1
+Cache-Control: no-transform, max-age=0
+Content-Length: 0
+User-Agent: haskell-HTTP/4000.2.20
+Host: 127.0.0.1:8080
+
+
+proxy uri host: localhost, port: :3128
+Recovering connection to localhost:3128
+Received:
+HTTP/1.1 301 Moved Permanently 
+Content-Type: text/plain; charset=UTF-8
+Date: Mon, 13 Jul 2015 14:46:46 GMT
+Location: /packages/index.tar.gz
+Server: Happstack/7.4.4
+X-Cache: MISS from server.local
+Transfer-Encoding: chunked
+Via: 1.1 server.local (squid/3.5.6)
+Connection: keep-alive
+Content-Length: 0
+
+
+301 - redirect
+Redirecting to http://127.0.0.1:8080/packages/index.tar.gz ...
+Sending:
+GET http://127.0.0.1:8080/packages/index.tar.gz HTTP/1.1
+Cache-Control: no-transform, max-age=0
+Content-Length: 0
+User-Agent: haskell-HTTP/4000.2.20
+Host: 127.0.0.1:8080
+
+
+proxy uri host: localhost, port: :3128
+Recovering connection to localhost:3128
+Received:
+HTTP/1.1 200 OK 
+Cache-Control: public, no-transform, max-age=300
+Content-Length: 29
+Content-MD5: 31f6566d35ccd604be46ed5b1f813cdf
+Content-Type: application/x-gzip
+Date: Mon, 13 Jul 2015 14:46:46 GMT
+ETag: "31f6566d35ccd604be46ed5b1f813cdf"
+Last-Modified: Mon, 13 Jul 2015 08:18:42 GMT
+Server: Happstack/7.4.4
+X-Cache: MISS from server.local
+Via: 1.1 server.local (squid/3.5.6)
+Connection: keep-alive
+
+
+HasUpdates
