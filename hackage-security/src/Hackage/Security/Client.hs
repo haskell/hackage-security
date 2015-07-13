@@ -101,8 +101,8 @@ checkForUpdates rep checkExpiry =
             -- update process, _and_ we cannot update the main root info, then
             -- we cannot do anything.
             log rep $ LogVerificationError ex
-            updateRoot rep mNow AfterValidationError (Left ex)
-            limitIterations AfterValidationError (n - 1)
+            updateRoot rep mNow AfterVerificationError (Left ex)
+            limitIterations AfterVerificationError (n - 1)
         , Handler $ \RootUpdated -> do
             log rep $ LogRootUpdated
             limitIterations isRetry (n - 1)

@@ -253,7 +253,7 @@ mirrorsUnsupported _ = id
 -- | Are we requesting this information because of a previous validation error?
 --
 -- Clients can take advantage of this to tell caches to revalidate files.
-data IsRetry = FirstAttempt | AfterValidationError
+data IsRetry = FirstAttempt | AfterVerificationError
 
 data LogMessage =
     -- | Root information was updated

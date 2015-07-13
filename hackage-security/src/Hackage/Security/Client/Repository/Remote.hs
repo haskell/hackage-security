@@ -275,7 +275,7 @@ withRemote repoLayout
            catchRecoverable wrapCustomEx (Just <$> incr) $ \ex ->
              case isRetry of
                FirstAttempt -> rethrowRecoverable ex
-               AfterValidationError -> do
+               AfterVerificationError -> do
                 let failure = UpdateFailed ex
                 logger $ LogUpdateFailed (describeRemoteFile remoteFile) failure
                 return Nothing
@@ -296,8 +296,8 @@ withRemote repoLayout
 -- error we want to make sure caches get files upstream in case the validation
 -- error was because the cache updated files out of order.
 httpOptions :: IsRetry -> [HttpOption]
-httpOptions FirstAttempt         = [HttpOptionNoTransform]
-httpOptions AfterValidationError = [HttpOptionNoTransform, HttpOptionMaxAge0]
+httpOptions FirstAttempt           = [HttpOptionNoTransform]
+httpOptions AfterVerificationError = [HttpOptionNoTransform, HttpOptionMaxAge0]
 
 -- | Should we do an incremental update?
 --
