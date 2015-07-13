@@ -55,9 +55,6 @@ instance HasHeader Root where
   fileVersion f x = (\y -> x { rootVersion = y }) <$> f (rootVersion x)
   fileExpires f x = (\y -> x { rootExpires = y }) <$> f (rootExpires x)
 
-instance DescribeFile Root where
-  describeFile _ = "root"
-
 {-------------------------------------------------------------------------------
   JSON encoding
 -------------------------------------------------------------------------------}

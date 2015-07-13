@@ -258,7 +258,7 @@ withRemote repoLayout
          Left Nothing ->
            return Nothing
          Left (Just failure) -> do
-           logger $ LogUpdateFailed (describeRemoteFile remoteFile) failure
+           logger $ LogUpdateFailed (Some remoteFile) failure
            return Nothing
          Right (sf, len, fp) -> do
            -- Attempt to download the index incrementally.
@@ -269,21 +269,21 @@ withRemote repoLayout
            -- upstream. Hopefully this will resolve the issue. However, if
            -- an incrementally updated index cannot be verified on the next
            -- attempt, we then try to download the whole index.
-           logger $ LogUpdating (describeRemoteFile remoteFile)
            let wrapCustomEx = httpWrapCustomEx httpClient
-               incr = incTar config httpOpts len fp $ callback sf
+               incr         = incTar config httpOpts len fp $ callback sf
+           logger $ LogUpdating (Some remoteFile)
            catchRecoverable wrapCustomEx (Just <$> incr) $ \ex ->
              case isRetry of
                FirstAttempt -> rethrowRecoverable ex
                AfterVerificationError -> do
                 let failure = UpdateFailed ex
-                logger $ LogUpdateFailed (describeRemoteFile remoteFile) failure
+                logger $ LogUpdateFailed (Some remoteFile) failure
                 return Nothing
 
        case didDownload of
          Just did -> return did
          Nothing  -> do
-           logger $ LogDownloading (describeRemoteFile remoteFile)
+           logger $ LogDownloading (Some remoteFile)
            getFile config httpOpts remoteFile callback
   where
     httpOpts :: [HttpOption]
@@ -357,7 +357,7 @@ getFile RemoteConfig{..} httpOpts remoteFile callback =
     withSystemTempFile (uriTemplate uri) $ \tempPath h -> do
       -- We are careful NOT to scope the remainder of the computation underneath
       -- the httpClientGet
-      httpClientGet httpOpts uri $ execBodyReader description sz h
+      httpClientGet httpOpts uri $ execBodyReader targetPath sz h
       hClose h
       result <- callback format tempPath
       Cache.cacheRemoteFile cfgCache
@@ -366,7 +366,7 @@ getFile RemoteConfig{..} httpOpts remoteFile callback =
                             (mustCache remoteFile)
       return result
   where
-    description = describeRemoteFile remoteFile
+    targetPath = TargetPathRepo $ remoteRepoPath' cfgLayout remoteFile format
     (format, (uri, sz)) = formatsPrefer
                             (remoteFileNonEmpty remoteFile)
                             FGz
@@ -399,12 +399,13 @@ incTar RemoteConfig{..} httpOpts len cachedFile callback = do
       hSeek h AbsoluteSeek currentMinusTrailer
       -- As in 'getFile', make sure we don't scope the remainder of the
       -- computation underneath the httpClientGetRange
-      httpClientGetRange httpOpts uri range $ execBodyReader "index" rangeSz h
+      httpClientGetRange httpOpts uri range $ execBodyReader targetPath rangeSz h
       hClose h
       result <- callback tempPath
       Cache.cacheRemoteFile cfgCache tempPath (Some FUn) CacheIndex
       return result
   where
+    targetPath = TargetPathRepo repoLayoutIndexTar
     uri = modifyUriPath cfgBase (`anchorRepoPathRemotely` repoLayoutIndexTar)
 
     RepoLayout{..} = cfgLayout
@@ -467,7 +468,7 @@ type BodyReader = IO BS.ByteString
 -- as part of the same HTTP request.
 --
 -- TODO: Deal with minimum download rate.
-execBodyReader :: String      -- ^ Description of the file (for error msgs only)
+execBodyReader :: TargetPath  -- ^ File source (for error msgs only)
                -> FileSize    -- ^ Maximum file size
                -> Handle      -- ^ Handle to write data too
                -> BodyReader  -- ^ The action to give us blocks from the file
@@ -488,7 +489,7 @@ execBodyReader file mlen h br = go 0
 -------------------------------------------------------------------------------}
 
 remoteFileURI :: RepoLayout -> URI -> RemoteFile fs -> Formats fs URI
-remoteFileURI repoLayout baseURI = fmap aux . remoteFilePath repoLayout
+remoteFileURI repoLayout baseURI = fmap aux . remoteRepoPath repoLayout
   where
     aux :: RepoPath -> URI
     aux repoPath = modifyUriPath baseURI (`anchorRepoPathRemotely` repoPath)

@@ -60,5 +60,5 @@ withRemote repoLayout repo cache _isRetry remoteFile callback = do
     (format, remotePath') = formatsPrefer
                               (remoteFileNonEmpty remoteFile)
                               FUn
-                              (remoteFilePath repoLayout remoteFile)
+                              (remoteRepoPath repoLayout remoteFile)
     remotePath = anchorRepoPathLocally repo remotePath'

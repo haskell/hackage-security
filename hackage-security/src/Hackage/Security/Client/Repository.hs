@@ -18,7 +18,8 @@ module Hackage.Security.Client.Repository (
     -- ** Helpers
   , mirrorsUnsupported
     -- * Paths
-  , remoteFilePath
+  , remoteRepoPath
+  , remoteRepoPath'
   , indexFilePath
     -- * Recoverable exceptions
   , RecoverableException(..)
@@ -28,7 +29,6 @@ module Hackage.Security.Client.Repository (
     -- * Utility
   , IsCached(..)
   , mustCache
-  , describeRemoteFile
   ) where
 
 import Control.Exception
@@ -43,6 +43,7 @@ import Hackage.Security.Trusted
 import Hackage.Security.TUF
 import Hackage.Security.Util.Path
 import Hackage.Security.Util.Pretty
+import Hackage.Security.Util.Some
 import Hackage.Security.Util.Stack
 
 {-------------------------------------------------------------------------------
@@ -106,6 +107,14 @@ data RemoteFile :: * -> * where
 
 deriving instance Eq   (RemoteFile fs)
 deriving instance Show (RemoteFile fs)
+
+instance Pretty (RemoteFile fs) where
+  pretty RemoteTimestamp          = "timestamp"
+  pretty (RemoteRoot _)           = "root"
+  pretty (RemoteSnapshot _)       = "snapshot"
+  pretty (RemoteMirrors _)        = "mirrors"
+  pretty (RemoteIndex _ _)        = "index"
+  pretty (RemotePkgTarGz pkgId _) = "package " ++ display pkgId
 
 -- | Files that we might request from the local cache
 data CachedFile =
@@ -255,6 +264,12 @@ mirrorsUnsupported _ = id
 -- Clients can take advantage of this to tell caches to revalidate files.
 data IsRetry = FirstAttempt | AfterVerificationError
 
+-- | Log messages
+--
+-- We use a 'RemoteFile' rather than a 'RepoPath' here because we might not have
+-- a 'RepoPath' for the file that we were trying to download (that is, for
+-- example if the server does not provide an uncompressed tarball, it doesn't
+-- make much sense to list the path to that non-existing uncompressed tarball).
 data LogMessage =
     -- | Root information was updated
     --
@@ -272,17 +287,17 @@ data LogMessage =
   | LogVerificationError VerificationError
 
     -- | Download a file from a repository
-  | LogDownloading String
+  | LogDownloading (Some RemoteFile)
 
     -- | Incrementally updating a file from a repository
-  | LogUpdating String
+  | LogUpdating (Some RemoteFile)
 
     -- | Selected a particular mirror
   | LogSelectedMirror MirrorDescription
 
     -- | Updating a file failed
     -- (we will try again by downloading it whole)
-  | LogUpdateFailed FileDescription UpdateFailure
+  | LogUpdateFailed (Some RemoteFile) UpdateFailure
 
     -- | We got an exception with a particular mirror
     -- (we will try with a different mirror if any are available)
@@ -364,8 +379,8 @@ rethrowRecoverable (RecoverCustom (CustomRecoverableException e)) = throwIO e
   Paths
 -------------------------------------------------------------------------------}
 
-remoteFilePath :: RepoLayout -> RemoteFile fs -> Formats fs RepoPath
-remoteFilePath RepoLayout{..} = go
+remoteRepoPath :: RepoLayout -> RemoteFile fs -> Formats fs RepoPath
+remoteRepoPath RepoLayout{..} = go
   where
     go :: RemoteFile fs -> Formats fs RepoPath
     go RemoteTimestamp        = FsUn $ repoLayoutTimestamp
@@ -378,6 +393,10 @@ remoteFilePath RepoLayout{..} = go
     goIndex :: Format f -> a -> RepoPath
     goIndex FUn _ = repoLayoutIndexTar
     goIndex FGz _ = repoLayoutIndexTarGz
+
+remoteRepoPath' :: RepoLayout -> RemoteFile fs -> SelectedFormat fs -> RepoPath
+remoteRepoPath' repoLayout file format =
+    selectedLookup format $ remoteRepoPath repoLayout file
 
 indexFilePath :: IndexLayout -> IndexFile -> IndexPath
 indexFilePath IndexLayout{..} = go
@@ -426,14 +445,14 @@ instance Pretty LogMessage where
       "Root info updated"
   pretty (LogVerificationError err) =
       "Verification error: " ++ pretty err
-  pretty (LogDownloading file) =
-      "Downloading " ++ file
-  pretty (LogUpdating file) =
-      "Updating " ++ file
+  pretty (LogDownloading (Some file)) =
+      "Downloading " ++ pretty file
+  pretty (LogUpdating (Some file)) =
+      "Updating " ++ pretty file
   pretty (LogSelectedMirror mirror) =
       "Selected mirror " ++ mirror
-  pretty (LogUpdateFailed file ex) =
-      "Updating " ++ file ++ " failed (" ++ pretty ex ++ ")"
+  pretty (LogUpdateFailed (Some file) ex) =
+      "Updating " ++ pretty file ++ " failed (" ++ pretty ex ++ ")"
   pretty (LogMirrorFailed mirror ex) =
       "Exception " ++ pretty ex ++ " when using mirror " ++ mirror
 
@@ -446,11 +465,3 @@ instance Pretty UpdateFailure where
       "no local copy"
   pretty (UpdateFailed ex) =
       pretty ex
-
-describeRemoteFile :: RemoteFile fs -> String
-describeRemoteFile RemoteTimestamp          = "timestamp"
-describeRemoteFile (RemoteRoot _)           = "root"
-describeRemoteFile (RemoteSnapshot _)       = "snapshot"
-describeRemoteFile (RemoteMirrors _)        = "mirrors"
-describeRemoteFile (RemoteIndex _ _)        = "index"
-describeRemoteFile (RemotePkgTarGz pkgId _) = "package " ++ display pkgId

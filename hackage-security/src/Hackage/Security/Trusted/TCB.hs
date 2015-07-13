@@ -92,29 +92,26 @@ trustSeq (DeclareTrusted fa) = DeclareTrusted `fmap` fa
 newtype SignaturesVerified a = SignaturesVerified { signaturesVerified :: a }
 
 -- | Errors thrown during role validation
---
--- The string arguments to the various constructors are just here to give a
--- hint about which file caused the error.
 data VerificationError =
      -- | Not enough signatures signed with the appropriate keys
-     VerificationErrorSignatures
+     VerificationErrorSignatures TargetPath
 
      -- | The file is expired
-   | VerificationErrorExpired String
+   | VerificationErrorExpired TargetPath
 
      -- | The file version is less than the previous version
-   | VerificationErrorVersion String
+   | VerificationErrorVersion TargetPath
 
      -- | File information mismatch
-   | VerificationErrorFileInfo String
+   | VerificationErrorFileInfo TargetPath
 
      -- | We tried to lookup file information about a particular target file,
      -- but the information wasn't in the corresponding @targets.json@ file.
-   | VerificationErrorUnknownTarget String
+   | VerificationErrorUnknownTarget TargetPath
 
      -- | The file we requested from the server was larger than expected
      -- (potential endless data attack)
-   | VerificationErrorFileTooLarge String
+   | VerificationErrorFileTooLarge TargetPath
 
      -- | The spec stipulates that if a verification error occurs during
      -- the check for updates, we must download new root information and
@@ -125,18 +122,18 @@ data VerificationError =
 instance Exception VerificationError
 
 instance Pretty VerificationError where
-  pretty VerificationErrorSignatures =
-      "Not enough signatures signed with the appropriate keys"
+  pretty (VerificationErrorSignatures file) =
+      pretty file ++ " does not have enough signatures signed with the appropriate keys"
   pretty (VerificationErrorExpired file) =
-      file ++ " is expired"
+      pretty file ++ " is expired"
   pretty (VerificationErrorVersion file) =
-      "Version of " ++ file ++ " is less than the previous version"
+      "Version of " ++ pretty file ++ " is less than the previous version"
   pretty (VerificationErrorFileInfo file) =
-      "Invalid hash for " ++ file
+      "Invalid hash for " ++ pretty file
   pretty (VerificationErrorUnknownTarget file) =
-      file ++ " not found in corresponding target metadata"
+      pretty file ++ " not found in corresponding target metadata"
   pretty (VerificationErrorFileTooLarge file) =
-      file ++ " too large"
+      pretty file ++ " too large"
   pretty VerificationErrorLoop =
       "Verification loop"
 
@@ -156,12 +153,14 @@ instance Pretty VerificationError where
 -- NOTE 2: We are not actually verifying the signatures _themselves_ here
 -- (we did that when we parsed the JSON). We are merely verifying the provenance
 -- of the keys.
-verifyRole :: forall a. (HasHeader a, DescribeFile a)
+verifyRole :: forall a. HasHeader a
            => Trusted (RoleSpec a)     -- ^ For signature validation
+           -> TargetPath               -- ^ File source (for error messages)
            -> Maybe FileVersion        -- ^ Previous version (if available)
            -> Maybe UTCTime            -- ^ Time now (if checking expiry)
            -> Signed a -> Either VerificationError (SignaturesVerified a)
 verifyRole (trusted -> RoleSpec{roleSpecThreshold = KeyThreshold threshold, ..})
+           targetPath
            mPrev
            mNow
            Signed{signatures = Signatures sigs, ..} =
@@ -173,7 +172,7 @@ verifyRole (trusted -> RoleSpec{roleSpecThreshold = KeyThreshold threshold, ..})
       case mNow of
         Just now ->
           when (isExpired now (Lens.get fileExpires signed)) $
-            throwError $ VerificationErrorExpired (describeFile signed)
+            throwError $ VerificationErrorExpired targetPath
         _otherwise ->
           return ()
 
@@ -182,7 +181,7 @@ verifyRole (trusted -> RoleSpec{roleSpecThreshold = KeyThreshold threshold, ..})
         Nothing   -> return ()
         Just prev ->
           when (Lens.get fileVersion signed < prev) $
-            throwError $ VerificationErrorVersion (describeFile signed)
+            throwError $ VerificationErrorVersion targetPath
 
       -- Verify signatures
       -- NOTE: We only need to verify the keys that were used; if the signature
@@ -190,7 +189,7 @@ verifyRole (trusted -> RoleSpec{roleSpecThreshold = KeyThreshold threshold, ..})
       -- (Similarly, if two signatures were made by the same key, the FromJSON
       -- instance for Signatures would have thrown an error.)
       unless (length (filter isRoleSpecKey sigs) >= threshold) $
-        throwError VerificationErrorSignatures
+        throwError $ VerificationErrorSignatures targetPath
 
       -- Everything is A-OK!
       return $ SignaturesVerified signed
@@ -205,14 +204,16 @@ verifyRole (trusted -> RoleSpec{roleSpecThreshold = KeyThreshold threshold, ..})
 -- See <http://en.wikipedia.org/wiki/Public_key_fingerprint>.
 verifyFingerprints :: [KeyId]
                    -> KeyThreshold
+                   -> TargetPath      -- ^ For error messages
                    -> Signed Root
                    -> Either VerificationError (SignaturesVerified Root)
 verifyFingerprints fingerprints
                    (KeyThreshold threshold)
+                   targetPath
                    Signed{signatures = Signatures sigs, ..} =
     if length (filter isTrustedKey sigs) >= threshold
       then Right $ SignaturesVerified signed
-      else Left $ VerificationErrorSignatures
+      else Left $ VerificationErrorSignatures targetPath
   where
     isTrustedKey :: Signature -> Bool
     isTrustedKey Signature{..} = someKeyId signatureKey `elem` fingerprints

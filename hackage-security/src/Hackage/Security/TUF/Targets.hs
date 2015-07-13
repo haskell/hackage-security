@@ -61,11 +61,6 @@ instance HasHeader Targets where
   fileVersion f x = (\y -> x { targetsVersion = y }) <$> f (targetsVersion x)
   fileExpires f x = (\y -> x { targetsExpires = y }) <$> f (targetsExpires x)
 
-instance DescribeFile Targets where
-  -- TODO: We should be more precise here, this is an insufficient clue as to
-  -- _which_ targets file this is.
-  describeFile _ = "targets file"
-
 {-------------------------------------------------------------------------------
   Utility
 -------------------------------------------------------------------------------}

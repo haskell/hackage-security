@@ -20,6 +20,8 @@ module Hackage.Security.Client.Formats (
   , SelectedFormat(..)
     -- ** Utility
   , selectedFormatSome
+  , selectedLookup
+  , selectedAbsurd
   ) where
 
 import Data.Maybe (fromMaybe)
@@ -139,3 +141,20 @@ data SelectedFormat :: * -> * where
 selectedFormatSome :: SelectedFormat fs -> Some Format
 selectedFormatSome (SZ f)  = Some f
 selectedFormatSome (SS fs) = selectedFormatSome fs
+
+selectedLookup :: SelectedFormat fs -> Formats fs a -> a
+selectedLookup (SZ FUn) (FsUn   a)   = a
+selectedLookup (SZ FGz) (FsGz   a)   = a
+selectedLookup (SZ FUn) (FsUnGz a _) = a
+selectedLookup (SS sf)  (FsUnGz _ a) = selectedLookup sf (FsGz a)
+selectedLookup (SS sf)  (FsUn   _)   = selectedAbsurd sf
+selectedLookup (SS sf)  (FsGz   _)   = selectedAbsurd sf
+selectedLookup _        _            = error "inaccessible"
+-- The remaining patterns are inaccessible:
+-- selectedLookup (SZ FUn) FsNone   = undefined
+-- selectedLookup (SZ FUn) (FsGz _) = undefined
+-- selectedLookup (SZ FGz) FsNone   = undefined
+-- selectedLookup (SS _)   FsNone   = undefined
+
+selectedAbsurd :: SelectedFormat () -> a
+selectedAbsurd _ = error "inaccessible"

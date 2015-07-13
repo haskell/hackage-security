@@ -50,9 +50,6 @@ instance HasHeader Mirrors where
   fileVersion f x = (\y -> x { mirrorsVersion = y }) <$> f (mirrorsVersion x)
   fileExpires f x = (\y -> x { mirrorsExpires = y }) <$> f (mirrorsExpires x)
 
-instance DescribeFile Mirrors where
-  describeFile _ = "mirrors list"
-
 {-------------------------------------------------------------------------------
   Utility
 -------------------------------------------------------------------------------}

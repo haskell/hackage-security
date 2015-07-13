@@ -44,9 +44,6 @@ instance HasHeader Snapshot where
   fileVersion f x = (\y -> x { snapshotVersion = y }) <$> f (snapshotVersion x)
   fileExpires f x = (\y -> x { snapshotExpires = y }) <$> f (snapshotExpires x)
 
-instance DescribeFile Snapshot where
-  describeFile _ = "snapshot"
-
 {-------------------------------------------------------------------------------
   JSON
 -------------------------------------------------------------------------------}

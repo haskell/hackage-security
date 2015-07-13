@@ -1,8 +1,6 @@
 -- | Header used by all TUF types
 module Hackage.Security.TUF.Header (
     HasHeader(..)
-  , FileDescription
-  , DescribeFile(..)
   , FileVersion(..)
   , FileExpires(..)
   , Header(..)
@@ -30,12 +28,6 @@ class HasHeader a where
 
   -- | File version (monotonically increasing counter)
   fileVersion :: Lens' a FileVersion
-
-type FileDescription = String
-
-class DescribeFile a where
-  -- | Describe this file (for use in error messages)
-  describeFile :: a -> FileDescription
 
 -- | File version
 --

@@ -27,9 +27,6 @@ instance HasHeader Timestamp where
   fileVersion f x = (\y -> x { timestampVersion = y }) <$> f (timestampVersion x)
   fileExpires f x = (\y -> x { timestampExpires = y }) <$> f (timestampExpires x)
 
-instance DescribeFile Timestamp where
-  describeFile _ = "timestamp"
-
 {-------------------------------------------------------------------------------
   JSON
 -------------------------------------------------------------------------------}

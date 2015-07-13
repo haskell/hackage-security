@@ -34,15 +34,18 @@ import Hackage.Security.Util.Path
 
 -- | Verify (new) root info based on (old) root info
 verifyRoot :: Trusted Root             -- ^ Trusted (old) root data
+           -> TargetPath               -- ^ Source (for error messages)
            -> Maybe UTCTime            -- ^ Time now (if checking expiry)
            -> Signed Root              -- ^ New root data to verify
            -> Either VerificationError (SignaturesVerified Root)
-verifyRoot old =
+verifyRoot old targetPath =
      verifyRole (static (rootRolesRoot . rootRoles) <$$> old)
+                targetPath
                 (Just (rootVersion (trusted old)))
 
 -- | Verify a timestamp
 verifyTimestamp :: Trusted Root      -- ^ Trusted root data
+                -> TargetPath        -- ^ Source (for error messages)
                 -> Maybe FileVersion -- ^ Previous version (if available)
                 -> Maybe UTCTime     -- ^ Time now (if checking expiry)
                 -> Signed Timestamp  -- ^ Timestamp to verify
@@ -52,6 +55,7 @@ verifyTimestamp root =
 
 -- | Verify snapshot
 verifySnapshot :: Trusted Root       -- ^ Root data
+               -> TargetPath         -- ^ Source (for error messages)
                -> Maybe FileVersion  -- ^ Previous version (if available)
                -> Maybe UTCTime      -- ^ Time now (if checking expiry)
                -> Signed Snapshot    -- ^ Snapshot to verify
@@ -61,6 +65,7 @@ verifySnapshot root =
 
 -- | Verify mirrors
 verifyMirrors :: Trusted Root       -- ^ Root data
+              -> TargetPath         -- ^ Source (for error messages)
               -> Maybe FileVersion  -- ^ Previous version (if available)
               -> Maybe UTCTime      -- ^ Time now (if checking expiry)
               -> Signed Mirrors     -- ^ Mirrors to verify
