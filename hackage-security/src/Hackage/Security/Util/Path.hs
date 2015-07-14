@@ -53,21 +53,20 @@ module Hackage.Security.Util.Path (
   , fromAbsoluteFilePath
   -- ** Wrappers around System.IO
   , openTempFile
-  , withBinaryFile
-  , withFile
+  , withFileInReadMode
   -- ** Wrappers around Data.ByteString.*
   , readLazyByteString
   , readStrictByteString
-  , writeLazyByteString
   -- ** Wrappers around System.Directory
-  , copyFile
   , createDirectoryIfMissing
   , doesDirectoryExist
   , doesFileExist
+  , getCurrentDirectory
   , getDirectoryContents
   , getRecursiveContents
   , getTemporaryDirectory
   , removeFile
+  , renameFile
   -- ** Wrappers around Codec.Archive.Tar.*
   , TarballRoot
   , TarballPath
@@ -333,34 +332,26 @@ fromAbsoluteFilePath _ = error "fromAbsoluteFilePath: not an absolute path"
   Wrappers around System.IO
 -------------------------------------------------------------------------------}
 
-withFile :: IsFileSystemRoot root
-         => Path (Rooted root) -> IO.IOMode -> (IO.Handle -> IO r) -> IO r
-withFile path mode callback = do
+-- | Open a file in read mode
+--
+-- We don't wrap the general 'withFile' to encourage using atomic file ops.
+withFileInReadMode :: IsFileSystemRoot root
+                   => Path (Rooted root) -> (IO.Handle -> IO r) -> IO r
+withFileInReadMode path callback = do
     filePath <- toAbsoluteFilePath path
-    IO.withFile filePath mode callback
+    IO.withFile filePath IO.ReadMode callback
 
-withBinaryFile :: IsFileSystemRoot root
-               => Path (Rooted root) -> IO.IOMode -> (IO.Handle -> IO r) -> IO r
-withBinaryFile path mode callback = do
-    filePath <- toAbsoluteFilePath path
-    IO.withBinaryFile filePath mode callback
-
+-- | Wrapper around 'openBinaryTempFileWithDefaultPermissions'
 openTempFile :: forall root. IsFileSystemRoot root
              => Path (Rooted root) -> String -> IO (AbsolutePath, IO.Handle)
 openTempFile path template = do
     filePath <- toAbsoluteFilePath path
-    (tempFilePath, h) <- IO.openTempFile filePath template
+    (tempFilePath, h) <- IO.openBinaryTempFileWithDefaultPermissions filePath template
     return (fromAbsoluteFilePath tempFilePath, h)
 
 {-------------------------------------------------------------------------------
   Wrappers around Data.ByteString.*
 -------------------------------------------------------------------------------}
-
-writeLazyByteString :: IsFileSystemRoot root
-                    => Path (Rooted root) -> BS.L.ByteString -> IO ()
-writeLazyByteString path bs = do
-    filePath <- toAbsoluteFilePath path
-    BS.L.writeFile filePath bs
 
 readLazyByteString :: IsFileSystemRoot root
                    => Path (Rooted root) -> IO BS.L.ByteString
@@ -383,13 +374,6 @@ createDirectoryIfMissing :: IsFileSystemRoot root
 createDirectoryIfMissing createParents path = do
     filePath <- toAbsoluteFilePath path
     Dir.createDirectoryIfMissing createParents filePath
-
-copyFile :: (IsFileSystemRoot root, IsFileSystemRoot root')
-         => Path (Rooted root) -> Path (Rooted root') -> IO ()
-copyFile srcPath dstPath = do
-    srcFilePath <- toAbsoluteFilePath srcPath
-    dstFilePath <- toAbsoluteFilePath dstPath
-    Dir.copyFile srcFilePath dstFilePath
 
 doesFileExist :: IsFileSystemRoot root => Path (Rooted root) -> IO Bool
 doesFileExist path = do
@@ -443,6 +427,20 @@ getRecursiveContents root = go PathNil
         isDirectory <- doesDirectoryExist (root </> path)
         if isDirectory then go path
                        else return [path]
+
+renameFile :: (IsFileSystemRoot root, IsFileSystemRoot root1)
+           => Path (Rooted root)  -- ^ Old
+           -> Path (Rooted root1) -- ^ New
+           -> IO ()
+renameFile old new = do
+    old' <- toAbsoluteFilePath old
+    new' <- toAbsoluteFilePath new
+    Dir.renameFile old' new'
+
+getCurrentDirectory :: IO AbsolutePath
+getCurrentDirectory = do
+    cwd <- Dir.getCurrentDirectory
+    makeAbsolute $ fromFilePath cwd
 
 {-------------------------------------------------------------------------------
   Wrappers around Codec.Archive.Tar.*

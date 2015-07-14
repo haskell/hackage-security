@@ -9,7 +9,6 @@ module Hackage.Security.Client.Repository.Cache (
   , clearCache
   , getFromIndex
   , cacheRemoteFile
-  , cacheTmpDir
   ) where
 
 import Control.Exception
@@ -47,13 +46,12 @@ cacheRemoteFile cache tempPath (Some f) isCached = do
     go _ Nothing =
       return () -- Don't cache
     go FUn (Just fp) = do
-      -- TODO: (here and elsewhere): use atomic file operation instead
       createDirectoryIfMissing True (takeDirectory fp)
-      copyFile tempPath fp
+      atomicCopyFile tempPath fp
     go FGz (Just fp) = do
       createDirectoryIfMissing True (takeDirectory fp)
       compressed <- readLazyByteString tempPath
-      writeLazyByteString fp $ GZip.decompress compressed
+      atomicWriteFile fp $ GZip.decompress compressed
 
 -- | Rebuild the tarball index
 --
@@ -64,7 +62,7 @@ rebuildTarIndex cache = do
     case TarIndex.build entries of
       Left  ex    -> throwIO ex
       Right index ->
-        withBinaryFile (cachedIndexIdxPath cache) WriteMode $ \h -> do
+        atomicWithFile (cachedIndexIdxPath cache) $ \h -> do
           hSetBuffering h (BlockBuffering Nothing)
           BS.Builder.hPutBuilder h $ TarIndex.serialise index
 
@@ -107,7 +105,7 @@ getFromIndex cache indexLayout indexFile = do
         case tarIndexLookup index (tarPath (indexFilePath indexLayout indexFile)) of
           Just (TarIndex.TarFileEntry offset) ->
             -- TODO: We might want to keep this handle open
-            withFile (cachedIndexTarPath cache) ReadMode $ \h -> do
+            withFileInReadMode (cachedIndexTarPath cache) $ \h -> do
               entry <- TarIndex.hReadEntry h offset
               case Tar.entryContent entry of
                 Tar.NormalFile lbs _size -> do
@@ -173,10 +171,3 @@ cachedIndexTarPath Cache{..} =
 cachedIndexIdxPath :: Cache -> AbsolutePath
 cachedIndexIdxPath Cache{..} =
     anchorCachePath cacheRoot $ cacheLayoutIndexIdx cacheLayout
-
--- | Temp directory for files that should end up in the cache
---
--- This is a subdirectory of the cache directory, so that we can use
--- 'renameFile' to move files from the temp directory to the cache proper.
-cacheTmpDir :: Cache -> AbsolutePath
-cacheTmpDir Cache{..} = cacheRoot </> fragment' "tmp"

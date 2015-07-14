@@ -48,6 +48,7 @@ import qualified Data.ByteString.Lazy as BS.L
 import Hackage.Security.Key
 import Hackage.Security.Key.Env (KeyEnv)
 import Hackage.Security.TUF.Layout
+import Hackage.Security.Util.IO
 import Hackage.Security.Util.JSON
 import Hackage.Security.Util.Path
 import Hackage.Security.Util.Pretty
@@ -253,7 +254,7 @@ readJSON_Keys_Layout :: ( IsFileSystemRoot root
                      -> Path (Rooted root)
                      -> IO (Either DeserializationError a)
 readJSON_Keys_Layout keyEnv repoLayout fp = do
-    withFile fp ReadMode $ \h -> do
+    withFileInReadMode fp $ \h -> do
       bs <- BS.L.hGetContents h
       evaluate $ parseJSON_Keys_Layout keyEnv repoLayout bs
 
@@ -264,7 +265,7 @@ readJSON_Keys_NoLayout :: ( IsFileSystemRoot root
                        -> Path (Rooted root)
                        -> IO (Either DeserializationError a)
 readJSON_Keys_NoLayout keyEnv fp = do
-    withFile fp ReadMode $ \h -> do
+    withFileInReadMode fp $ \h -> do
       bs <- BS.L.hGetContents h
       evaluate $ parseJSON_Keys_NoLayout keyEnv bs
 
@@ -274,7 +275,7 @@ readJSON_NoKeys_NoLayout :: ( IsFileSystemRoot root
                          => Path (Rooted root)
                          -> IO (Either DeserializationError a)
 readJSON_NoKeys_NoLayout fp = do
-    withFile fp ReadMode $ \h -> do
+    withFileInReadMode fp $ \h -> do
       bs <- BS.L.hGetContents h
       evaluate $ parseJSON_NoKeys_NoLayout bs
 
@@ -306,13 +307,15 @@ renderJSON repoLayout = renderCanonicalJSON . runWriteJSON repoLayout . toJSON
 renderJSON_NoLayout :: ToJSON Identity a => a -> BS.L.ByteString
 renderJSON_NoLayout = renderCanonicalJSON . runIdentity . toJSON
 
-writeJSON :: (IsFileSystemRoot root, ToJSON WriteJSON a)
-          => RepoLayout -> Path (Rooted root) -> a -> IO ()
-writeJSON repoLayout fp = writeLazyByteString fp . renderJSON repoLayout
+writeJSON :: ToJSON WriteJSON a => RepoLayout -> AbsolutePath -> a -> IO ()
+writeJSON repoLayout fp a =
+    atomicWithFile fp $ \h ->
+      BS.L.hPut h $ renderJSON repoLayout a
 
-writeJSON_NoLayout :: (IsFileSystemRoot root, ToJSON Identity a)
-                   => Path (Rooted root) -> a -> IO ()
-writeJSON_NoLayout fp = writeLazyByteString fp . renderJSON_NoLayout
+writeJSON_NoLayout :: ToJSON Identity a => AbsolutePath -> a -> IO ()
+writeJSON_NoLayout fp a =
+    atomicWithFile fp $ \h ->
+      BS.L.hPut h $ renderJSON_NoLayout a
 
 writeKeyAsId :: Some PublicKey -> JSValue
 writeKeyAsId = JSString . keyIdString . someKeyId

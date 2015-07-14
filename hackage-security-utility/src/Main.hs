@@ -8,7 +8,6 @@ import Data.Time
 import GHC.Conc.Sync (setUncaughtExceptionHandler)
 import Network.URI (URI)
 import System.Exit
-import System.IO
 import System.IO.Error
 import qualified Codec.Archive.Tar       as Tar
 import qualified Codec.Archive.Tar.Entry as Tar
@@ -455,7 +454,7 @@ extractCabalFile opts@GlobalOpts{..} repoLoc whenWrite pkgId = do
                         ++ " (extracted from "
                         ++ prettyTargetPath' globalRepoLayout src
                         ++ ")"
-            writeLazyByteString pathCabalInIdx cabalFile
+            atomicWithFile pathCabalInIdx $ \h -> BS.L.hPut h cabalFile
   where
     pathCabalInTar :: FilePath
     pathCabalInTar = FilePath.joinPath [
@@ -512,35 +511,36 @@ updateFile opts@GlobalOpts{..} repoLoc whenWrite fileLoc signPayload a = do
       (WriteUpdate, Just (Left _err)) -> -- old file corrupted
         writeDoc overwriting a
       (WriteUpdate, Just (Right (IgnoreSigned oldHeader))) -> do
-        -- We cannot quite read the entire old file, because we don't know
-        -- what key environment to use. Instead, we write the _new_ file,
-        -- but setting the version number to be able to the version number
-        -- of the old file. If this turns out to be equal to the old file, we
-        -- skip writing this file. However, if this is NOT equal, we set the
-        -- version number of the new file to be equal to the version number of
-        -- the old plus one, and write the new file once more.
+        -- We cannot quite read the entire old file, because we don't know what
+        -- key environment to use. Instead, we render the _new_ file, but
+        -- setting the version number to be equal to the version number of the
+        -- old file. If the result turns out to be equal to the old file (same
+        -- FileInfo), we skip writing this file. However, if this is NOT equal,
+        -- we set the version number of the new file to be equal to the version
+        -- number of the old plus one, and write it.
+        oldFileInfo <- computeFileInfo fp
 
-        let oldVersion  = headerVersion oldHeader
+        let oldVersion :: FileVersion
+            oldVersion = headerVersion oldHeader
+
+            wOldVersion, wIncVersion :: a
             wOldVersion = Lens.set fileVersion oldVersion a
             wIncVersion = Lens.set fileVersion (versionIncrement oldVersion) a
 
-        withTempFile (repoTmpDir repoLoc) (unFragment (takeFileName fp)) $ \tempPath h -> do
-          -- Write new file, but using old file version
-          BS.L.hPut h $ renderJSON globalRepoLayout (signPayload wOldVersion)
-          hClose h
+            wOldSigned :: Signed a
+            wOldSigned = signPayload wOldVersion
 
-          -- Compare file hashes
-          -- TODO: We could be be more efficient here and verify file size
-          -- first; however, these files are tiny so it doesn't really matter.
-          mOldFileInfo <- computeFileInfo' fp
-          fileChanged  <- case mOldFileInfo of
-            Nothing -> return True
-            Just oldFileInfo -> do
-              newFileInfo <- computeFileInfo tempPath
-              return $ not (knownFileInfoEqual oldFileInfo newFileInfo)
-          if not fileChanged
-            then logInfo opts $ "Unchanged " ++ prettyTargetPath' globalRepoLayout fileLoc
-            else writeDoc updating wIncVersion
+            wOldRendered :: BS.L.ByteString
+            wOldRendered = renderJSON globalRepoLayout wOldSigned
+
+            -- TODO: We could be be more efficient here and verify file size
+            -- first; however, these files are tiny so it doesn't really matter.
+            wOldFileInfo :: FileInfo
+            wOldFileInfo = fileInfo wOldRendered
+
+        if knownFileInfoEqual oldFileInfo wOldFileInfo
+          then logInfo opts $ "Unchanged " ++ prettyTargetPath' globalRepoLayout fileLoc
+          else writeDoc updating wIncVersion
   where
     -- | Actually write the file
     writeDoc :: String -> a -> IO ()
@@ -557,22 +557,6 @@ updateFile opts@GlobalOpts{..} repoLoc whenWrite fileLoc signPayload a = do
     creating    = "Creating "    ++ prettyTargetPath' globalRepoLayout fileLoc
     overwriting = "Overwriting " ++ prettyTargetPath' globalRepoLayout fileLoc ++ " (old file corrupted)"
     updating    = "Updating "    ++ prettyTargetPath' globalRepoLayout fileLoc
-
-    computeFileInfo' :: AbsolutePath -> IO (Maybe FileInfo)
-    computeFileInfo' path =
-        handle doesNotExist $ Just <$> computeFileInfo path
-      where
-        doesNotExist e = if isDoesNotExistError e
-                           then return Nothing
-                           else throwIO e
-
--- | Temporary directory
---
--- We use a subdirectory as a temporary directory, so that we are sure that
--- they live in the same file system and we can use 'renameFile' to move files
--- from the temp directory to the repository proper.
-repoTmpDir :: RepoLoc -> AbsolutePath
-repoTmpDir (RepoLoc repoLoc) = repoLoc </> fragment' "tmp"
 
 {-------------------------------------------------------------------------------
   Inspect the repo layout
@@ -664,7 +648,8 @@ getFileModTime GlobalOpts{..} repoLoc targetPath =
 
 compress :: AbsolutePath -> AbsolutePath -> IO ()
 compress src dst =
-    writeLazyByteString dst =<< GZip.compress <$> readLazyByteString src
+    atomicWithFile dst $ \h ->
+      BS.L.hPut h =<< GZip.compress <$> readLazyByteString src
 
 -- | Extract a file from a tar archive
 --

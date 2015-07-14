@@ -4,6 +4,7 @@ module Main where
 import Distribution.Package
 
 import Hackage.Security.Client
+import Hackage.Security.Util.IO
 import Hackage.Security.Util.Path
 import Hackage.Security.Util.Pretty
 import qualified Hackage.Security.Client.Repository.Cache       as Cache
@@ -42,14 +43,13 @@ cmdCheck opts =
       print =<< checkForUpdates rep (globalCheckExpiry opts)
 
 cmdGet :: GlobalOpts -> PackageIdentifier -> IO ()
-cmdGet opts pkgId =
+cmdGet opts pkgId = do
+    cwd <- getCurrentDirectory
+    let localFile = cwd </> fragment tarGzName
     withRepo opts $ \rep ->
       downloadPackage rep pkgId $ \tempPath ->
-        copyFile tempPath localFile
+        atomicCopyFile tempPath localFile
   where
-    localFile :: RelativePath
-    localFile = rootPath Rooted (fragment tarGzName)
-
     tarGzName :: Fragment
     tarGzName = takeFileName $ repoLayoutPkgTarGz hackageRepoLayout pkgId
 
