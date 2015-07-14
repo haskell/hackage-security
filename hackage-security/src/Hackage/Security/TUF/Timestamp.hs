@@ -3,6 +3,7 @@ module Hackage.Security.TUF.Timestamp (
     Timestamp(..)
   ) where
 
+import Control.Monad.Except
 import Control.Monad.Reader
 
 import Hackage.Security.JSON
@@ -45,9 +46,12 @@ instance MonadReader RepoLayout m => ToJSON m Timestamp where
           (pathSnapshot repoLayout, timestampInfoSnapshot)
         ]
 
-instance (MonadReader RepoLayout m, ReportSchemaErrors m) => FromJSON m Timestamp where
+instance ( MonadReader RepoLayout m
+         , MonadError DeserializationError m
+         , ReportSchemaErrors m
+         ) => FromJSON m Timestamp where
   fromJSON enc = do
-    -- TODO: Should we verify _type?
+    verifyType enc "Timestamp"
     repoLayout            <- ask
     timestampVersion      <- fromJSField enc "version"
     timestampExpires      <- fromJSField enc "expires"

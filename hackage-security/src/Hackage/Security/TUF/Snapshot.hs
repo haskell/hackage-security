@@ -3,6 +3,7 @@ module Hackage.Security.TUF.Snapshot (
     Snapshot(..)
   ) where
 
+import Control.Monad.Except
 import Control.Monad.Reader
 
 import Hackage.Security.JSON
@@ -65,9 +66,12 @@ instance MonadReader RepoLayout m => ToJSON m Snapshot where
         ] ++
         [ (pathIndexTar   repoLayout , infoTar) | Just infoTar <- [snapshotInfoTar] ]
 
-instance (MonadReader RepoLayout m, ReportSchemaErrors m) => FromJSON m Snapshot where
+instance ( MonadReader RepoLayout m
+         , MonadError DeserializationError m
+         , ReportSchemaErrors m
+         ) => FromJSON m Snapshot where
   fromJSON enc = do
-    -- TODO: Should we verify _type?
+    verifyType enc "Snapshot"
     repoLayout          <- ask
     snapshotVersion     <- fromJSField enc "version"
     snapshotExpires     <- fromJSField enc "expires"

@@ -3,6 +3,7 @@ module Hackage.Security.JSON (
     -- * Deserialization errors
     DeserializationError(..)
   , validate
+  , verifyType
     -- * MonadKeys
   , MonadKeys(..)
   , addKeys
@@ -73,6 +74,11 @@ data DeserializationError =
 
     -- | Some verification step failed
   | DeserializationErrorValidation String
+
+    -- | Wrong file type
+    --
+    -- Records actual and expected types.
+  | DeserializationErrorFileType String String
   deriving (Typeable, Show)
 
 instance Exception DeserializationError
@@ -86,10 +92,20 @@ instance Pretty DeserializationError where
       "Unknown key: " ++ keyIdString kId
   pretty (DeserializationErrorValidation str) =
       "Invalid: " ++ str
+  pretty (DeserializationErrorFileType actualType expectedType) =
+         "Expected file of type " ++ show expectedType
+      ++ " but got file of type " ++ show actualType
 
 validate :: MonadError DeserializationError m => String -> Bool -> m ()
 validate _   True  = return ()
 validate msg False = throwError $ DeserializationErrorValidation msg
+
+verifyType :: (ReportSchemaErrors m, MonadError DeserializationError m)
+           => JSValue -> String -> m ()
+verifyType enc expectedType = do
+    actualType <- fromJSField enc "_type"
+    unless (actualType == expectedType) $
+      throwError $ DeserializationErrorFileType actualType expectedType
 
 {-------------------------------------------------------------------------------
   Access to keys

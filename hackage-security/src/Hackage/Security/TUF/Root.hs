@@ -100,7 +100,7 @@ instance MonadKeys m => FromJSON m (Signed Root) where
     enc      <- fromJSField envelope "signed"
     rootKeys <- fromJSField enc      "keys"
     withKeys rootKeys $ do
-      -- TODO: verify _type
+      verifyType enc "Root"
       rootVersion <- fromJSField enc "version"
       rootExpires <- fromJSField enc "expires"
       rootRoles   <- fromJSField enc "roles"

@@ -117,7 +117,7 @@ instance Monad m => ToJSON m Targets where
 
 instance MonadKeys m => FromJSON m Targets where
   fromJSON enc = do
-    -- TODO: verify _type
+    verifyType enc "Targets"
     targetsVersion     <- fromJSField    enc "version"
     targetsExpires     <- fromJSField    enc "expires"
     targetsTargets     <- fromJSField    enc "targets"

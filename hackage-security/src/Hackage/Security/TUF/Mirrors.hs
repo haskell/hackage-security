@@ -1,3 +1,4 @@
+{-# LANGUAGE UndecidableInstances #-}
 module Hackage.Security.TUF.Mirrors (
     -- * TUF types
     Mirrors(..)
@@ -8,6 +9,7 @@ module Hackage.Security.TUF.Mirrors (
   , describeMirror
   ) where
 
+import Control.Monad.Except
 import Network.URI
 
 import Hackage.Security.JSON
@@ -87,9 +89,11 @@ instance ReportSchemaErrors m => FromJSON m Mirror where
     let mirrorContent = MirrorFull
     return Mirror{..}
 
-instance ReportSchemaErrors m => FromJSON m Mirrors where
+instance ( MonadError DeserializationError m
+         , ReportSchemaErrors m
+         ) => FromJSON m Mirrors where
   fromJSON enc = do
-    -- TODO: Verify _type
+    verifyType enc "Mirrorlist"
     mirrorsVersion <- fromJSField enc "version"
     mirrorsExpires <- fromJSField enc "expires"
     mirrorsMirrors <- fromJSField enc "mirrors"
