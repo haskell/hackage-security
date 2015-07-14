@@ -13,6 +13,7 @@ module Hackage.Security.Key.Env (
   ) where
 
 import Prelude hiding (lookup, null)
+import Control.Monad
 import Data.Map (Map)
 import qualified Data.Map as Map
 
@@ -20,10 +21,25 @@ import Hackage.Security.Key
 import Hackage.Security.Util.JSON
 import Hackage.Security.Util.Some
 
+{-------------------------------------------------------------------------------
+  Main datatype
+-------------------------------------------------------------------------------}
+
+-- | A key environment is a mapping from key IDs to the corresponding keys.
+--
+-- It should satisfy the invariant that these key IDs actually match the keys;
+-- see 'checkKeyEnvInvariant'.
 newtype KeyEnv = KeyEnv {
     keyEnvMap :: Map KeyId (Some PublicKey)
   }
   deriving (Show)
+
+-- | Verify that each key ID is mapped to a key with that ID
+checkKeyEnvInvariant :: KeyEnv -> Bool
+checkKeyEnvInvariant = all (uncurry go) . Map.toList . keyEnvMap
+  where
+    go :: KeyId -> Some PublicKey -> Bool
+    go kId key = kId == someKeyId key
 
 {-------------------------------------------------------------------------------
   Convenience constructors
@@ -64,6 +80,11 @@ union (KeyEnv env) (KeyEnv env') = KeyEnv (env `Map.union` env')
 instance Monad m => ToJSON m KeyEnv where
   toJSON (KeyEnv keyEnv) = toJSON keyEnv
 
--- TODO: verify key ID matches
 instance ReportSchemaErrors m => FromJSON m KeyEnv where
-  fromJSON enc = KeyEnv <$> fromJSON enc
+  fromJSON enc = do
+    keyEnv <- KeyEnv <$> fromJSON enc
+    -- We should really use 'validate', but that causes module import cycles.
+    -- Sigh.
+    unless (checkKeyEnvInvariant keyEnv) $
+      expected "valid key environment" Nothing
+    return keyEnv
