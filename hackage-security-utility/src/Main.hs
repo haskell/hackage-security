@@ -492,10 +492,6 @@ data WhenWrite =
 -- version number) we don't overwrite it and return Nothing; otherwise we
 -- increment the version number, write the file, and (if it's in the index)
 -- copy it to the unpacked index directory.
---
--- TODO: This currently uses withSystemTempFile, which means that 'renameFile'
--- might not work. Instead we should (here and elsewhere) have a temporary
--- directory on the same file system. A worry for later.
 updateFile :: forall a. (ToJSON WriteJSON (Signed a), HasHeader a)
            => GlobalOpts
            -> RepoLoc
@@ -528,7 +524,7 @@ updateFile opts@GlobalOpts{..} repoLoc whenWrite fileLoc signPayload a = do
             wOldVersion = Lens.set fileVersion oldVersion a
             wIncVersion = Lens.set fileVersion (versionIncrement oldVersion) a
 
-        withSystemTempFile (unFragment (takeFileName fp)) $ \tempPath h -> do
+        withTempFile (repoTmpDir repoLoc) (unFragment (takeFileName fp)) $ \tempPath h -> do
           -- Write new file, but using old file version
           BS.L.hPut h $ renderJSON globalRepoLayout (signPayload wOldVersion)
           hClose h
@@ -569,6 +565,14 @@ updateFile opts@GlobalOpts{..} repoLoc whenWrite fileLoc signPayload a = do
         doesNotExist e = if isDoesNotExistError e
                            then return Nothing
                            else throwIO e
+
+-- | Temporary directory
+--
+-- We use a subdirectory as a temporary directory, so that we are sure that
+-- they live in the same file system and we can use 'renameFile' to move files
+-- from the temp directory to the repository proper.
+repoTmpDir :: RepoLoc -> AbsolutePath
+repoTmpDir (RepoLoc repoLoc) = repoLoc </> fragment' "tmp"
 
 {-------------------------------------------------------------------------------
   Inspect the repo layout

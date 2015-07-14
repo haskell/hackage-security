@@ -1,5 +1,5 @@
 module Hackage.Security.Util.IO (
-    withSystemTempFile
+    withTempFile
   , getFileSize
   , handleDoesNotExist
   ) where
@@ -10,12 +10,16 @@ import System.IO.Error
 
 import Hackage.Security.Util.Path
 
-withSystemTempFile :: forall a.
-                      String -- ^ Template
-                   -> (AbsolutePath -> Handle -> IO a)
-                   -> IO a
-withSystemTempFile template callback = do
-    tmpDir <- getTemporaryDirectory
+-- | Create a short-lived temporary file
+--
+-- Creates the directory where the temp file should live if it does not exist.
+withTempFile :: forall a root. IsFileSystemRoot root
+             => Path (Rooted root)                -- ^ Temp directory
+             -> String                            -- ^ Template
+             -> (AbsolutePath -> Handle -> IO a)  -- ^ Callback
+             -> IO a
+withTempFile tmpDir template callback = do
+    createDirectoryIfMissing True tmpDir
     bracket (openTempFile tmpDir template) closeAndDelete (uncurry callback)
   where
     -- closeAndDelete :: (Path, Handle) -> IO ()

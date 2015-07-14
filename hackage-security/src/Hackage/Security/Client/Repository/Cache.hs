@@ -9,6 +9,7 @@ module Hackage.Security.Client.Repository.Cache (
   , clearCache
   , getFromIndex
   , cacheRemoteFile
+  , cacheTmpDir
   ) where
 
 import Control.Exception
@@ -172,3 +173,10 @@ cachedIndexTarPath Cache{..} =
 cachedIndexIdxPath :: Cache -> AbsolutePath
 cachedIndexIdxPath Cache{..} =
     anchorCachePath cacheRoot $ cacheLayoutIndexIdx cacheLayout
+
+-- | Temp directory for files that should end up in the cache
+--
+-- This is a subdirectory of the cache directory, so that we can use
+-- 'renameFile' to move files from the temp directory to the cache proper.
+cacheTmpDir :: Cache -> AbsolutePath
+cacheTmpDir Cache{..} = cacheRoot </> fragment' "tmp"

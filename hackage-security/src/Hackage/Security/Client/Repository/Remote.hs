@@ -354,7 +354,7 @@ getFile :: RemoteConfig   -- ^ Internal configuration
         -> (SelectedFormat fs -> TempPath -> IO a) -- ^ Callback after download
         -> IO a
 getFile RemoteConfig{..} httpOpts remoteFile callback =
-    withSystemTempFile (uriTemplate uri) $ \tempPath h -> do
+    withTempFile (Cache.cacheTmpDir cfgCache) (uriTemplate uri) $ \tempPath h -> do
       -- We are careful NOT to scope the remainder of the computation underneath
       -- the httpClientGet
       httpClientGet httpOpts uri $ execBodyReader targetPath sz h
@@ -394,7 +394,7 @@ incTar RemoteConfig{..} httpOpts len cachedFile callback = do
         fileSz  = fileLength (trusted len)
         range   = (fromInteger currentMinusTrailer, fileSz)
         rangeSz = FileSizeExact (snd range - fst range)
-    withSystemTempFile (uriTemplate uri) $ \tempPath h -> do
+    withTempFile (Cache.cacheTmpDir cfgCache) (uriTemplate uri) $ \tempPath h -> do
       BS.L.hPut h =<< readLazyByteString cachedFile
       hSeek h AbsoluteSeek currentMinusTrailer
       -- As in 'getFile', make sure we don't scope the remainder of the
