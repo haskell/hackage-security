@@ -91,7 +91,7 @@ data FileChange =
 
     -- | File got deleted
   | FileDeleted
-  deriving (Eq, Ord, Show)
+  deriving (Show)
 
 fileMapChanges :: FileMap  -- ^ Old
                -> FileMap  -- ^ New
@@ -107,10 +107,10 @@ fileMapChanges (FileMap a) (FileMap b) =
     go [] new = map (second FileChanged) new
     go old [] = map (second (const FileDeleted)) old
     go old@((fp, nfo):old') new@((fp', nfo'):new')
-      | fp < fp'    = (fp , FileDeleted     ) : go old' new
-      | fp > fp'    = (fp', FileChanged nfo') : go old  new'
-      | nfo /= nfo' = (fp , FileChanged nfo') : go old' new'
-      | otherwise   = go old' new'
+      | fp < fp'  = (fp , FileDeleted     ) : go old' new
+      | fp > fp'  = (fp', FileChanged nfo') : go old  new'
+      | knownFileInfoEqual nfo nfo' = (fp , FileChanged nfo') : go old' new'
+      | otherwise = go old' new'
 
 {-------------------------------------------------------------------------------
   JSON

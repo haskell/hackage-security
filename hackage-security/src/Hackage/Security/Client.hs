@@ -181,7 +181,7 @@ checkForUpdates rep checkExpiry =
               -- See also <https://github.com/theupdateframework/tuf/issues/286>
               return ()
             Just oldRootInfo ->
-              when (oldRootInfo /= newRootInfo) $ liftIO $ do
+              when (not (trustedFileInfoEqual oldRootInfo newRootInfo)) $ liftIO $ do
                 updateRoot rep mNow isRetry (Right newRootInfo)
                 throwIO RootUpdated
 
@@ -255,7 +255,7 @@ checkForUpdates rep checkExpiry =
 
     infoChanged :: Maybe (Trusted FileInfo) -> Trusted FileInfo -> Bool
     infoChanged Nothing    _   = True
-    infoChanged (Just old) new = old /= new
+    infoChanged (Just old) new = not (trustedFileInfoEqual old new)
 
     -- TODO: Should these be structured types?
     unexpectedUncompressedTar = userError "Unexpected uncompressed tarball"

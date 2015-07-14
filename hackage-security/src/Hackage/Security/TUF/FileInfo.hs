@@ -6,6 +6,7 @@ module Hackage.Security.TUF.FileInfo (
     -- * Utility
   , fileInfo
   , computeFileInfo
+  , knownFileInfoEqual
   ) where
 
 import Prelude hiding (lookup)
@@ -27,6 +28,9 @@ data HashFn = HashFnSHA256
 
 -- | File information
 --
+-- This intentionally does not have an 'Eq' instance; see 'knownFileInfoEqual'
+-- and 'verifyFileInfo' instead.
+--
 -- NOTE: Throughout we compute file information always over the raw bytes.
 -- For example, when @timestamp.json@ lists the hash of @snapshot.json@, this
 -- hash is computed over the actual @snapshot.json@ file (as opposed to the
@@ -36,7 +40,7 @@ data FileInfo = FileInfo {
     fileInfoLength :: FileLength
   , fileInfoHashes :: Map HashFn Hash
   }
-  deriving (Eq, Ord, Show)
+  deriving (Show)
 
 {-------------------------------------------------------------------------------
   Utility
@@ -60,6 +64,15 @@ fileInfo bs = FileInfo {
 -- | Compute 'FileInfo'
 computeFileInfo :: IsFileSystemRoot root => Path (Rooted root) -> IO FileInfo
 computeFileInfo fp = fileInfo <$> readLazyByteString fp
+
+-- | Compare known file info
+--
+-- This should be used only when the FileInfo is already known. If we want to
+-- compare known FileInfo against a file on disk we should delay until we know
+-- have confirmed that the file lengths don't match (see 'verifyFileInfo').
+knownFileInfoEqual :: FileInfo -> FileInfo -> Bool
+knownFileInfoEqual a b = (==) (fileInfoLength a, fileInfoHashes a)
+                              (fileInfoLength b, fileInfoHashes b)
 
 {-------------------------------------------------------------------------------
   JSON
