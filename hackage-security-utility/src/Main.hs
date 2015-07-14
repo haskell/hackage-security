@@ -534,9 +534,15 @@ updateFile opts@GlobalOpts{..} repoLoc whenWrite fileLoc signPayload a = do
           hClose h
 
           -- Compare file hashes
-          oldFileInfo <- computeFileInfo' fp
-          newFileInfo <- computeFileInfo tempPath
-          if oldFileInfo == Just newFileInfo
+          -- TODO: We could be be more efficient here and verify file size
+          -- first; however, these files are tiny so it doesn't really matter.
+          mOldFileInfo <- computeFileInfo' fp
+          fileChanged  <- case mOldFileInfo of
+            Nothing -> return True
+            Just oldFileInfo -> do
+              newFileInfo <- computeFileInfo tempPath
+              return $ not (knownFileInfoEqual oldFileInfo newFileInfo)
+          if not fileChanged
             then logInfo opts $ "Unchanged " ++ prettyTargetPath' globalRepoLayout fileLoc
             else writeDoc updating wIncVersion
   where
