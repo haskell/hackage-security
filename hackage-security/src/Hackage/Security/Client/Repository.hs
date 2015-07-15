@@ -24,8 +24,9 @@ module Hackage.Security.Client.Repository (
     -- * Recoverable exceptions
   , RecoverableException(..)
   , CustomRecoverableException(..)
-  , catchRecoverable
-  , rethrowRecoverable
+  , recoverableCatch
+  , recoverableRethrow
+  , recoverableIsVerificationError
     -- * Utility
   , IsCached(..)
   , mustCache
@@ -359,21 +360,26 @@ instance Pretty RecoverableException where
   pretty (RecoverCustom            e) = show e
 #endif
 
-catchRecoverable :: (IO a -> IO a)                  -- ^ Wrap custom exceptions
+recoverableCatch :: (IO a -> IO a)                  -- ^ Wrap custom exceptions
                  -> IO a                            -- ^ Action to execute
                  -> (RecoverableException -> IO a)  -- ^ Exception handler
                  -> IO a
-catchRecoverable wrapCustom act handler = catches (wrapCustom act) [
+recoverableCatch wrapCustom act handler = catches (wrapCustom act) [
       Handler $ handler . RecoverIOException
     , Handler $ handler . RecoverVerificationError
     , Handler $ handler . RecoverCustom
     ]
 
 -- | Rethrow the original exception
-rethrowRecoverable :: RecoverableException -> IO a
-rethrowRecoverable (RecoverIOException       e) = throwIO e
-rethrowRecoverable (RecoverVerificationError e) = throwIO e
-rethrowRecoverable (RecoverCustom (CustomRecoverableException e)) = throwIO e
+recoverableRethrow :: RecoverableException -> IO a
+recoverableRethrow (RecoverIOException       e) = throwIO e
+recoverableRethrow (RecoverVerificationError e) = throwIO e
+recoverableRethrow (RecoverCustom (CustomRecoverableException e)) = throwIO e
+
+-- | Was the error a verification error?
+recoverableIsVerificationError :: RecoverableException -> Bool
+recoverableIsVerificationError (RecoverVerificationError _) = True
+recoverableIsVerificationError _ = False
 
 {-------------------------------------------------------------------------------
   Paths

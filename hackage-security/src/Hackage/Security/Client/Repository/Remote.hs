@@ -272,10 +272,11 @@ withRemote repoLayout
            let wrapCustomEx = httpWrapCustomEx httpClient
                incr         = incTar config httpOpts len fp $ callback sf
            logger $ LogUpdating (Some remoteFile)
-           catchRecoverable wrapCustomEx (Just <$> incr) $ \ex ->
+           recoverableCatch wrapCustomEx (Just <$> incr) $ \ex ->
              case isRetry of
-               FirstAttempt -> rethrowRecoverable ex
-               AfterVerificationError -> do
+               FirstAttempt | recoverableIsVerificationError ex ->
+                 recoverableRethrow ex
+               _otherwise -> do
                 let failure = UpdateFailed ex
                 logger $ LogUpdateFailed (Some remoteFile) failure
                 return Nothing
@@ -434,7 +435,7 @@ withMirror HttpClient{..} selectedMirror logger oobMirrors tufMirrors callback =
     -- mirror
     go (m:ms) = do
       logger $ LogSelectedMirror (show m)
-      catchRecoverable httpWrapCustomEx (select m callback) $ \ex -> do
+      recoverableCatch httpWrapCustomEx (select m callback) $ \ex -> do
         logger $ LogMirrorFailed (show m) ex
         go ms
 
