@@ -3,6 +3,7 @@ module Main (main) where
 
 import Control.Exception
 import Control.Monad
+import Data.List (nub)
 import Data.Maybe (catMaybes, mapMaybe)
 import Data.Time
 import GHC.Conc.Sync (setUncaughtExceptionHandler)
@@ -564,7 +565,7 @@ updateFile opts@GlobalOpts{..} repoLoc whenWrite fileLoc signPayload a = do
 -- a separate step.
 findPackages :: GlobalOpts -> RepoLoc -> IO [PackageIdentifier]
 findPackages GlobalOpts{..} (RepoLoc repoLoc) =
-    mapMaybe isPackage <$> getRecursiveContents repoLoc
+    nub . mapMaybe isPackage <$> getRecursiveContents repoLoc
   where
     isPackage :: UnrootedPath -> Maybe PackageIdentifier
     isPackage path = do
