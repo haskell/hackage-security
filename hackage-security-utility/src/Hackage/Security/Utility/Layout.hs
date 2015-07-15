@@ -37,8 +37,11 @@ import Hackage.Security.Util.Some
   File system locations
 -------------------------------------------------------------------------------}
 
-newtype RepoLoc = RepoLoc AbsolutePath
-newtype KeysLoc = KeysLoc AbsolutePath
+newtype RepoLoc = RepoLoc { repoLocPath :: AbsolutePath }
+  deriving Eq
+
+newtype KeysLoc = KeysLoc { keysLocPath :: AbsolutePath }
+  deriving Eq
 
 {-------------------------------------------------------------------------------
   Additional paths specifically to the kind of repository this tool manages

@@ -48,6 +48,9 @@ data Command =
     -- | Create mirrors metadata
   | CreateMirrors KeysLoc AbsolutePath [URI]
 
+    -- | Create a directory with symlinks in cabal-local-rep layout
+  | SymlinkCabalLocalRepo RepoLoc RepoLoc
+
 {-------------------------------------------------------------------------------
   Parsers
 -------------------------------------------------------------------------------}
@@ -102,6 +105,14 @@ parseCreateMirrors = CreateMirrors
         ])
   <*> (many $ argument (str >>= readURI) (metavar "MIRROR"))
 
+parseSymlinkCabalLocalRepo :: Parser Command
+parseSymlinkCabalLocalRepo = SymlinkCabalLocalRepo
+  <$> parseRepoLoc
+  <*> (option (str >>= liftA RepoLoc . readAbsolutePath) $ mconcat [
+          long "cabal-repo"
+        , help "Location of the cabal repo"
+        ])
+
 -- | Global options
 --
 -- TODO: Make repo and keys layout configurable
@@ -125,6 +136,8 @@ parseGlobalOptions = GlobalOpts
             progDesc "Create root metadata"
         , command "create-mirrors" $ info (helper <*> parseCreateMirrors) $
             progDesc "Create mirrors metadata. All MIRRORs specified on the command line will be written to the file."
+        , command "symlink-cabal-local-repo" $ info (helper <*> parseSymlinkCabalLocalRepo) $
+            progDesc "Create a directory in cabal-local-repo layout with symlinks to the specified repository."
         ])
 
 readURI :: String -> ReadM URI

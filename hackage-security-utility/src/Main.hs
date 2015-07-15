@@ -9,16 +9,8 @@ import GHC.Conc.Sync (setUncaughtExceptionHandler)
 import Network.URI (URI)
 import System.Exit
 import System.IO.Error
-import qualified Codec.Archive.Tar       as Tar
-import qualified Codec.Archive.Tar.Entry as Tar
-import qualified Codec.Compression.GZip  as GZip
-import qualified Data.ByteString.Lazy    as BS.L
-import qualified System.FilePath         as FilePath
-
--- Unlike the hackage-security library properly,
--- this currently works on unix systems only
-import System.Posix.Files (getFileStatus, modificationTime)
-import System.Posix.Types (EpochTime)
+import qualified Data.ByteString.Lazy as BS.L
+import qualified System.FilePath      as FilePath
 
 -- Cabal
 import Distribution.Package
@@ -37,8 +29,7 @@ import qualified Hackage.Security.Util.Lens   as Lens
 -- hackage-security-utility
 import Hackage.Security.Utility.Options
 import Hackage.Security.Utility.Layout
-
-import Data.Typeable
+import Hackage.Security.Utility.Util.IO
 
 {-------------------------------------------------------------------------------
   Main application driver
@@ -59,6 +50,8 @@ main = do
         createRoot opts keysLoc rootLoc
       CreateMirrors keysLoc mirrorsLoc mirrors ->
         createMirrors opts keysLoc mirrorsLoc mirrors
+      SymlinkCabalLocalRepo repoLoc cabalRepoLoc ->
+        symlinkCabalLocalRepo opts repoLoc cabalRepoLoc
 
 -- | Top-level exception handler that uses 'displayException'
 --
@@ -600,6 +593,30 @@ checkRepoLayout opts@GlobalOpts{..} repoLoc = liftM and . mapM checkPackage
         expectedTarGz = InRepPkg repoLayoutPkgTarGz pkgId
 
 {-------------------------------------------------------------------------------
+  Creating Cabal-local-repo
+-------------------------------------------------------------------------------}
+
+symlinkCabalLocalRepo :: GlobalOpts -> RepoLoc -> RepoLoc -> IO ()
+symlinkCabalLocalRepo opts@GlobalOpts{..} repoLoc cabalRepoLoc = do
+    symlink repoLayoutIndexTar
+    pkgs <- findPackages opts repoLoc
+    forM_ pkgs $ \pkgId -> symlink (`repoLayoutPkgTarGz` pkgId)
+  where
+    -- TODO: This gives a warning for files that we previously linked, as well
+    -- as for files that we _never_ need to link (because the location of both
+    -- repos is the same). This is potentially confusing.
+    symlink :: (RepoLayout -> RepoPath) -> IO ()
+    symlink file =
+        catch (createSymbolicLink target loc) $ \ex ->
+          if isAlreadyExistsError ex
+            then logWarn opts $ "Skipping " ++ pretty (file globalRepoLayout)
+                             ++ " (already exists)"
+            else throwIO ex
+      where
+        target = anchorRepoPath globalRepoLayout     repoLoc      file
+        loc    = anchorRepoPath cabalLocalRepoLayout cabalRepoLoc file
+
+{-------------------------------------------------------------------------------
   Logging
 -------------------------------------------------------------------------------}
 
@@ -631,62 +648,3 @@ hasExtensions = \fp exts -> go (takeFileName' fp) (reverse exts)
 
     takeFileName' :: Path a -> String
     takeFileName' = unFragment . takeFileName
-
--- | Get the modification time of the specified file
---
--- Returns 0 if the file does not exist .
-getFileModTime :: GlobalOpts -> RepoLoc -> TargetPath' -> IO EpochTime
-getFileModTime GlobalOpts{..} repoLoc targetPath =
-    handle handler $ modificationTime <$> getFileStatus (toFilePath fp)
-  where
-    fp :: AbsolutePath
-    fp = anchorTargetPath' globalRepoLayout repoLoc targetPath
-
-    handler :: IOException -> IO EpochTime
-    handler ex = if isDoesNotExistError ex then return 0
-                                           else throwIO ex
-
-compress :: AbsolutePath -> AbsolutePath -> IO ()
-compress src dst =
-    atomicWithFile dst $ \h ->
-      BS.L.hPut h =<< GZip.compress <$> readLazyByteString src
-
--- | Extract a file from a tar archive
---
--- Throws an exception if there is an error in the archive or when the entry
--- is not a file. Returns nothing if the entry cannot be found.
-tarExtractFile :: GlobalOpts
-               -> RepoLoc
-               -> TargetPath'
-               -> FilePath
-               -> IO (Maybe (BS.L.ByteString, Tar.FileSize))
-tarExtractFile GlobalOpts{..} repoLoc pathTarGz pathToExtract =
-     handle (throwIO . TarGzError (prettyTargetPath' globalRepoLayout pathTarGz)) $ do
-       let pathTarGz' = anchorTargetPath' globalRepoLayout repoLoc pathTarGz
-       go =<< Tar.read . GZip.decompress <$> readLazyByteString pathTarGz'
-  where
-    go :: Exception e => Tar.Entries e -> IO (Maybe (BS.L.ByteString, Tar.FileSize))
-    go Tar.Done        = return Nothing
-    go (Tar.Fail err)  = throwIO err
-    go (Tar.Next e es) =
-      if Tar.entryPath e == pathToExtract
-        then case Tar.entryContent e of
-               Tar.NormalFile bs sz -> return $ Just (bs, sz)
-               _ -> throwIO $ userError
-                            $ "tarExtractFile: "
-                           ++ pathToExtract ++ " not a normal file"
-        else do -- putStrLn $ show (Tar.entryPath e) ++ " /= " ++ show path
-                go es
-
-data TarGzError = TarGzError FilePath SomeException
-  deriving (Typeable)
-
-instance Exception TarGzError where
-#if MIN_VERSION_base(4,8,0)
-  displayException (TarGzError path e) = path ++ ": " ++ displayException e
-
-deriving instance Show TarGzError
-#else
-instance Show TarGzError where
-  show (TarGzError path e) = path ++ ": " ++ show e
-#endif

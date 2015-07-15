@@ -4,6 +4,7 @@ module Hackage.Security.TUF.Layout (
   , RepoPath
   , RepoLayout(..)
   , hackageRepoLayout
+  , cabalLocalRepoLayout
   , anchorRepoPathLocally
   , anchorRepoPathRemotely
     -- * Index tarball layout
@@ -86,6 +87,27 @@ hackageRepoLayout = RepoLayout {
     , repoIndexLayout      = hackageIndexLayout
     }
   where
+    pkgFile :: PackageIdentifier -> UnrootedPath
+    pkgFile pkgId = fragment' (display pkgId) <.> "tar.gz"
+
+    rp :: UnrootedPath -> RepoPath
+    rp = rootPath Rooted
+
+-- | Layout used by cabal for ("legacy") local repos
+--
+-- Obviously, such repos do not normally contain any of the TUF files, so their
+-- location is more or less arbitrary here.
+cabalLocalRepoLayout :: RepoLayout
+cabalLocalRepoLayout = hackageRepoLayout {
+      repoLayoutPkgTarGz = \pkgId -> rp $ pkgLoc pkgId </> pkgFile pkgId
+    }
+  where
+    pkgLoc :: PackageIdentifier -> UnrootedPath
+    pkgLoc pkgId = joinFragments [
+          mkFragment $ display (packageName    pkgId)
+        , mkFragment $ display (packageVersion pkgId)
+        ]
+
     pkgFile :: PackageIdentifier -> UnrootedPath
     pkgFile pkgId = fragment' (display pkgId) <.> "tar.gz"
 
