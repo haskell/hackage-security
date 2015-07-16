@@ -13,8 +13,10 @@ import Network.Browser
 import Network.HTTP
 import Network.HTTP.Proxy
 import Network.URI
-import qualified Data.ByteString.Lazy as BS.L
-import qualified Control.Monad.State  as State
+import qualified Data.ByteString.Lazy            as BS.L
+import qualified Control.Monad.State             as State
+import qualified Codec.Compression.GZip          as GZip
+import qualified Codec.Compression.Zlib.Internal as GZip (DecompressError)
 
 import Hackage.Security.Client
 import Hackage.Security.Client.Repository.Remote
@@ -71,12 +73,20 @@ getRange browser reqHeaders uri (from, to) callback = wrapCustomEx $ do
       (2, 0, 6)  -> withResponse response callback
       _otherwise -> throwIO $ UnexpectedResponse uri (rspCode response)
 
+{-------------------------------------------------------------------------------
+  Auxiliary methods used to implement the HttpClient interface
+-------------------------------------------------------------------------------}
+
 withResponse :: Response BS.L.ByteString
              -> ([HttpResponseHeader] -> BodyReader -> IO a)
              -> IO a
 withResponse response callback = do
-    br <- bodyReaderFromBS (rspBody response)
-    callback (getResponseHeaders response) br
+    br <- bodyReaderFromBS $ decompress (rspBody response)
+    callback responseHeaders $ wrapCustomEx br
+  where
+    responseHeaders    = getResponseHeaders response
+    needsDecompression = HttpResponseContentCompression `elem` responseHeaders
+    decompress         = if needsDecompression then GZip.decompress else id
 
 {-------------------------------------------------------------------------------
   Custom exception types
@@ -87,7 +97,8 @@ withResponse response callback = do
 -- The @HTTP@ libary itself does not define any custom exceptions.
 wrapCustomEx :: forall a. IO a -> IO a
 wrapCustomEx act = catches act [
-      Handler $ \(ex :: UnexpectedResponse) -> go ex
+      Handler $ \(ex :: UnexpectedResponse)   -> go ex
+    , Handler $ \(ex :: GZip.DecompressError) -> go ex
       -- Case for InvalidProxy intentionally omitted (not recoverable)
     ]
   where
@@ -222,5 +233,8 @@ getResponseHeaders response = concat [
     -- and <http://www.w3.org/Protocols/rfc2616/rfc2616-sec3.html#sec3.12>
     [ HttpResponseAcceptRangesBytes
     | "bytes" `elem` map hdrValue (retrieveHeaders hAcceptRanges response)
+    ]
+  , [ HttpResponseContentCompression
+    | findHeader HdrContentEncoding response == Just "gzip"
     ]
   ]

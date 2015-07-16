@@ -101,9 +101,10 @@ setRange from to req = req {
     -- See <http://www.w3.org/Protocols/rfc2616/rfc2616-sec14.html>
     rangeHeader = BS.C8.pack $ "bytes=" ++ show from ++ "-" ++ show (to - 1)
 
+-- | Set request headers
 setRequestHeaders :: [HttpRequestHeader] -> Request -> Request
 setRequestHeaders opts req = req {
-      requestHeaders = trOpt [] opts ++ requestHeaders req
+      requestHeaders = trOpt disallowCompressionByDefault opts
     }
   where
     trOpt :: [(HeaderName, [ByteString])]
@@ -118,6 +119,15 @@ setRequestHeaders opts req = req {
     trOpt acc (HttpRequestContentCompression:os) =
       trOpt (insert hAcceptEncoding ["gzip"] acc) os
 
+    -- http-client deals with decompression completely transparently, so we
+    -- don't actually need to manually decompress the response stream (we do
+    -- still need to report to the `hackage-security` library however that the
+    -- response stream had been compressed). However, we do have to make sure
+    -- that we allow for compression _only_ when explicitly requested because
+    -- the default is that it's always enabled.
+    disallowCompressionByDefault :: [(HeaderName, [ByteString])]
+    disallowCompressionByDefault = [(hAcceptEncoding, [])]
+
     -- Some headers are comma-separated, others need multiple headers for
     -- multiple options.
     --
@@ -128,10 +138,14 @@ setRequestHeaders opts req = req {
     insert :: (Eq a, Monoid b) => a -> b -> [(a, b)] -> [(a, b)]
     insert x y = Lens.modify (Lens.lookupM x) (mappend y)
 
+-- | Extract the response headers
 getResponseHeaders :: Response a -> [HttpResponseHeader]
 getResponseHeaders response = concat [
       [ HttpResponseAcceptRangesBytes
       | (hAcceptRanges, "bytes") `elem` headers
+      ]
+    , [ HttpResponseContentCompression
+      | (hContentEncoding, "gzip") `elem` headers
       ]
     ]
   where

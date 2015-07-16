@@ -18,6 +18,7 @@
 module Hackage.Security.Client.Repository.Remote (
     -- * Top-level API
     withRepository
+  , AllowContentCompression(..)
     -- * Abstracting over HTTP libraries
   , HttpClient(..)
   , HttpRequestHeader(..)
@@ -155,6 +156,10 @@ data HttpRequestHeader =
     --
     -- It is the responsibility of the 'HttpClient' to do compression
     -- (and report whether the original server reply was compressed or not).
+    --
+    -- NOTE: Clients should NOT allow for compression unless explicitly
+    -- requested (since decompression happens before signature verification, it
+    -- is a potential security concern).
   | HttpRequestContentCompression
   deriving (Eq, Ord, Show)
 
@@ -197,6 +202,15 @@ data ProxyConfig a =
   Top-level API
 -------------------------------------------------------------------------------}
 
+-- | Should we allow HTTP content compression?
+--
+-- Since content compression happens before signature verification, users who
+-- are concerned about potential exploits of the decompression algorithm may
+-- prefer to disallow content compression.
+data AllowContentCompression =
+    AllowContentCompression
+  | DisallowContentCompression
+
 -- | Initialize the repository (and cleanup resources afterwards)
 --
 -- We allow to specify multiple mirrors to initialize the repository. These
@@ -214,23 +228,32 @@ data ProxyConfig a =
 -- here and the mirrors that we get from @mirrors.json@) as well as indicating
 -- mirror preferences.
 withRepository
-  :: HttpClient            -- ^ Implementation of the HTTP protocol
-  -> [URI]                 -- ^ "Out of band" list of mirrors
-  -> Cache                 -- ^ Location of local cache
-  -> RepoLayout            -- ^ Repository layout
-  -> (LogMessage -> IO ()) -- ^ Logger
-  -> (Repository -> IO a)  -- ^ Callback
+  :: HttpClient              -- ^ Implementation of the HTTP protocol
+  -> [URI]                   -- ^ "Out of band" list of mirrors
+  -> AllowContentCompression -- ^ Should we allow HTTP content compression?
+  -> Cache                   -- ^ Location of local cache
+  -> RepoLayout              -- ^ Repository layout
+  -> (LogMessage -> IO ())   -- ^ Logger
+  -> (Repository -> IO a)    -- ^ Callback
   -> IO a
-withRepository http outOfBandMirrors cache repLayout logger callback = do
+withRepository http
+               outOfBandMirrors
+               allowContentCompression
+               cache
+               repLayout
+               logger
+               callback
+               = do
     selectedMirror <- newMVar Nothing
     caps <- newServerCapabilities
     let remoteConfig mirror = RemoteConfig {
-                                  cfgLayout = repLayout
-                                , cfgClient = http
-                                , cfgBase   = mirror
-                                , cfgCache  = cache
-                                , cfgCaps   = caps
-                                , cfgLogger = logger
+                                  cfgLayout   = repLayout
+                                , cfgClient   = http
+                                , cfgBase     = mirror
+                                , cfgCache    = cache
+                                , cfgCaps     = caps
+                                , cfgLogger   = logger
+                                , cfgCompress = allowContentCompression
                                 }
     callback Repository {
         repWithRemote    = withRemote remoteConfig selectedMirror
@@ -323,7 +346,7 @@ withRemote' cfg@RemoteConfig{..} isRetry remoteFile callback = do
         getFile cfg requestHeaders remoteFile callback
   where
     requestHeaders :: [HttpRequestHeader]
-    requestHeaders = httpRequestHeaders isRetry
+    requestHeaders = httpRequestHeaders cfg isRetry
 
 -- | HTTP options
 --
@@ -331,11 +354,20 @@ withRemote' cfg@RemoteConfig{..} isRetry remoteFile callback = do
 -- mess things up with respect to hashes etc). Additionally, after a validation
 -- error we want to make sure caches get files upstream in case the validation
 -- error was because the cache updated files out of order.
-httpRequestHeaders :: IsRetry -> [HttpRequestHeader]
-httpRequestHeaders isRetry =
-  case isRetry of
-    FirstAttempt           -> [HttpRequestNoTransform]
-    AfterVerificationError -> [HttpRequestNoTransform, HttpRequestMaxAge0]
+httpRequestHeaders :: RemoteConfig -> IsRetry -> [HttpRequestHeader]
+httpRequestHeaders RemoteConfig{..} isRetry =
+    case isRetry of
+      FirstAttempt           -> defaultHeaders
+      AfterVerificationError -> HttpRequestMaxAge0 : defaultHeaders
+  where
+    -- Headers we provide for _every_ attempt, first or not
+    defaultHeaders :: [HttpRequestHeader]
+    defaultHeaders = concat [
+        [ HttpRequestNoTransform ]
+      , [ HttpRequestContentCompression
+        | AllowContentCompression <- [cfgCompress]
+        ]
+      ]
 
 -- | Should we do an incremental update?
 --
@@ -613,12 +645,13 @@ fileSizeBoundRoot = 2 * 1024 * 2014
 --
 -- This is purely for internal convenience.
 data RemoteConfig = RemoteConfig {
-      cfgLayout :: RepoLayout
-    , cfgClient :: HttpClient
-    , cfgBase   :: URI
-    , cfgCache  :: Cache
-    , cfgCaps   :: ServerCapabilities
-    , cfgLogger :: LogMessage -> IO ()
+      cfgLayout   :: RepoLayout
+    , cfgClient   :: HttpClient
+    , cfgBase     :: URI
+    , cfgCache    :: Cache
+    , cfgCaps     :: ServerCapabilities
+    , cfgLogger   :: LogMessage -> IO ()
+    , cfgCompress :: AllowContentCompression
     }
 
 {-------------------------------------------------------------------------------

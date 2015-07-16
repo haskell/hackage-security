@@ -38,6 +38,9 @@ data GlobalOpts = GlobalOpts {
     -- | Should we check expiry times?
   , globalCheckExpiry :: CheckExpiry
 
+    -- | Should we disable content compression? (For the security paranoid)
+  , globalDisallowCompression :: Bool
+
     -- | Command to execute
   , globalCommand :: Command
   }
@@ -105,6 +108,10 @@ parseGlobalOptions = GlobalOpts
   <*> (flag CheckExpiry DontCheckExpiry $ mconcat [
          long "ignore-expiry"
        , help "Don't check expiry dates (should only be used in exceptional circumstances)"
+       ])
+  <*> (switch $ mconcat [
+         long "disallow-content-compression"
+       , help "Disallow HTTP content compression (for the security paranoid)"
        ])
   <*> (subparser $ mconcat [
           command "bootstrap" $ info (helper <*> parseBootstrap) $

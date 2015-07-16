@@ -74,10 +74,16 @@ withRepo GlobalOpts{..} =
     withRemoteRepo baseURI callback = withClient $ \httpClient ->
         Remote.withRepository httpClient
                               [baseURI]
+                              allowCompression
                               cache
                               hackageRepoLayout
                               logTUF
                               callback
+
+    allowCompression :: Remote.AllowContentCompression
+    allowCompression = if globalDisallowCompression
+                         then Remote.DisallowContentCompression
+                         else Remote.AllowContentCompression
 
     withClient :: (Remote.HttpClient -> IO a) -> IO a
     withClient =
