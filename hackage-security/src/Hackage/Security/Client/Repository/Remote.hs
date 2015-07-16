@@ -16,27 +16,26 @@
 --   - One level up (Repository API) would require _all_ Repositories to
 --     implement this optimization.
 module Hackage.Security.Client.Repository.Remote (
-    -- * Server capabilities
-    ServerCapabilities -- opaque
-  , newServerCapabilities
-  , getServerSupportsAcceptBytes
-  , setServerSupportsAcceptBytes
-    -- * Abstracting over HTTP libraries
-  , BodyReader
-  , HttpClient(..)
-  , HttpOption(..)
-  , FileSize(..)
-  , ProxyConfig(..)
-    -- ** Utility
-  , fileSizeWithinBounds
     -- * Top-level API
-  , withRepository
+    withRepository
+    -- * Abstracting over HTTP libraries
+  , HttpClient(..)
+  , HttpRequestHeader(..)
+  , HttpResponseHeader(..)
+  , ProxyConfig(..)
+     -- * File sizes
+  , FileSize(..)
+  , fileSizeWithinBounds
+    -- ** Body reader
+  , BodyReader
+  , bodyReaderFromBS
   ) where
 
 import Control.Concurrent
 import Control.Exception
 import Control.Monad.Except
 import Data.List (nub)
+import Data.IORef
 import Network.URI hiding (uriPath, path)
 import System.IO
 import qualified Data.ByteString      as BS
@@ -64,28 +63,38 @@ import qualified Hackage.Security.Client.Repository.Cache as Cache
 newtype ServerCapabilities = SC (MVar ServerCapabilities_)
 
 -- | Internal type recording the various server capabilities we support
---
--- This is not exported; we only export functions that work on
--- 'ServerCapabilities'.
 data ServerCapabilities_ = ServerCapabilities {
-      serverSupportsAcceptBytes :: Bool
+      -- | Does the server support range requests?
+      serverAcceptRangesBytes :: Bool
+
+      -- | Did the server apply content compression previously?
+      --
+      -- We use this as a heuristic to decide whether we want to do an
+      -- incremental update of the index or not.
+    , serverUsedContentCompression :: Bool
     }
 
 newServerCapabilities :: IO ServerCapabilities
 newServerCapabilities = SC <$> newMVar ServerCapabilities {
-      serverSupportsAcceptBytes = False
+      serverAcceptRangesBytes      = False
+    , serverUsedContentCompression = False
     }
 
-setServerSupportsAcceptBytes :: ServerCapabilities -> Bool -> IO ()
-setServerSupportsAcceptBytes (SC mv) x = modifyMVar_ mv $ \caps ->
-    return $ caps { serverSupportsAcceptBytes = x }
+updateServerCapabilities :: ServerCapabilities -> [HttpResponseHeader] -> IO ()
+updateServerCapabilities (SC mv) responseHeaders = modifyMVar_ mv $ \caps ->
+    return $ caps {
+        serverAcceptRangesBytes = serverAcceptRangesBytes caps
+          || HttpResponseAcceptRangesBytes `elem` responseHeaders
+      , serverUsedContentCompression = serverUsedContentCompression caps
+          || HttpResponseContentCompression `elem` responseHeaders
+      }
 
-getServerSupportsAcceptBytes :: ServerCapabilities -> IO Bool
-getServerSupportsAcceptBytes (SC mv) = withMVar mv $ \caps ->
-    return $ serverSupportsAcceptBytes caps
+checkServerCapability :: MonadIO m
+                      => ServerCapabilities -> (ServerCapabilities_ -> a) -> m a
+checkServerCapability (SC mv) f = liftIO $ withMVar mv $ return . f
 
 {-------------------------------------------------------------------------------
-  Abstraction over HTTP clients (such as HTTP, http-conduit, etc.)
+  File size
 -------------------------------------------------------------------------------}
 
 data FileSize =
@@ -101,50 +110,66 @@ fileSizeWithinBounds :: Int -> FileSize -> Bool
 fileSizeWithinBounds sz (FileSizeExact sz') = sz <= sz'
 fileSizeWithinBounds sz (FileSizeBound sz') = sz <= sz'
 
+{-------------------------------------------------------------------------------
+  Abstraction over HTTP clients (such as HTTP, http-conduit, etc.)
+-------------------------------------------------------------------------------}
+
 -- | Abstraction over HTTP clients
 --
 -- This avoids insisting on a particular implementation (such as the HTTP
--- package) and allows for other implementations (such as a conduit based one)
+-- package) and allows for other implementations (such as a conduit based one).
+--
+-- NOTE: HttpClients MUST wrap any library-specific (recoverable) exceptions
+-- in 'CustomRecoverableException'.
 data HttpClient = HttpClient {
     -- | Download a file
     httpClientGet :: forall a.
-                     [HttpOption]
+                     [HttpRequestHeader]
                   -> URI
-                  -> (BodyReader -> IO a)
+                  -> ([HttpResponseHeader] -> BodyReader -> IO a)
                   -> IO a
 
     -- | Download a byte range
     --
     -- Range is starting and (exclusive) end offset in bytes.
-    --
-    -- Servers can respond to a range request by sending the entire file
-    -- instead. We tell the callback if it got the range or the entire file.
   , httpClientGetRange :: forall a.
-                          [HttpOption]
+                          [HttpRequestHeader]
                        -> URI
                        -> (Int, Int)
-                       -> (BodyReader -> IO a)
+                       -> ([HttpResponseHeader] -> BodyReader -> IO a)
                        -> IO a
-
-    -- | Server capabilities
-    --
-    -- HTTP clients should use 'newServerCapabilities' on initialization.
-  , httpClientCapabilities :: ServerCapabilities
-
-    -- | Catch any custom exceptions thrown and wrap them as 'CustomException's
-  , httpWrapCustomEx :: forall a. IO a -> IO a
   }
 
--- | Additional options for HTTP downloads
+-- | Additional request headers
 --
 -- Since different libraries represent headers differently, here we just
--- abstract over the few headers that we might want to set
-data HttpOption =
+-- abstract over the few request headers that we might want to set
+data HttpRequestHeader =
     -- | Set @Cache-Control: max-age=0@
-    HttpOptionMaxAge0
+    HttpRequestMaxAge0
 
     -- | Set @Cache-Control: no-transform@
-  | HttpOptionNoTransform
+  | HttpRequestNoTransform
+
+    -- | Request transport compression (@Accept-Encoding: gzip@)
+    --
+    -- It is the responsibility of the 'HttpClient' to do compression
+    -- (and report whether the original server reply was compressed or not).
+  | HttpRequestContentCompression
+  deriving (Eq, Ord, Show)
+
+-- | Response headers
+--
+-- Since different libraries represent headers differently, here we just
+-- abstract over the few response headers that we might want to know about.
+data HttpResponseHeader =
+    -- | Server accepts byte-range requests (@Accept-Ranges: bytes@)
+    HttpResponseAcceptRangesBytes
+
+    -- | Original server response was compressed
+    -- (the 'HttpClient' however must do decompression)
+  | HttpResponseContentCompression
+  deriving (Eq, Ord, Show)
 
 -- | Proxy configuration
 --
@@ -198,8 +223,17 @@ withRepository
   -> IO a
 withRepository http outOfBandMirrors cache repLayout logger callback = do
     selectedMirror <- newMVar Nothing
+    caps <- newServerCapabilities
+    let remoteConfig mirror = RemoteConfig {
+                                  cfgLayout = repLayout
+                                , cfgClient = http
+                                , cfgBase   = mirror
+                                , cfgCache  = cache
+                                , cfgCaps   = caps
+                                , cfgLogger = logger
+                                }
     callback Repository {
-        repWithRemote    = withRemote repLayout http selectedMirror cache logger
+        repWithRemote    = withRemote remoteConfig selectedMirror
       , repGetCached     = Cache.getCached     cache
       , repGetCachedRoot = Cache.getCachedRoot cache
       , repClearCache    = Cache.clearCache    cache
@@ -221,74 +255,75 @@ withRepository http outOfBandMirrors cache repLayout logger callback = do
 -- scope of 'repWithMirror'.
 type SelectedMirror = MVar (Maybe URI)
 
+-- | Get the selected mirror
+--
+-- Throws an exception if no mirror was selected (this would be a bug in the
+-- client code).
+--
+-- NOTE: Cannot use 'withMVar' here, because the callback would be inside the
+-- scope of the withMVar, and there might be further calls to 'withRemote' made
+-- by the callback argument to 'withRemote', leading to deadlock.
+getSelectedMirror :: SelectedMirror -> IO URI
+getSelectedMirror selectedMirror = do
+     mBaseURI <- readMVar selectedMirror
+     case mBaseURI of
+       Nothing      -> throwIO $ userError "Internal error: no mirror selected"
+       Just baseURI -> return baseURI
+
 -- | Get a file from the server
-withRemote :: RepoLayout -> HttpClient -> SelectedMirror -> Cache
-           -> (LogMessage -> IO ())
+withRemote :: (URI -> RemoteConfig)
+           -> SelectedMirror
            -> IsRetry
            -> RemoteFile fs
            -> (SelectedFormat fs -> TempPath -> IO a)
            -> IO a
-withRemote repoLayout
-           httpClient
-           selectedMirror
-           cache
-           logger
-           isRetry
-           remoteFile
-           callback
-           = do
-   -- NOTE: Cannot use withMVar here, because the callback would be inside
-   -- the scope of the withMVar, and there might be further calls to
-   -- withRemote made by this callback, leading to deadlock.
-   mBaseURI <- readMVar selectedMirror
-   case mBaseURI of
-     Nothing ->
-       throwIO $ userError "Internal error: no mirror selected"
-     Just baseURI -> do
-       let config = RemoteConfig {
-                        cfgLayout = repoLayout
-                      , cfgClient = httpClient
-                      , cfgBase   = baseURI
-                      , cfgCache  = cache
-                      }
+withRemote remoteConfig selectedMirror isRetry remoteFile callback = do
+   baseURI <- getSelectedMirror selectedMirror
+   withRemote' (remoteConfig baseURI) isRetry remoteFile callback
 
-       -- Figure out if we should do an incremental download
-       mIncremental <- shouldDoIncremental config remoteFile
-       didDownload  <- case mIncremental of
-         Left Nothing ->
-           return Nothing
-         Left (Just failure) -> do
-           logger $ LogUpdateFailed (Some remoteFile) failure
-           return Nothing
-         Right (sf, len, fp) -> do
-           -- Attempt to download the index incrementally.
-           --
-           -- If verification of the index fails, and this is the first attempt,
-           -- we let the exception be thrown up to the security layer, so that
-           -- it will try again with instructions to the cache to fetch stuff
-           -- upstream. Hopefully this will resolve the issue. However, if
-           -- an incrementally updated index cannot be verified on the next
-           -- attempt, we then try to download the whole index.
-           let wrapCustomEx = httpWrapCustomEx httpClient
-               incr         = incTar config httpOpts len fp $ callback sf
-           logger $ LogUpdating (Some remoteFile)
-           recoverableCatch wrapCustomEx (Just <$> incr) $ \ex ->
-             case isRetry of
-               FirstAttempt | recoverableIsVerificationError ex ->
-                 recoverableRethrow ex
-               _otherwise -> do
-                let failure = UpdateFailed ex
-                logger $ LogUpdateFailed (Some remoteFile) failure
-                return Nothing
+-- | Get a file from the server, assuming we have already picked a mirror
+withRemote' :: RemoteConfig
+            -> IsRetry
+            -> RemoteFile fs
+            -> (SelectedFormat fs -> TempPath -> IO a)
+            -> IO a
+withRemote' cfg@RemoteConfig{..} isRetry remoteFile callback = do
+    -- Figure out if we should do an incremental download
+    mIncremental <- shouldDoIncremental cfg remoteFile
+    didDownload  <- case mIncremental of
+      Left Nothing ->
+        return Nothing
+      Left (Just failure) -> do
+        cfgLogger $ LogUpdateFailed (Some remoteFile) failure
+        return Nothing
+      Right (sf, len, fp) -> do
+        -- Attempt to download the index incrementally.
+        --
+        -- If verification of the index fails, and this is the first attempt,
+        -- we let the exception be thrown up to the security layer, so that
+        -- it will try again with instructions to the cache to fetch stuff
+        -- upstream. Hopefully this will resolve the issue. However, if
+        -- an incrementally updated index cannot be verified on the next
+        -- attempt, we then try to download the whole index.
+        let incr = incTar cfg requestHeaders len fp $ callback sf
+        cfgLogger $ LogUpdating (Some remoteFile)
+        recoverableCatch (Just <$> incr) $ \ex ->
+          case isRetry of
+            FirstAttempt | recoverableIsVerificationError ex ->
+              recoverableRethrow ex
+            _otherwise -> do
+             let failure = UpdateFailed ex
+             cfgLogger $ LogUpdateFailed (Some remoteFile) failure
+             return Nothing
 
-       case didDownload of
-         Just did -> return did
-         Nothing  -> do
-           logger $ LogDownloading (Some remoteFile)
-           getFile config httpOpts remoteFile callback
+    case didDownload of
+      Just did -> return did
+      Nothing  -> do
+        cfgLogger $ LogDownloading (Some remoteFile)
+        getFile cfg requestHeaders remoteFile callback
   where
-    httpOpts :: [HttpOption]
-    httpOpts = httpOptions isRetry
+    requestHeaders :: [HttpRequestHeader]
+    requestHeaders = httpRequestHeaders isRetry
 
 -- | HTTP options
 --
@@ -296,9 +331,11 @@ withRemote repoLayout
 -- mess things up with respect to hashes etc). Additionally, after a validation
 -- error we want to make sure caches get files upstream in case the validation
 -- error was because the cache updated files out of order.
-httpOptions :: IsRetry -> [HttpOption]
-httpOptions FirstAttempt           = [HttpOptionNoTransform]
-httpOptions AfterVerificationError = [HttpOptionNoTransform, HttpOptionMaxAge0]
+httpRequestHeaders :: IsRetry -> [HttpRequestHeader]
+httpRequestHeaders isRetry =
+  case isRetry of
+    FirstAttempt           -> [HttpRequestNoTransform]
+    AfterVerificationError -> [HttpRequestNoTransform, HttpRequestMaxAge0]
 
 -- | Should we do an incremental update?
 --
@@ -327,7 +364,7 @@ shouldDoIncremental RemoteConfig{..} remoteFile = runExceptT $ do
         _ -> throwError $ Just UpdateImpossibleOnlyCompressed
 
     -- Server must support @Range@ with a byte-range
-    supportsAcceptBytes <- lift $ getServerSupportsAcceptBytes httpClientCapabilities
+    supportsAcceptBytes <- checkServerCapability cfgCaps serverAcceptRangesBytes
     unless supportsAcceptBytes $
       throwError $ Just UpdateImpossibleUnsupported
 
@@ -349,16 +386,18 @@ shouldDoIncremental RemoteConfig{..} remoteFile = runExceptT $ do
     HttpClient{..} = cfgClient
 
 -- | Get any file from the server, without using incremental updates
-getFile :: RemoteConfig   -- ^ Internal configuration
-        -> [HttpOption]   -- ^ Additional HTTP optons
-        -> RemoteFile fs  -- ^ File to download
+getFile :: RemoteConfig         -- ^ Internal configuration
+        -> [HttpRequestHeader]  -- ^ Additional request headers
+        -> RemoteFile fs        -- ^ File to download
         -> (SelectedFormat fs -> TempPath -> IO a) -- ^ Callback after download
         -> IO a
 getFile RemoteConfig{..} httpOpts remoteFile callback =
     withTempFile (Cache.cacheRoot cfgCache) (uriTemplate uri) $ \tempPath h -> do
       -- We are careful NOT to scope the remainder of the computation underneath
       -- the httpClientGet
-      httpClientGet httpOpts uri $ execBodyReader targetPath sz h
+      httpClientGet httpOpts uri $ \responseHeaders bodyReader -> do
+        updateServerCapabilities cfgCaps responseHeaders
+        execBodyReader targetPath sz h bodyReader
       hClose h
       result <- callback format tempPath
       Cache.cacheRemoteFile cfgCache
@@ -381,7 +420,7 @@ getFile RemoteConfig{..} httpOpts remoteFile callback =
 --
 -- Sadly, this has some tar-specific functionality
 incTar :: RemoteConfig        -- ^ Internal configuration
-       -> [HttpOption]        -- ^ Additional HTTP options
+       -> [HttpRequestHeader] -- ^ Additional HTTP options
        -> Trusted FileLength  -- ^ Expected length
        -> AbsolutePath        -- ^ Location of cached tar (after callback)
        -> (TempPath -> IO a)  -- ^ Callback on the updated tar
@@ -400,7 +439,9 @@ incTar RemoteConfig{..} httpOpts len cachedFile callback = do
       hSeek h AbsoluteSeek currentMinusTrailer
       -- As in 'getFile', make sure we don't scope the remainder of the
       -- computation underneath the httpClientGetRange
-      httpClientGetRange httpOpts uri range $ execBodyReader targetPath rangeSz h
+      httpClientGetRange httpOpts uri range $ \responseHeaders bodyReader -> do
+        updateServerCapabilities cfgCaps responseHeaders
+        execBodyReader targetPath rangeSz h bodyReader
       hClose h
       result <- callback tempPath
       Cache.cacheRemoteFile cfgCache tempPath (Some FUn) CacheIndex
@@ -435,7 +476,7 @@ withMirror HttpClient{..} selectedMirror logger oobMirrors tufMirrors callback =
     -- mirror
     go (m:ms) = do
       logger $ LogSelectedMirror (show m)
-      recoverableCatch httpWrapCustomEx (select m callback) $ \ex -> do
+      recoverableCatch (select m callback) $ \ex -> do
         logger $ LogMirrorFailed (show m) ex
         go ms
 
@@ -460,6 +501,23 @@ withMirror HttpClient{..} selectedMirror logger oobMirrors tufMirrors callback =
 --
 -- This definition is copied from the @http-client@ package.
 type BodyReader = IO BS.ByteString
+
+-- | Construct a 'Body' reader from a lazy bytestring
+--
+-- This is appropriate if the lazy bytestring is constructed, say, by calling
+-- 'hGetContents' on a network socket, and the chunks of the bytestring
+-- correspond to the chunks as they are returned from the OS network layer.
+--
+-- If the lazy bytestring needs to be re-chunked this function is NOT suitable.
+bodyReaderFromBS :: BS.L.ByteString -> IO BodyReader
+bodyReaderFromBS lazyBS = do
+    chunks <- newIORef $ BS.L.toChunks lazyBS
+    -- NOTE: Lazy bytestrings invariant: no empty chunks
+    let br = do bss <- readIORef chunks
+                case bss of
+                  []        -> return BS.empty
+                  (bs:bss') -> writeIORef chunks bss' >> return bs
+    return br
 
 -- | Execute a body reader
 --
@@ -559,6 +617,8 @@ data RemoteConfig = RemoteConfig {
     , cfgClient :: HttpClient
     , cfgBase   :: URI
     , cfgCache  :: Cache
+    , cfgCaps   :: ServerCapabilities
+    , cfgLogger :: LogMessage -> IO ()
     }
 
 {-------------------------------------------------------------------------------

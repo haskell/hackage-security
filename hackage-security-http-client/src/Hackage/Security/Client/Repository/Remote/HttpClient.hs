@@ -4,7 +4,6 @@ module Hackage.Security.Client.Repository.Remote.HttpClient (
   ) where
 
 import Control.Exception
-import Control.Monad
 import Data.ByteString (ByteString)
 import Data.Default.Class (def)
 import Data.Monoid
@@ -12,7 +11,6 @@ import Network.URI
 import Network.HTTP.Client hiding (BodyReader)
 import Network.HTTP.Client.Internal (setUri)
 import Network.HTTP.Types
-import qualified Data.CaseInsensitive  as CI
 import qualified Data.ByteString       as BS
 import qualified Data.ByteString.Char8 as BS.C8
 
@@ -26,13 +24,10 @@ import qualified Hackage.Security.Util.Lens as Lens
 
 withClient :: ProxyConfig Proxy -> (String -> IO ()) -> (HttpClient -> IO a) -> IO a
 withClient proxyConfig _logger callback = do
-    caps <- newServerCapabilities
     withManager (setProxy defaultManagerSettings) $ \manager ->
       callback HttpClient {
-          httpClientGet          = get      manager caps
-        , httpClientGetRange     = getRange manager caps
-        , httpClientCapabilities = caps
-        , httpWrapCustomEx       = wrapCustomEx
+          httpClientGet      = get      manager
+        , httpClientGetRange = getRange manager
         }
   where
     setProxy = managerSetProxy $
@@ -45,41 +40,35 @@ withClient proxyConfig _logger callback = do
   Individual methods
 -------------------------------------------------------------------------------}
 
-get :: Manager -> ServerCapabilities
-    -> [HttpOption] -> URI -> (BodyReader -> IO a) -> IO a
-get manager caps httpOpts uri callback = do
+get :: Manager
+    -> [HttpRequestHeader] -> URI
+    -> ([HttpResponseHeader] -> BodyReader -> IO a)
+    -> IO a
+get manager reqHeaders uri callback = wrapCustomEx $ do
     -- TODO: setUri fails under certain circumstances; in particular, when
     -- the URI contains URL auth. Not sure if this is a concern.
     request' <- setUri def uri
-    let request = setHttpOptions httpOpts
+    let request = setRequestHeaders reqHeaders
                 $ request'
     withResponse request manager $ \response -> do
-      updateCapabilities caps response
-      callback (responseBody response)
+      let br = wrapCustomEx $ responseBody response
+      callback (getResponseHeaders response) br
 
-getRange :: Manager -> ServerCapabilities
-         -> [HttpOption] -> URI -> (Int, Int)
-         -> (BodyReader -> IO a) -> IO a
-getRange manager caps httpOpts uri (from, to) callback = do
+getRange :: Manager
+         -> [HttpRequestHeader] -> URI -> (Int, Int)
+         -> ([HttpResponseHeader] -> BodyReader -> IO a)
+         -> IO a
+getRange manager reqHeaders uri (from, to) callback = wrapCustomEx $ do
     request' <- setUri def uri
     let request = setRange from to
-                $ setHttpOptions httpOpts
+                $ setRequestHeaders reqHeaders
                 $ request'
     withResponse request manager $ \response -> do
-      updateCapabilities caps response
-      let br = responseBody response
+      let br = wrapCustomEx $ responseBody response
       case responseStatus response of
-        s | s == partialContent206 -> callback br
+        s | s == partialContent206 -> callback (getResponseHeaders response) br
         s -> throwIO $ StatusCodeException s (responseHeaders response)
                                              (responseCookieJar response)
-
--- | Update recorded server capabilities given a response
-updateCapabilities :: ServerCapabilities -> Response a -> IO ()
-updateCapabilities caps response = do
-    when ((hAcceptRanges, "bytes") `elem` headers) $
-      setServerSupportsAcceptBytes caps True
-  where
-    headers = responseHeaders response
 
 -- | Wrap custom exceptions
 --
@@ -98,7 +87,10 @@ wrapCustomEx act = catches act [
 -------------------------------------------------------------------------------}
 
 hAcceptRanges :: HeaderName
-hAcceptRanges = CI.mk "Accept-Ranges"
+hAcceptRanges = "Accept-Ranges"
+
+hAcceptEncoding :: HeaderName
+hAcceptEncoding = "Accept-Encoding"
 
 setRange :: Int -> Int -> Request -> Request
 setRange from to req = req {
@@ -109,24 +101,38 @@ setRange from to req = req {
     -- See <http://www.w3.org/Protocols/rfc2616/rfc2616-sec14.html>
     rangeHeader = BS.C8.pack $ "bytes=" ++ show from ++ "-" ++ show (to - 1)
 
-setHttpOptions :: [HttpOption] -> Request -> Request
-setHttpOptions opts req = req {
+setRequestHeaders :: [HttpRequestHeader] -> Request -> Request
+setRequestHeaders opts req = req {
       requestHeaders = trOpt [] opts ++ requestHeaders req
     }
   where
-    trOpt :: [(HeaderName, [ByteString])] -> [HttpOption] -> [Header]
+    trOpt :: [(HeaderName, [ByteString])]
+          -> [HttpRequestHeader]
+          -> [Header]
     trOpt acc [] =
       concatMap finalizeHeader acc
-    trOpt acc (HttpOptionMaxAge0:os) =
+    trOpt acc (HttpRequestMaxAge0:os) =
       trOpt (insert hCacheControl ["max-age=0"] acc) os
-    trOpt acc (HttpOptionNoTransform:os) =
+    trOpt acc (HttpRequestNoTransform:os) =
       trOpt (insert hCacheControl ["no-transform"] acc) os
+    trOpt acc (HttpRequestContentCompression:os) =
+      trOpt (insert hAcceptEncoding ["gzip"] acc) os
 
     -- Some headers are comma-separated, others need multiple headers for
-    -- multiple options. Since right now we deal with HdrCacheControl only,
-    -- we just comma-separate all of them.
+    -- multiple options.
+    --
+    -- TODO: Right we we just comma-separate all of them.
     finalizeHeader :: (HeaderName, [ByteString]) -> [Header]
     finalizeHeader (name, strs) = [(name, BS.intercalate ", " (reverse strs))]
 
     insert :: (Eq a, Monoid b) => a -> b -> [(a, b)] -> [(a, b)]
     insert x y = Lens.modify (Lens.lookupM x) (mappend y)
+
+getResponseHeaders :: Response a -> [HttpResponseHeader]
+getResponseHeaders response = concat [
+      [ HttpResponseAcceptRangesBytes
+      | (hAcceptRanges, "bytes") `elem` headers
+      ]
+    ]
+  where
+    headers = responseHeaders response

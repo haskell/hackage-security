@@ -6,7 +6,6 @@ module Hackage.Security.Client.Repository.Remote.HTTP (
 import Control.Concurrent
 import Control.Exception
 import Control.Monad
-import Data.IORef
 import Data.Monoid
 import Data.List (intercalate)
 import Data.Typeable (Typeable)
@@ -14,7 +13,6 @@ import Network.Browser
 import Network.HTTP
 import Network.HTTP.Proxy
 import Network.URI
-import qualified Data.ByteString      as BS
 import qualified Data.ByteString.Lazy as BS.L
 import qualified Control.Monad.State  as State
 
@@ -26,6 +24,13 @@ import qualified Hackage.Security.Util.Lens as Lens
   Top-level API
 -------------------------------------------------------------------------------}
 
+-- | Initialize the client
+--
+-- TODO: This currently uses the lazy bytestring API offered by the HTTP
+-- library. Unfortunately this provides no way of closing the connection when
+-- the callback decides it doens't require any further input. It seems
+-- impossible however to implement a proper streaming API.
+-- See <https://github.com/haskell/HTTP/issues/86>.
 withClient :: ProxyConfig String -- ^ Proxy
            -> (String -> IO ())  -- ^ stdout log handler
            -> (String -> IO ())  -- ^ stderr log handler
@@ -33,64 +38,45 @@ withClient :: ProxyConfig String -- ^ Proxy
 withClient proxyConfig outLog errLog callback =
     bracket (browserInit proxyConfig outLog errLog) browserCleanup $ \browser ->
       callback HttpClient {
-          httpClientGet          = get         browser
-        , httpClientGetRange     = getRange    browser
-        , httpClientCapabilities = browserCaps browser
-        , httpWrapCustomEx       = wrapCustomEx
+          httpClientGet      = get      browser
+        , httpClientGetRange = getRange browser
         }
 
 {-------------------------------------------------------------------------------
   Individual methods
 -------------------------------------------------------------------------------}
 
-get :: Browser -> [HttpOption] -> URI -> (BodyReader -> IO a) -> IO a
-get browser httpOpts uri callback = do
+get :: Browser
+    -> [HttpRequestHeader] -> URI
+    -> ([HttpResponseHeader] -> BodyReader -> IO a)
+    -> IO a
+get browser reqHeaders uri callback = wrapCustomEx $ do
     response <- request' browser
-      $ setHttpOptions httpOpts
+      $ setRequestHeaders reqHeaders
       $ mkRequest GET uri
     case rspCode response of
-      (2, 0, 0)  -> withResponse browser response callback
+      (2, 0, 0)  -> withResponse response callback
       _otherwise -> throwIO $ UnexpectedResponse uri (rspCode response)
 
 getRange :: Browser
-         -> [HttpOption] -> URI -> (Int, Int)
-         -> (BodyReader -> IO a) -> IO a
-getRange browser httpOpts uri (from, to) callback = do
+         -> [HttpRequestHeader] -> URI -> (Int, Int)
+         -> ([HttpResponseHeader] -> BodyReader -> IO a)
+         -> IO a
+getRange browser reqHeaders uri (from, to) callback = wrapCustomEx $ do
     response <- request' browser
       $ setRange from to
-      $ setHttpOptions httpOpts
+      $ setRequestHeaders reqHeaders
       $ mkRequest GET uri
     case rspCode response of
-      (2, 0, 6)  -> withResponse browser response callback
+      (2, 0, 6)  -> withResponse response callback
       _otherwise -> throwIO $ UnexpectedResponse uri (rspCode response)
 
-withResponse :: Browser
-             -> Response BS.L.ByteString -> (BodyReader -> IO a) -> IO a
-withResponse browser response callback = do
-    -- TODO: Unfortunately we have no way of closing the connection when the
-    -- callback decides it doens't require any further input.
-    -- See <https://github.com/haskell/HTTP/issues/86>.
-    updateCapabilities browser response
-    chunks <- newIORef $ BS.L.toChunks (rspBody response)
-    -- NOTE: Lazy bytestrings invariant: no empty chunks
-    let br = do bss <- readIORef chunks
-                case bss of
-                  []        -> return BS.empty
-                  (bs:bss') -> writeIORef chunks bss' >> return bs
-    callback br
-
--- | Update recorded server capabilities given a response
-updateCapabilities :: Browser -> Response a -> IO ()
-updateCapabilities Browser{..} response =
-    -- Check the @Accept-Ranges@ header.
-    --
-    -- @Accept-Ranges@ takes a _single_ argument, but there might potentially
-    -- be more than one of them (although the spec does not explicitly say so).
-
-    -- See <http://www.w3.org/Protocols/rfc2616/rfc2616-sec14.html#sec14.5>
-    -- and <http://www.w3.org/Protocols/rfc2616/rfc2616-sec3.html#sec3.12>
-    when ("bytes" `elem` map hdrValue (retrieveHeaders hAcceptRanges response)) $
-      setServerSupportsAcceptBytes browserCaps True
+withResponse :: Response BS.L.ByteString
+             -> ([HttpResponseHeader] -> BodyReader -> IO a)
+             -> IO a
+withResponse response callback = do
+    br <- bodyReaderFromBS (rspBody response)
+    callback (getResponseHeaders response) br
 
 {-------------------------------------------------------------------------------
   Custom exception types
@@ -125,7 +111,6 @@ type LazyStream = HandleStream BS.L.ByteString
 
 data Browser = Browser {
     browserState :: MVar (BrowserState LazyStream)
-  , browserCaps  :: ServerCapabilities
   }
 
 -- | Run a browser action
@@ -159,7 +144,6 @@ browserInit proxyConfig outLog errLog = do
       ProxyConfigUse p -> case parseProxy p of
                              Nothing -> throwIO $ InvalidProxy p
                              Just p' -> return p'
-    browserCaps  <- newServerCapabilities
     browserState <- newMVar =<< browse (initAction (emptyAsNone proxy))
     return Browser{..}
   where
@@ -201,23 +185,42 @@ setRange from to = insertHeader HdrRange rangeHeader
     -- See <http://www.w3.org/Protocols/rfc2616/rfc2616-sec14.html>
     rangeHeader = "bytes=" ++ show from ++ "-" ++ show (to - 1)
 
-setHttpOptions :: HasHeaders a => [HttpOption] -> a -> a
-setHttpOptions =
+setRequestHeaders :: HasHeaders a => [HttpRequestHeader] -> a -> a
+setRequestHeaders =
     foldr (.) id . map (uncurry insertHeader) . trOpt []
   where
-    trOpt :: [(HeaderName, [String])] -> [HttpOption] -> [(HeaderName, String)]
+    trOpt :: [(HeaderName, [String])]
+          -> [HttpRequestHeader]
+          -> [(HeaderName, String)]
     trOpt acc [] =
       concatMap finalizeHeader acc
-    trOpt acc (HttpOptionMaxAge0:os) =
+    trOpt acc (HttpRequestMaxAge0:os) =
       trOpt (insert HdrCacheControl ["max-age=0"] acc) os
-    trOpt acc (HttpOptionNoTransform:os) =
+    trOpt acc (HttpRequestNoTransform:os) =
       trOpt (insert HdrCacheControl ["no-transform"] acc) os
+    trOpt acc (HttpRequestContentCompression:os) =
+      trOpt (insert HdrAcceptEncoding ["gzip"] acc) os
 
     -- Some headers are comma-separated, others need multiple headers for
-    -- multiple options. Since right now we deal with HdrCacheControl only,
-    -- we just comma-separate all of them.
+    -- multiple options.
+    --
+    -- TODO: Right we we just comma-separate all of them.
     finalizeHeader :: (HeaderName, [String]) -> [(HeaderName, String)]
     finalizeHeader (name, strs) = [(name, intercalate ", " (reverse strs))]
 
     insert :: (Eq a, Monoid b) => a -> b -> [(a, b)] -> [(a, b)]
     insert x y = Lens.modify (Lens.lookupM x) (mappend y)
+
+getResponseHeaders :: Response a -> [HttpResponseHeader]
+getResponseHeaders response = concat [
+    -- Check the @Accept-Ranges@ header.
+    --
+    -- @Accept-Ranges@ takes a _single_ argument, but there might potentially
+    -- be more than one of them (although the spec does not explicitly say so).
+
+    -- See <http://www.w3.org/Protocols/rfc2616/rfc2616-sec14.html#sec14.5>
+    -- and <http://www.w3.org/Protocols/rfc2616/rfc2616-sec3.html#sec3.12>
+    [ HttpResponseAcceptRangesBytes
+    | "bytes" `elem` map hdrValue (retrieveHeaders hAcceptRanges response)
+    ]
+  ]

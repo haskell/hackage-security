@@ -25,23 +25,23 @@ import Hackage.Security.Client.Repository.Remote
 -- TODO: Deal with _proxy
 withClient :: ProxyConfig String -> (String -> IO ()) -> (HttpClient -> IO a) -> IO a
 withClient _proxy _logger callback = do
-    caps <- newServerCapabilities
     callback HttpClient {
-      httpClientGet          = get
-    , httpClientGetRange     = undefined -- TODO: support range requests
-    , httpClientCapabilities = caps
-    , httpWrapCustomEx       = id
+      httpClientGet      = get
+    , httpClientGetRange = undefined -- TODO: support range requests
     }
 
 {-------------------------------------------------------------------------------
   Implementation of the individual methods
 -------------------------------------------------------------------------------}
 
--- TODO: Interpret the HTTP options
-get :: [HttpOption] -> URI -> (BodyReader -> IO a) -> IO a
+-- TODO: Set HTTP request headers
+-- TODO: Get HTTP response headers
+get :: [HttpRequestHeader] -> URI
+    -> ([HttpResponseHeader] -> BodyReader -> IO a)
+    -> IO a
 get _httpOpts uri callback = do
     (Nothing, Just hOut, Nothing, hProc) <- createProcess curl
-    callback (bodyReader hProc hOut)
+    callback [] (bodyReader hProc hOut)
   where
     curl :: CreateProcess
     curl = (proc "curl" [show uri]) { std_out = CreatePipe }
@@ -53,6 +53,7 @@ get _httpOpts uri callback = do
 -- | Construct a body reader for a process
 --
 -- TODO: We should also deal with stderr
+-- TODO: Perhaps this should be in the main library, alongside bodyReaderFromBS.
 bodyReader :: ProcessHandle -> Handle -> BodyReader
 bodyReader hProc hOut = do
     chunk <- BS.hGetSome hOut BS.L.smallChunkSize

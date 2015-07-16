@@ -331,8 +331,8 @@ data UpdateFailure =
 --
 -- In examples such as these we can catch these 'RecoverableException's,
 -- but we don't want to catch just any odd exception. For example, we don't
--- want to catch a ThreadKilled exception while updating a file and then
--- retry by downloading it.
+-- want to catch a ThreadKilled exception while incrementally updating a file
+-- and then retry by downloading it.
 data RecoverableException =
     RecoverIOException IOException
   | RecoverVerificationError VerificationError
@@ -360,11 +360,8 @@ instance Pretty RecoverableException where
   pretty (RecoverCustom            e) = show e
 #endif
 
-recoverableCatch :: (IO a -> IO a)                  -- ^ Wrap custom exceptions
-                 -> IO a                            -- ^ Action to execute
-                 -> (RecoverableException -> IO a)  -- ^ Exception handler
-                 -> IO a
-recoverableCatch wrapCustom act handler = catches (wrapCustom act) [
+recoverableCatch :: IO a -> (RecoverableException -> IO a) -> IO a
+recoverableCatch act handler = catches act [
       Handler $ handler . RecoverIOException
     , Handler $ handler . RecoverVerificationError
     , Handler $ handler . RecoverCustom
