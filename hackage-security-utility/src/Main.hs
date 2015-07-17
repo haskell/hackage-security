@@ -31,6 +31,7 @@ import qualified Hackage.Security.Util.Lens   as Lens
 import Hackage.Security.Utility.Options
 import Hackage.Security.Utility.Layout
 import Hackage.Security.Utility.Util.IO
+import Text.JSON.Canonical (JSValue)
 
 {-------------------------------------------------------------------------------
   Main application driver
@@ -53,6 +54,8 @@ main = do
         createMirrors opts keysLoc mirrorsLoc mirrors
       SymlinkCabalLocalRepo repoLoc cabalRepoLoc ->
         symlinkCabalLocalRepo opts repoLoc cabalRepoLoc
+      Sign keys deleteExisting file ->
+        signFile keys deleteExisting file
 
 -- | Top-level exception handler that uses 'displayException'
 --
@@ -331,7 +334,6 @@ updateRoot opts repoLoc whenWrite keys now =
           }
       }
 
-
 -- | Create root metadata
 updateMirrors :: GlobalOpts
               -> RepoLoc
@@ -494,7 +496,7 @@ updateFile :: forall a. (ToJSON WriteJSON (Signed a), HasHeader a)
            -> a                        -- ^ Unsigned file contents
            -> IO ()
 updateFile opts@GlobalOpts{..} repoLoc whenWrite fileLoc signPayload a = do
-    mOldHeader :: Maybe (Either DeserializationError (IgnoreSigned Header)) <-
+    mOldHeader :: Maybe (Either DeserializationError (UninterpretedSignatures Header)) <-
       handleDoesNotExist $ readJSON_NoKeys_NoLayout fp
 
     case (whenWrite, mOldHeader) of
@@ -504,7 +506,7 @@ updateFile opts@GlobalOpts{..} repoLoc whenWrite fileLoc signPayload a = do
         writeDoc creating a
       (WriteUpdate, Just (Left _err)) -> -- old file corrupted
         writeDoc overwriting a
-      (WriteUpdate, Just (Right (IgnoreSigned oldHeader))) -> do
+      (WriteUpdate, Just (Right (UninterpretedSignatures oldHeader _oldSigs))) -> do
         -- We cannot quite read the entire old file, because we don't know what
         -- key environment to use. Instead, we render the _new_ file, but
         -- setting the version number to be equal to the version number of the
@@ -618,6 +620,22 @@ symlinkCabalLocalRepo opts@GlobalOpts{..} repoLoc cabalRepoLoc = do
         loc    = anchorRepoPath cabalLocalRepoLayout cabalRepoLoc file
 
 {-------------------------------------------------------------------------------
+  Signing individual files
+-------------------------------------------------------------------------------}
+
+signFile :: [KeyLoc] -> DeleteExistingSignatures -> AbsolutePath -> IO ()
+signFile keyLocs deleteExisting fp = do
+    UninterpretedSignatures (payload :: JSValue) oldSigs <-
+      throwErrors =<< readJSON_NoKeys_NoLayout fp
+    keys :: [Some Key] <- forM keyLocs $ \keyLoc ->
+      throwErrors =<< readJSON_NoKeys_NoLayout keyLoc
+    let newSigs = concat [
+            if deleteExisting then [] else oldSigs
+          , toPreSignatures (signRendered keys $ renderJSON_NoLayout payload)
+          ]
+    writeJSON_NoLayout fp $ UninterpretedSignatures payload newSigs
+
+{-------------------------------------------------------------------------------
   Logging
 -------------------------------------------------------------------------------}
 
@@ -649,3 +667,7 @@ hasExtensions = \fp exts -> go (takeFileName' fp) (reverse exts)
 
     takeFileName' :: Path a -> String
     takeFileName' = unFragment . takeFileName
+
+throwErrors :: Exception e => Either e a -> IO a
+throwErrors (Left err) = throwIO err
+throwErrors (Right a)  = return a

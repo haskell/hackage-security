@@ -534,11 +534,11 @@ withMirror rep callback = do
       Just fp -> filterMirrors <$> (throwErrors =<< readJSON_NoKeys_NoLayout fp)
     repWithMirror rep mirrors $ callback
   where
-    filterMirrors :: IgnoreSigned Mirrors -> Maybe [Mirror]
+    filterMirrors :: UninterpretedSignatures Mirrors -> Maybe [Mirror]
     filterMirrors = Just
                   . filter (canUseMirror . mirrorContent)
                   . mirrorsMirrors
-                  . ignoreSigned
+                  . uninterpretedSigned
 
     -- Once we add support for partial mirrors, we wil need an additional
     -- argument to 'repWithMirror' (here, not in the Repository API itself)

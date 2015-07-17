@@ -1,6 +1,8 @@
 module Hackage.Security.Utility.Options (
     GlobalOpts(..)
   , Command(..)
+  , KeyLoc
+  , DeleteExistingSignatures
   , getOptions
   ) where
 
@@ -50,6 +52,12 @@ data Command =
 
     -- | Create a directory with symlinks in cabal-local-rep layout
   | SymlinkCabalLocalRepo RepoLoc RepoLoc
+
+    -- | Sign an individual file
+  | Sign [KeyLoc] DeleteExistingSignatures AbsolutePath
+
+type KeyLoc                   = AbsolutePath
+type DeleteExistingSignatures = Bool
 
 {-------------------------------------------------------------------------------
   Parsers
@@ -113,6 +121,18 @@ parseSymlinkCabalLocalRepo = SymlinkCabalLocalRepo
         , help "Location of the cabal repo"
         ])
 
+parseSign :: Parser Command
+parseSign = Sign
+  <$> (many . option (str >>= readAbsolutePath) $ mconcat [
+         long "key"
+       , help "Path to private key (can be specified multiple times)"
+       ])
+  <*> (switch $ mconcat [
+         long "delete-existing"
+       , help "Delete any existing signatures"
+       ])
+  <*> argument (str >>= readAbsolutePath) (metavar "FILE")
+
 -- | Global options
 --
 -- TODO: Make repo and keys layout configurable
@@ -138,6 +158,8 @@ parseGlobalOptions = GlobalOpts
             progDesc "Create mirrors metadata. All MIRRORs specified on the command line will be written to the file."
         , command "symlink-cabal-local-repo" $ info (helper <*> parseSymlinkCabalLocalRepo) $
             progDesc "Create a directory in cabal-local-repo layout with symlinks to the specified repository."
+        , command "sign" $ info (helper <*> parseSign) $
+            progDesc "Sign a file"
         ])
 
 readURI :: String -> ReadM URI

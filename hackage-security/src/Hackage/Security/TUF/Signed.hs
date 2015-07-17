@@ -12,14 +12,22 @@ module Hackage.Security.TUF.Signed (
   , unsigned
   , withSignatures
   , withSignatures'
+  , signRendered
   , verifySignature
     -- * JSON aids
   , signedFromJSON
   , verifySignatures
-    -- * Ignoring signatures
-  , IgnoreSigned(..)
+    -- * Avoid interpreting signatures
+  , UninterpretedSignatures(..)
+  , PreSignature(..)
+    -- ** Utility
+  , fromPreSignature
+  , fromPreSignatures
+  , toPreSignature
+  , toPreSignatures
   ) where
 
+import Control.Monad
 import Data.Functor.Identity
 import qualified Data.ByteString      as BS
 import qualified Data.ByteString.Lazy as BS.L
@@ -31,6 +39,10 @@ import Hackage.Security.TUF.Layout
 import Hackage.Security.Util.Some
 import Text.JSON.Canonical
 import qualified Hackage.Security.Util.Base64 as B64
+
+{-------------------------------------------------------------------------------
+  Signed objects
+-------------------------------------------------------------------------------}
 
 data Signed a = Signed {
     signed     :: a
@@ -67,7 +79,7 @@ withSignatures' keys doc = Signed {
     , signatures = signRendered keys $ renderJSON_NoLayout doc
     }
 
--- | Construct signatures for already rendered value (internal function)
+-- | Construct signatures for already rendered value
 signRendered :: [Some Key] -> BS.L.ByteString -> Signatures
 signRendered keys rendered = Signatures $ map go keys
   where
@@ -88,63 +100,10 @@ instance (Monad m, ToJSON m a) => ToJSON m (Signed a) where
        ]
 
 instance Monad m => ToJSON m Signatures where
-  toJSON (Signatures sigs) = toJSON sigs
-
-instance Monad m => ToJSON m Signature where
-  toJSON Signature{..} = mkObject [
-         ("keyid"  , return $ writeKeyAsId signatureKey)
-       , ("method" , toJSON $ somePublicKeyType signatureKey)
-       , ("sig"    , toJSON $ B64.fromByteString signature)
-       ]
+  toJSON = toJSON . toPreSignatures
 
 instance MonadKeys m => FromJSON m Signatures where
-  fromJSON enc = do
-      preSigs <- fromJSON enc
-      sigs    <- fromPreSignatures preSigs
-      return $ Signatures sigs
-
-{-------------------------------------------------------------------------------
-  Auxiliary
--------------------------------------------------------------------------------}
-
--- | A signature with a key ID (rather than an actual key)
-data PreSignature = PreSignature {
-    presignature :: BS.ByteString
-  , presigMethod :: Some KeyType
-  , presigKeyId  :: KeyId
-  }
-
-instance ReportSchemaErrors m => FromJSON m PreSignature where
-  fromJSON enc = do
-    kId    <- fromJSField enc "keyid"
-    method <- fromJSField enc "method"
-    sig    <- fromJSField enc "sig"
-    return PreSignature {
-        presignature = B64.toByteString sig
-      , presigMethod = method
-      , presigKeyId  = KeyId kId
-      }
-
-fromPreSignature :: MonadKeys m => PreSignature -> m Signature
-fromPreSignature PreSignature{..} = do
-    key <- lookupKey presigKeyId
-    validate "key type" $ typecheckSome key presigMethod
-    return Signature {
-        signature    = presignature
-      , signatureKey = key
-      }
-
--- | Convert a list of 'PreSignature's to a list of 'Signature's
---
--- This verifies the invariant that all signatures are made with different keys.
--- We do this on the presignatures rather than the signatures so that we can do
--- the check on key IDs, rather than keys (the latter don't have an Ord
--- instance).
-fromPreSignatures :: MonadKeys m => [PreSignature] -> m [Signature]
-fromPreSignatures sigs = do
-      validate "all signatures made with different keys" $
-        Set.size (Set.fromList (map presigKeyId sigs)) == length sigs
-      mapM fromPreSignature sigs
+  fromJSON = fromPreSignatures <=< fromJSON
 
 {-------------------------------------------------------------------------------
   JSON aids
@@ -184,22 +143,96 @@ verifySignatures parsed (Signatures sigs) =
     all (verifySignature $ renderCanonicalJSON parsed) sigs
 
 {-------------------------------------------------------------------------------
-  Ignoring signatures
+  Uninterpreted signatures
 -------------------------------------------------------------------------------}
 
--- | Sometimes we may want to ignore the signatures on a file
+-- | File with uninterpreted signatures
 --
--- Perhaps we want to ignore the signatures because they have already been
--- verified (trusted local files). Moreover, many file formats (that don't
--- contain any other keys) can then be read without any key environment at all,
--- which is occassionally useful.
---
--- This is only relevant for _reading_ files, so this only has a 'FromJSON'
--- instance (and no 'ToJSON' instance).
-newtype IgnoreSigned a = IgnoreSigned { ignoreSigned :: a }
+-- Sometimes we want to be able to read a file without interpreting the
+-- signatures (that is, resolving the key IDs) or doing any kind of checks on
+-- them. One advantage of this is that this allows us to read many file types
+-- without any key environment at all, which is sometimes useful.
+data UninterpretedSignatures a = UninterpretedSignatures {
+    uninterpretedSigned     :: a
+  , uninterpretedSignatures :: [PreSignature]
+  }
+  deriving (Show)
 
-instance (ReportSchemaErrors m, FromJSON m a) => FromJSON m (IgnoreSigned a) where
+-- | A signature with a key ID (rather than an actual key)
+--
+-- This corresponds precisely to the TUF representation of a signature.
+data PreSignature = PreSignature {
+    presignature :: BS.ByteString
+  , presigMethod :: Some KeyType
+  , presigKeyId  :: KeyId
+  }
+  deriving (Show)
+
+-- | Convert a pre-signature to a signature
+--
+-- Verifies that the key type matches the advertised method.
+fromPreSignature :: MonadKeys m => PreSignature -> m Signature
+fromPreSignature PreSignature{..} = do
+    key <- lookupKey presigKeyId
+    validate "key type" $ typecheckSome key presigMethod
+    return Signature {
+        signature    = presignature
+      , signatureKey = key
+      }
+
+-- | Convert signature to pre-signature
+toPreSignature :: Signature -> PreSignature
+toPreSignature Signature{..} = PreSignature {
+      presignature = signature
+    , presigMethod = somePublicKeyType signatureKey
+    , presigKeyId  = someKeyId         signatureKey
+    }
+
+-- | Convert a list of 'PreSignature's to a list of 'Signature's
+--
+-- This verifies the invariant that all signatures are made with different keys.
+-- We do this on the presignatures rather than the signatures so that we can do
+-- the check on key IDs, rather than keys (the latter don't have an Ord
+-- instance).
+fromPreSignatures :: MonadKeys m => [PreSignature] -> m Signatures
+fromPreSignatures sigs = do
+      validate "all signatures made with different keys" $
+        Set.size (Set.fromList (map presigKeyId sigs)) == length sigs
+      Signatures <$> mapM fromPreSignature sigs
+
+-- | Convert list of pre-signatures to a list of signatures
+toPreSignatures :: Signatures -> [PreSignature]
+toPreSignatures (Signatures sigs) = map toPreSignature sigs
+
+instance ReportSchemaErrors m => FromJSON m PreSignature where
+  fromJSON enc = do
+    kId    <- fromJSField enc "keyid"
+    method <- fromJSField enc "method"
+    sig    <- fromJSField enc "sig"
+    return PreSignature {
+        presignature = B64.toByteString sig
+      , presigMethod = method
+      , presigKeyId  = KeyId kId
+      }
+
+instance Monad m => ToJSON m PreSignature where
+  toJSON PreSignature{..} = mkObject [
+         ("keyid"  , return $ JSString . keyIdString $ presigKeyId)
+       , ("method" , toJSON $ presigMethod)
+       , ("sig"    , toJSON $ B64.fromByteString presignature)
+       ]
+
+instance ( ReportSchemaErrors m
+         , FromJSON m a
+         ) => FromJSON m (UninterpretedSignatures a) where
   fromJSON envelope = do
-    enc          <- fromJSField envelope "signed"
-    ignoreSigned <- fromJSON enc
-    return IgnoreSigned{..}
+    enc <- fromJSField envelope "signed"
+    uninterpretedSigned     <- fromJSON enc
+    uninterpretedSignatures <- fromJSField envelope "signatures"
+    return UninterpretedSignatures{..}
+
+instance (Monad m, ToJSON m a) => ToJSON m (UninterpretedSignatures a) where
+  toJSON UninterpretedSignatures{..} = mkObject [
+         ("signed"     , toJSON uninterpretedSigned)
+       , ("signatures" , toJSON uninterpretedSignatures)
+       ]
