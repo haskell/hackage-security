@@ -1,5 +1,5 @@
 -- | IO utilities
-{-# LANGUAGE CPP #-}
+{-# LANGUAGE CPP #-}
 module Hackage.Security.Utility.Util.IO (
     -- * Miscellaneous
     compress

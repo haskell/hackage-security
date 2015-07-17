@@ -9,7 +9,7 @@ import Data.Time
 import GHC.Conc.Sync (setUncaughtExceptionHandler)
 import Network.URI (URI)
 import System.Exit
-import System.IO.Error
+import System.IO.Error (isAlreadyExistsError)
 import qualified Data.ByteString.Lazy as BS.L
 import qualified System.FilePath      as FilePath
 
