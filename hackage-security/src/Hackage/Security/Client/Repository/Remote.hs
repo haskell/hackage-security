@@ -34,6 +34,7 @@ module Hackage.Security.Client.Repository.Remote (
 
 import Control.Concurrent
 import Control.Exception
+import Control.Monad.Cont
 import Control.Monad.Except
 import Data.List (nub)
 import Data.IORef
@@ -298,7 +299,7 @@ withRemote :: (URI -> RemoteConfig)
            -> SelectedMirror
            -> IsRetry
            -> RemoteFile fs
-           -> (SelectedFormat fs -> TempPath -> IO a)
+           -> (forall f. HasFormat fs f -> TempPath -> IO a)
            -> IO a
 withRemote remoteConfig selectedMirror isRetry remoteFile callback = do
    baseURI <- getSelectedMirror selectedMirror
@@ -308,45 +309,10 @@ withRemote remoteConfig selectedMirror isRetry remoteFile callback = do
 withRemote' :: RemoteConfig
             -> IsRetry
             -> RemoteFile fs
-            -> (SelectedFormat fs -> TempPath -> IO a)
+            -> (forall f. HasFormat fs f -> TempPath -> IO a)
             -> IO a
-withRemote' cfg@RemoteConfig{..} isRetry remoteFile callback = do
-    -- Figure out if we should do an incremental download
-    mIncremental <- shouldDoIncremental cfg remoteFile
-    didDownload  <- case mIncremental of
-      Left Nothing ->
-        return Nothing
-      Left (Just failure) -> do
-        cfgLogger $ LogUpdateFailed (Some remoteFile) failure
-        return Nothing
-      Right (sf, len, fp) -> do
-        -- Attempt to download the index incrementally.
-        --
-        -- If verification of the index fails, and this is the first attempt,
-        -- we let the exception be thrown up to the security layer, so that
-        -- it will try again with instructions to the cache to fetch stuff
-        -- upstream. Hopefully this will resolve the issue. However, if
-        -- an incrementally updated index cannot be verified on the next
-        -- attempt, we then try to download the whole index.
-        let incr = incTar cfg requestHeaders len fp $ callback sf
-        cfgLogger $ LogUpdating (Some remoteFile)
-        recoverableCatch (Just <$> incr) $ \ex ->
-          case isRetry of
-            FirstAttempt | recoverableIsVerificationError ex ->
-              recoverableRethrow ex
-            _otherwise -> do
-             let failure = UpdateFailed ex
-             cfgLogger $ LogUpdateFailed (Some remoteFile) failure
-             return Nothing
-
-    case didDownload of
-      Just did -> return did
-      Nothing  -> do
-        cfgLogger $ LogDownloading (Some remoteFile)
-        getFile cfg requestHeaders remoteFile callback
-  where
-    requestHeaders :: [HttpRequestHeader]
-    requestHeaders = httpRequestHeaders cfg isRetry
+withRemote' cfg isRetry remoteFile callback =
+    getFile cfg isRetry remoteFile callback =<< pickDownloadMethod cfg remoteFile
 
 -- | HTTP options
 --
@@ -368,122 +334,6 @@ httpRequestHeaders RemoteConfig{..} isRetry =
         | AllowContentCompression <- [cfgCompress]
         ]
       ]
-
--- | Should we do an incremental update?
---
--- Returns either 'Left' the reason why we cannot do an incremental update (or
--- @Nothing@ if we simply never update this kind of file), or else 'Right' the
--- name of the local file that we should update.
-shouldDoIncremental
-  :: forall fs.
-     RemoteConfig   -- ^ Internal configuration
-  -> RemoteFile fs  -- ^ File we need to download
-  -> IO (Either (Maybe UpdateFailure)
-                (SelectedFormat fs, Trusted FileLength, AbsolutePath))
-shouldDoIncremental RemoteConfig{..} remoteFile = runExceptT $ do
-    -- Currently the only file which we download incrementally is the index
-    formats :: Formats fs (Trusted FileLength) <-
-      case remoteFile of
-        RemoteIndex _ lens -> return lens
-        _ -> throwError Nothing
-
-    -- The server must be able to provide the index in uncompressed form
-    -- NOTE: The two @SZ Fun@ expressions here have different types.
-    (selected :: SelectedFormat fs, len :: Trusted FileLength) <-
-      case formats of
-        FsUn   lenUn   -> return (SZ FUn, lenUn)
-        FsUnGz lenUn _ -> return (SZ FUn, lenUn)
-        _ -> throwError $ Just UpdateImpossibleOnlyCompressed
-
-    -- Server must support @Range@ with a byte-range
-    supportsAcceptBytes <- checkServerCapability cfgCaps serverAcceptRangesBytes
-    unless supportsAcceptBytes $
-      throwError $ Just UpdateImpossibleUnsupported
-
-    -- We already have a local file to be updated
-    -- (if not we should try to download the initial file in compressed form)
-    cachedIndex <- do
-      mCachedIndex <- lift $ Cache.getCachedIndex cfgCache
-      case mCachedIndex of
-        Nothing -> throwError $ Just UpdateImpossibleNoLocalCopy
-        Just fp -> return fp
-
-    -- TODO: Other factors to decide whether or not we want to do incremental updates
-    -- TODO: (Not here:) deal with transparent compression of the update
-    -- (but see <https://github.com/haskell/cabal/issues/678> and
-    -- @Distribution.Client.GZipUtils@ in @cabal-install@)
-
-    return (selected, len, cachedIndex)
-  where
-    HttpClient{..} = cfgClient
-
--- | Get any file from the server, without using incremental updates
-getFile :: RemoteConfig         -- ^ Internal configuration
-        -> [HttpRequestHeader]  -- ^ Additional request headers
-        -> RemoteFile fs        -- ^ File to download
-        -> (SelectedFormat fs -> TempPath -> IO a) -- ^ Callback after download
-        -> IO a
-getFile RemoteConfig{..} httpOpts remoteFile callback =
-    withTempFile (Cache.cacheRoot cfgCache) (uriTemplate uri) $ \tempPath h -> do
-      -- We are careful NOT to scope the remainder of the computation underneath
-      -- the httpClientGet
-      httpClientGet httpOpts uri $ \responseHeaders bodyReader -> do
-        updateServerCapabilities cfgCaps responseHeaders
-        execBodyReader targetPath sz h bodyReader
-      hClose h
-      result <- callback format tempPath
-      Cache.cacheRemoteFile cfgCache
-                            tempPath
-                            (selectedFormatSome format)
-                            (mustCache remoteFile)
-      return result
-  where
-    targetPath = TargetPathRepo $ remoteRepoPath' cfgLayout remoteFile format
-    (format, (uri, sz)) = formatsPrefer
-                            (remoteFileNonEmpty remoteFile)
-                            FGz
-                            (formatsZip
-                              (remoteFileURI cfgLayout cfgBase remoteFile)
-                              (remoteFileSize remoteFile))
-
-    HttpClient{..} = cfgClient
-
--- | Get a tar file incrementally
---
--- Sadly, this has some tar-specific functionality
-incTar :: RemoteConfig        -- ^ Internal configuration
-       -> [HttpRequestHeader] -- ^ Additional HTTP options
-       -> Trusted FileLength  -- ^ Expected length
-       -> AbsolutePath        -- ^ Location of cached tar (after callback)
-       -> (TempPath -> IO a)  -- ^ Callback on the updated tar
-       -> IO a
-incTar RemoteConfig{..} httpOpts len cachedFile callback = do
-    -- TODO: This hardcodes the trailer length as 1024.
-    -- We should instead take advantage of the tarball index to find out
-    -- where the trailer starts.
-    currentSize <- getFileSize cachedFile
-    let currentMinusTrailer = currentSize - 1024
-        fileSz  = fileLength (trusted len)
-        range   = (fromInteger currentMinusTrailer, fileSz)
-        rangeSz = FileSizeExact (snd range - fst range)
-    withTempFile (Cache.cacheRoot cfgCache) (uriTemplate uri) $ \tempPath h -> do
-      BS.L.hPut h =<< readLazyByteString cachedFile
-      hSeek h AbsoluteSeek currentMinusTrailer
-      -- As in 'getFile', make sure we don't scope the remainder of the
-      -- computation underneath the httpClientGetRange
-      httpClientGetRange httpOpts uri range $ \responseHeaders bodyReader -> do
-        updateServerCapabilities cfgCaps responseHeaders
-        execBodyReader targetPath rangeSz h bodyReader
-      hClose h
-      result <- callback tempPath
-      Cache.cacheRemoteFile cfgCache tempPath (Some FUn) CacheIndex
-      return result
-  where
-    targetPath = TargetPathRepo repoLayoutIndexTar
-    uri = modifyUriPath cfgBase (`anchorRepoPathRemotely` repoLayoutIndexTar)
-
-    RepoLayout{..} = cfgLayout
-    HttpClient{..} = cfgClient
 
 -- | Mirror selection
 withMirror :: forall a.
@@ -520,6 +370,181 @@ withMirror HttpClient{..} selectedMirror logger oobMirrors tufMirrors callback =
     select uri =
       bracket_ (modifyMVar_ selectedMirror $ \_ -> return $ Just uri)
                (modifyMVar_ selectedMirror $ \_ -> return Nothing)
+
+{-------------------------------------------------------------------------------
+  Download methods
+-------------------------------------------------------------------------------}
+
+-- | Download method (downloading or updating)
+data DownloadMethod fs =
+    -- | Download this file (we never attempt to update this type of file)
+    forall f. NeverUpdated {
+        downloadFormat :: HasFormat fs f
+      }
+
+    -- | Download this file (we cannot update this file right now)
+  | forall f. CannotUpdate {
+        downloadFormat :: HasFormat fs f
+      , downloadReason :: UpdateFailure
+      }
+
+    -- | Attempt an (incremental) update of this file
+    --
+    -- We record the trailer for the file; that is, the number of bytes
+    -- (counted from the end of the file) that we should overwrite with
+    -- the remote file.
+  | forall f. Update {
+        updateFormat  :: HasFormat fs f
+      , updateLength  :: Trusted FileLength
+      , updateLocal   :: AbsolutePath
+      , updateTrailer :: Integer
+      }
+
+pickDownloadMethod :: RemoteConfig
+                   -> RemoteFile fs
+                   -> IO (DownloadMethod fs)
+pickDownloadMethod RemoteConfig{..} remoteFile = multipleExitPoints $ do
+    -- We only have a choice for the index; everywhere else the repository only
+    -- gives a single option. For the index we return a proof that the
+    -- repository must at least have the compressed form available.
+    (hasGz, formats) <- case remoteFile of
+      RemoteTimestamp      -> exit $ NeverUpdated (HFZ FUn)
+      (RemoteRoot _)       -> exit $ NeverUpdated (HFZ FUn)
+      (RemoteSnapshot _)   -> exit $ NeverUpdated (HFZ FUn)
+      (RemoteMirrors _)    -> exit $ NeverUpdated (HFZ FUn)
+      (RemotePkgTarGz _ _) -> exit $ NeverUpdated (HFZ FGz)
+      (RemoteIndex pf fs)  -> return (pf, fs)
+
+    -- Server must have uncompressed index available
+    hasUn <- case formatsMember FUn formats of
+      Nothing    -> exit $ CannotUpdate hasGz UpdateImpossibleOnlyCompressed
+      Just hasUn -> return hasUn
+    let uncompressedSize = formatsLookup hasUn formats
+
+    -- Server must support @Range@ with a byte-range
+    rangeSupport <- checkServerCapability cfgCaps serverAcceptRangesBytes
+    unless rangeSupport $ exit $ CannotUpdate hasGz UpdateImpossibleUnsupported
+
+    -- We must already have a local file to be updated
+    -- (if not we should try to download the initial file in compressed form)
+    mCachedIndex <- lift $ Cache.getCachedIndex cfgCache
+    cachedIndex  <- case mCachedIndex of
+      Nothing -> exit $ CannotUpdate hasGz UpdateImpossibleNoLocalCopy
+      Just fp -> return fp
+
+    -- Index trailer
+    --
+    -- TODO: This hardcodes the trailer length as 1024. We should instead take
+    -- advantage of the tarball index to find out where the trailer starts.
+    let trailerLength = 1024
+
+    -- TODO: Other factors to decide whether or not we want to do incremental updates
+    -- We need to know the compressed length to estimate whether it's worth
+    -- doing an incremental update
+    return $ Update { updateFormat  = hasUn
+                    , updateLength  = uncompressedSize
+                    , updateLocal   = cachedIndex
+                    , updateTrailer = trailerLength
+                    }
+
+-- | Download the specified file using the given download method
+getFile :: forall fs a.
+           RemoteConfig         -- ^ Internal configuration
+        -> IsRetry              -- ^ Did a security check previously fail?
+        -> RemoteFile fs        -- ^ File to get
+        -> (forall f. HasFormat fs f -> TempPath -> IO a) -- ^ Callback
+        -> DownloadMethod fs    -- ^ Selected format
+        -> IO a
+getFile cfg@RemoteConfig{..} isRetry remoteFile callback = go
+  where
+    go :: DownloadMethod fs -> IO a
+    go NeverUpdated{..} = do
+        cfgLogger $ LogDownloading (Some remoteFile)
+        download downloadFormat
+    go CannotUpdate{..} = do
+        cfgLogger $ LogUpdateFailed (Some remoteFile) downloadReason
+        cfgLogger $ LogDownloading (Some remoteFile)
+        download downloadFormat
+    go Update{..} = do
+        cfgLogger $ LogUpdating (Some remoteFile)
+        -- Attempt to download the file incrementally.
+        --
+        -- If verification of the file fails, and this is the first attempt,
+        -- we let the exception be thrown up to the security layer, so that
+        -- it will try again with instructions to the cache to fetch stuff
+        -- upstream. Hopefully this will resolve the issue. However, if
+        -- an incrementally updated file cannot be verified on the next
+        -- attempt, we then try to download the whole file.
+        let upd = update updateFormat updateLength updateLocal updateTrailer
+        recoverableCatch upd $ \ex ->
+          case isRetry of
+            FirstAttempt | recoverableIsVerificationError ex ->
+              recoverableRethrow ex
+            _otherwise -> do
+             let failure = UpdateFailed ex
+             cfgLogger $ LogUpdateFailed (Some remoteFile) failure
+             go $ CannotUpdate updateFormat failure
+
+    headers :: [HttpRequestHeader]
+    headers = httpRequestHeaders cfg isRetry
+
+    -- Get any file from the server, without using incremental updates
+    download :: HasFormat fs f -> IO a
+    download format =
+        withTempFile (Cache.cacheRoot cfgCache) (uriTemplate uri) $ \tempPath h -> do
+          -- We are careful NOT to scope the remainder of the computation underneath
+          -- the httpClientGet
+          httpClientGet headers uri $ \responseHeaders bodyReader -> do
+            updateServerCapabilities cfgCaps responseHeaders
+            execBodyReader targetPath sz h bodyReader
+          hClose h
+          verifyAndCache format tempPath
+      where
+        targetPath = TargetPathRepo $ remoteRepoPath' cfgLayout remoteFile format
+        uri = formatsLookup format $ remoteFileURI cfgLayout cfgBase remoteFile
+        sz  = formatsLookup format $ remoteFileSize remoteFile
+
+    -- Get a file incrementally
+    --
+    -- Sadly, this has some tar-specific functionality
+    update :: HasFormat fs f      -- ^ Selected format
+           -> Trusted FileLength  -- ^ Expected length
+           -> AbsolutePath        -- ^ Location of cached tar (after callback)
+           -> Integer             -- ^ Trailer length
+           -> IO a
+    update format len cachedFile trailer = do
+        currentSize <- getFileSize cachedFile
+        let currentMinusTrailer = currentSize - trailer
+            fileSz  = fileLength (trusted len)
+            range   = (fromInteger currentMinusTrailer, fileSz)
+            rangeSz = FileSizeExact (snd range - fst range)
+        withTempFile (Cache.cacheRoot cfgCache) (uriTemplate uri) $ \tempPath h -> do
+          BS.L.hPut h =<< readLazyByteString cachedFile
+          hSeek h AbsoluteSeek currentMinusTrailer
+          -- As in 'getFile', make sure we don't scope the remainder of the
+          -- computation underneath the httpClientGetRange
+          httpClientGetRange headers uri range $ \responseHeaders bodyReader -> do
+            updateServerCapabilities cfgCaps responseHeaders
+            execBodyReader targetPath rangeSz h bodyReader
+          hClose h
+          verifyAndCache format tempPath
+      where
+        targetPath = TargetPathRepo repoLayoutIndexTar
+        uri = modifyUriPath cfgBase (`anchorRepoPathRemotely` repoLayoutIndexTar)
+        RepoLayout{repoLayoutIndexTar} = cfgLayout
+
+    -- | Verify the downloaded/updated file (by calling the callback) and
+    -- cache it if the callback does not throw any exceptions
+    verifyAndCache :: HasFormat fs f -> AbsolutePath -> IO a
+    verifyAndCache format tempPath = do
+        result <- callback format tempPath
+        Cache.cacheRemoteFile cfgCache
+                              tempPath
+                              (hasFormatGet format)
+                              (mustCache remoteFile)
+        return result
+
+    HttpClient{..} = cfgClient
 
 {-------------------------------------------------------------------------------
   Body readers
@@ -661,3 +686,40 @@ data RemoteConfig = RemoteConfig {
 -- | Template for the local file we use to download a URI to
 uriTemplate :: URI -> String
 uriTemplate = unFragment . takeFileName . uriPath
+
+{-------------------------------------------------------------------------------
+  Auxiliary: multiple exit points
+-------------------------------------------------------------------------------}
+
+-- | Multiple exit points
+--
+-- We can simulate the imperative code
+--
+-- > if (cond1)
+-- >   return exp1;
+-- > if (cond2)
+-- >   return exp2;
+-- > if (cond3)
+-- >   return exp3;
+-- > return exp4;
+--
+-- as
+--
+-- > choose $ do
+-- >   when (cond1) $
+-- >     exit exp1
+-- >   when (cond) $
+-- >     exit exp2
+-- >   when (cond)
+-- >     exit exp3
+-- >   return exp4
+multipleExitPoints :: Monad m => ExceptT a m a -> m a
+multipleExitPoints = liftM aux . runExceptT
+  where
+    aux :: Either a a -> a
+    aux (Left  a) = a
+    aux (Right a) = a
+
+-- | Function exit point (see 'multipleExitPoints')
+exit :: Monad m => e -> ExceptT e m a
+exit = throwError

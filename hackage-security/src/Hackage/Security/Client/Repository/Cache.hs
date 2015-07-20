@@ -26,7 +26,6 @@ import Hackage.Security.Client.Formats
 import Hackage.Security.TUF
 import Hackage.Security.Util.IO
 import Hackage.Security.Util.Path
-import Hackage.Security.Util.Some
 
 -- | Location and layout of the local cache
 data Cache = Cache {
@@ -35,8 +34,8 @@ data Cache = Cache {
     }
 
 -- | Cache a previously downloaded remote file
-cacheRemoteFile :: Cache -> TempPath -> Some Format -> IsCached -> IO ()
-cacheRemoteFile cache tempPath (Some f) isCached = do
+cacheRemoteFile :: Cache -> TempPath -> Format f -> IsCached -> IO ()
+cacheRemoteFile cache tempPath f isCached = do
     go f (cachedFileName cache isCached)
     -- TODO: This recreates the tar index ahead of time. Alternatively, we
     -- could delete the index here and then it will be rebuilt on first access.

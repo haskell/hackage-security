@@ -10,6 +10,7 @@ import Hackage.Security.Client.Formats
 import Hackage.Security.TUF
 import Hackage.Security.Util.Path
 import Hackage.Security.Util.Pretty
+import Hackage.Security.Util.Some
 
 -- | Location of the repository
 --
@@ -47,18 +48,16 @@ withRepository repo cache repLayout logger callback = callback Repository {
 withRemote :: RepoLayout -> LocalRepo -> Cache
            -> IsRetry
            -> RemoteFile fs
-           -> (SelectedFormat fs -> TempPath -> IO a)
+           -> (forall f. HasFormat fs f -> TempPath -> IO a)
            -> IO a
 withRemote repoLayout repo cache _isRetry remoteFile callback = do
-    result <- callback format remotePath
-    cacheRemoteFile cache
-                    remotePath
-                    (selectedFormatSome format)
-                    (mustCache remoteFile)
-    return result
-  where
-    (format, remotePath') = formatsPrefer
-                              (remoteFileNonEmpty remoteFile)
-                              FUn
-                              (remoteRepoPath repoLayout remoteFile)
-    remotePath = anchorRepoPathLocally repo remotePath'
+    case remoteFileDefaultFormat remoteFile of
+      Some format -> do
+        let remotePath' = remoteRepoPath' repoLayout remoteFile format
+            remotePath  = anchorRepoPathLocally repo remotePath'
+        result <- callback format remotePath
+        cacheRemoteFile cache
+                        remotePath
+                        (hasFormatGet format)
+                        (mustCache remoteFile)
+        return result

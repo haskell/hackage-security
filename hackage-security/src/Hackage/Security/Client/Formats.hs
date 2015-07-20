@@ -1,32 +1,22 @@
 module Hackage.Security.Client.Formats (
     -- * Formats
     -- ** Type level
-    FormatUncompressed
-  , FormatCompressedGz
+    FormatUn
+  , FormatGz
     -- ** Term level
   , Format(..)
-    -- * Products
   , Formats(..)
+    -- * Key membership
+  , HasFormat(..)
     -- ** Utility
-  , formatsZip
+  , hasFormatAbsurd
+  , hasFormatGet
+    -- * Map-like operations
   , formatsMap
-  , formatsList
+  , formatsMember
   , formatsLookup
-  , formatsHead
-  , formatsPrefer
-  , formatsCompressed
-  , formatsUncompressed
-    -- * Sums
-  , SelectedFormat(..)
-    -- ** Utility
-  , selectedFormatSome
-  , selectedLookup
-  , selectedAbsurd
   ) where
 
-import Data.Maybe (fromMaybe)
-
-import Hackage.Security.Util.Some
 import Hackage.Security.Util.Stack
 import Hackage.Security.Util.TypedEmbedded
 
@@ -34,23 +24,23 @@ import Hackage.Security.Util.TypedEmbedded
   Formats
 -------------------------------------------------------------------------------}
 
-data FormatUncompressed
-data FormatCompressedGz
+data FormatUn
+data FormatGz
 
 -- | Format is a singleton type (reflection type to term level)
 --
 -- NOTE: In the future we might add further compression formats.
 data Format :: * -> * where
-    FUn :: Format FormatUncompressed
-    FGz :: Format FormatCompressedGz
+  FUn :: Format FormatUn
+  FGz :: Format FormatGz
 
 deriving instance Show (Format f)
 deriving instance Eq   (Format f)
 
 instance Unify Format where
-    unify FUn FUn = Just Refl
-    unify FGz FGz = Just Refl
-    unify _   _   = Nothing
+  unify FUn FUn = Just Refl
+  unify FGz FGz = Just Refl
+  unify _   _   = Nothing
 
 {-------------------------------------------------------------------------------
   Products
@@ -66,9 +56,9 @@ instance Unify Format where
 -- all calls to @error "inaccessible"@ need to be reevaluated.
 data Formats :: * -> * -> * where
   FsNone :: Formats () a
-  FsUn   :: a -> Formats (FormatUncompressed :- ()) a
-  FsGz   :: a -> Formats (FormatCompressedGz :- ()) a
-  FsUnGz :: a -> a -> Formats (FormatUncompressed :- FormatCompressedGz :- ()) a
+  FsUn   :: a -> Formats (FormatUn :- ()) a
+  FsGz   :: a -> Formats (FormatGz :- ()) a
+  FsUnGz :: a -> a -> Formats (FormatUn :- FormatGz :- ()) a
 
 deriving instance Eq   a => Eq   (Formats fs a)
 deriving instance Show a => Show (Formats fs a)
@@ -77,15 +67,29 @@ instance Functor (Formats fs) where
   fmap g = formatsMap (\_format -> g)
 
 {-------------------------------------------------------------------------------
-  Utility
+  Key membership
 -------------------------------------------------------------------------------}
 
-formatsZip :: Formats fs a -> Formats fs b -> Formats fs (a, b)
-formatsZip FsNone        FsNone        = FsNone
-formatsZip (FsUn   a)    (FsUn   b)    = FsUn (a, b)
-formatsZip (FsGz   a)    (FsGz   b)    = FsGz (a, b)
-formatsZip (FsUnGz a a') (FsUnGz b b') = FsUnGz (a, b) (a', b')
-formatsZip _            _              = error "inaccessible"
+-- | @HasFormat fs f@ is a proof that @f@ is a key in @fs@.
+--
+-- See 'formatsMember' and 'formatsLookup' for typical usage.
+data HasFormat :: * -> * -> * where
+  HFZ :: Format f       -> HasFormat (f  :- fs) f
+  HFS :: HasFormat fs f -> HasFormat (f' :- fs) f
+
+deriving instance Eq   (HasFormat fs f)
+deriving instance Show (HasFormat fs f)
+
+hasFormatAbsurd :: HasFormat () f -> a
+hasFormatAbsurd _ = error "inaccessible"
+
+hasFormatGet :: HasFormat fs f -> Format f
+hasFormatGet (HFZ f)  = f
+hasFormatGet (HFS hf) = hasFormatGet hf
+
+{-------------------------------------------------------------------------------
+  Map-like functionality
+-------------------------------------------------------------------------------}
 
 formatsMap :: (forall f. Format f -> a -> b) -> Formats fs a -> Formats fs b
 formatsMap _ FsNone        = FsNone
@@ -93,68 +97,20 @@ formatsMap f (FsUn   a)    = FsUn   (f FUn a)
 formatsMap f (FsGz   a)    = FsGz   (f FGz a)
 formatsMap f (FsUnGz a a') = FsUnGz (f FUn a) (f FGz a')
 
-formatsList :: Formats fs a -> [(SelectedFormat fs, a)]
-formatsList FsNone        = []
-formatsList (FsUn   a)    = [(SZ FUn, a)]
-formatsList (FsGz   a)    = [(SZ FGz, a)]
-formatsList (FsUnGz a a') = [(SZ FUn, a), (SS (SZ FGz), a')]
+formatsMember :: Format f -> Formats fs a -> Maybe (HasFormat fs f)
+formatsMember _   FsNone       = Nothing
+formatsMember FUn (FsUn   _  ) = Just $ HFZ FUn
+formatsMember FUn (FsGz     _) = Nothing
+formatsMember FUn (FsUnGz _ _) = Just $ HFZ FUn
+formatsMember FGz (FsUn   _  ) = Nothing
+formatsMember FGz (FsGz     _) = Just $ HFZ FGz
+formatsMember FGz (FsUnGz _ _) = Just $ HFS (HFZ FGz)
 
-formatsLookup :: Format f -> Formats fs a -> Maybe (SelectedFormat fs, a)
-formatsLookup f = go . formatsList
-  where
-    go :: [(SelectedFormat fs, a)] -> Maybe (SelectedFormat fs, a)
-    go []           = Nothing
-    go ((sf, a):as) = case selectedFormatSome sf of
-                        Some f' -> case unify f f' of
-                                     Just Refl -> Just (sf, a)
-                                     Nothing   -> go as
-
-formatsHead :: NonEmpty fs -> Formats fs a -> (SelectedFormat fs, a)
-formatsHead NonEmpty (FsUn   a)   = (SZ FUn, a)
-formatsHead NonEmpty (FsGz   a)   = (SZ FGz, a)
-formatsHead NonEmpty (FsUnGz a _) = (SZ FUn, a)
-formatsHead _ _ = error "inaccessible"
-
-formatsPrefer :: NonEmpty fs -> Format f -> Formats fs a -> (SelectedFormat fs, a)
-formatsPrefer pne f fs = fromMaybe (formatsHead pne fs) (formatsLookup f fs)
-
--- | Find (any) compressed format
-formatsCompressed :: Formats fs a -> Maybe (SelectedFormat fs, a)
-formatsCompressed = formatsLookup FGz
-
--- | Find uncompressed format
-formatsUncompressed :: Formats fs a -> Maybe a
-formatsUncompressed = fmap snd . formatsLookup FUn
-
-{-------------------------------------------------------------------------------
-  Sums
--------------------------------------------------------------------------------}
-
-data SelectedFormat :: * -> * where
-    SZ :: Format f -> SelectedFormat (f :- fs)
-    SS :: SelectedFormat fs -> SelectedFormat (f :- fs)
-
-{-------------------------------------------------------------------------------
-  Sums: Utility
--------------------------------------------------------------------------------}
-
-selectedFormatSome :: SelectedFormat fs -> Some Format
-selectedFormatSome (SZ f)  = Some f
-selectedFormatSome (SS fs) = selectedFormatSome fs
-
-selectedLookup :: SelectedFormat fs -> Formats fs a -> a
-selectedLookup (SZ FUn) (FsUn   a)   = a
-selectedLookup (SZ FGz) (FsGz   a)   = a
-selectedLookup (SZ FUn) (FsUnGz a _) = a
-selectedLookup (SS sf)  (FsUnGz _ a) = selectedLookup sf (FsGz a)
-selectedLookup (SS sf)  (FsUn   _)   = selectedAbsurd sf
-selectedLookup (SS sf)  (FsGz   _)   = selectedAbsurd sf
-selectedLookup _        _            = error "inaccessible"
--- The remaining patterns are inaccessible:
--- selectedLookup (SZ FUn) FsNone   = undefined
--- selectedLookup (SZ FUn) (FsGz _) = undefined
--- selectedLookup (SZ FGz) FsNone   = undefined
--- selectedLookup (SS _)   FsNone   = undefined
-
-selectedAbsurd :: SelectedFormat () -> a
-selectedAbsurd _ = error "inaccessible"
+formatsLookup :: HasFormat fs f -> Formats fs a -> a
+formatsLookup (HFZ FUn) (FsUn   a  ) = a
+formatsLookup (HFZ FUn) (FsUnGz a _) = a
+formatsLookup (HFZ FGz) (FsGz     a) = a
+formatsLookup (HFS hf)  (FsUn   _  ) = hasFormatAbsurd hf
+formatsLookup (HFS hf)  (FsGz     _) = hasFormatAbsurd hf
+formatsLookup (HFS hf)  (FsUnGz _ a) = formatsLookup hf (FsGz a)
+formatsLookup _         _            = error "inaccessible"

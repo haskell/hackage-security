@@ -8,7 +8,7 @@ module Hackage.Security.Client.Repository (
     RemoteFile(..)
   , CachedFile(..)
   , IndexFile(..)
-  , remoteFileNonEmpty
+  , remoteFileDefaultFormat
     -- * Repository proper
   , Repository(..)
   , TempPath
@@ -61,7 +61,7 @@ data RemoteFile :: * -> * where
     -- Timestamp metadata (@timestamp.json@)
     --
     -- We never have (explicit) file length available for timestamps.
-    RemoteTimestamp :: RemoteFile (FormatUncompressed :- ())
+    RemoteTimestamp :: RemoteFile (FormatUn :- ())
 
     -- Root metadata (@root.json@)
     --
@@ -72,20 +72,17 @@ data RemoteFile :: * -> * where
     -- - If however we need to update the root metadata due to a verification
     --   exception we do not know the file length.
     -- - We also do not know the file length during bootstrapping.
-    RemoteRoot :: Maybe (Trusted FileLength)
-               -> RemoteFile (FormatUncompressed :- ())
+    RemoteRoot :: Maybe (Trusted FileLength) -> RemoteFile (FormatUn :- ())
 
     -- Snapshot metadata (@snapshot.json@)
     --
     -- We get file length of the snapshot from the timestamp.
-    RemoteSnapshot :: Trusted FileLength
-                   -> RemoteFile (FormatUncompressed :- ())
+    RemoteSnapshot :: Trusted FileLength -> RemoteFile (FormatUn :- ())
 
     -- Mirrors metadata (@mirrors.json@)
     --
     -- We get the file length from the snapshot.
-    RemoteMirrors :: Trusted FileLength
-                  -> RemoteFile (FormatUncompressed :- ())
+    RemoteMirrors :: Trusted FileLength -> RemoteFile (FormatUn :- ())
 
     -- Index
     --
@@ -97,7 +94,7 @@ data RemoteFile :: * -> * where
     --
     -- It is a bug to request a file that the repository does not provide
     -- (the snapshot should make it clear which files are available).
-    RemoteIndex :: NonEmpty fs
+    RemoteIndex :: HasFormat fs FormatGz
                 -> Formats fs (Trusted FileLength)
                 -> RemoteFile fs
 
@@ -106,7 +103,7 @@ data RemoteFile :: * -> * where
     -- Package file length comes from the corresponding @targets.json@.
     RemotePkgTarGz :: PackageIdentifier
                    -> Trusted FileLength
-                   -> RemoteFile (FormatCompressedGz :- ())
+                   -> RemoteFile (FormatGz :- ())
 
 deriving instance Eq   (RemoteFile fs)
 deriving instance Show (RemoteFile fs)
@@ -149,14 +146,17 @@ data IndexFile =
 -- | Path to temporary file
 type TempPath = AbsolutePath
 
--- | Proof that remote files must always have at least one format
-remoteFileNonEmpty :: RemoteFile fs -> NonEmpty fs
-remoteFileNonEmpty RemoteTimestamp      = NonEmpty
-remoteFileNonEmpty (RemoteRoot _)       = NonEmpty
-remoteFileNonEmpty (RemoteSnapshot _)   = NonEmpty
-remoteFileNonEmpty (RemoteMirrors _)    = NonEmpty
-remoteFileNonEmpty (RemotePkgTarGz _ _) = NonEmpty
-remoteFileNonEmpty (RemoteIndex pf _)   = pf
+-- | Default format for each file type
+--
+-- For most file types we don't have a choice; for the index the repository
+-- is only required to offer the GZip-compressed format so that is the default.
+remoteFileDefaultFormat :: RemoteFile fs -> Some (HasFormat fs)
+remoteFileDefaultFormat RemoteTimestamp      = Some $ HFZ FUn
+remoteFileDefaultFormat (RemoteRoot _)       = Some $ HFZ FUn
+remoteFileDefaultFormat (RemoteSnapshot _)   = Some $ HFZ FUn
+remoteFileDefaultFormat (RemoteMirrors _)    = Some $ HFZ FUn
+remoteFileDefaultFormat (RemotePkgTarGz _ _) = Some $ HFZ FGz
+remoteFileDefaultFormat (RemoteIndex pf _)   = Some pf
 
 {-------------------------------------------------------------------------------
   Repository proper
@@ -193,7 +193,7 @@ data Repository = Repository {
     repWithRemote :: forall a fs.
                      IsRetry
                   -> RemoteFile fs
-                  -> (SelectedFormat fs -> TempPath -> IO a)
+                  -> (forall f. HasFormat fs f -> TempPath -> IO a)
                   -> IO a
 
     -- | Get a cached file (if available)
@@ -399,9 +399,9 @@ remoteRepoPath RepoLayout{..} = go
     goIndex FUn _ = repoLayoutIndexTar
     goIndex FGz _ = repoLayoutIndexTarGz
 
-remoteRepoPath' :: RepoLayout -> RemoteFile fs -> SelectedFormat fs -> RepoPath
+remoteRepoPath' :: RepoLayout -> RemoteFile fs -> HasFormat fs f -> RepoPath
 remoteRepoPath' repoLayout file format =
-    selectedLookup format $ remoteRepoPath repoLayout file
+    formatsLookup format $ remoteRepoPath repoLayout file
 
 indexFilePath :: IndexLayout -> IndexFile -> IndexPath
 indexFilePath IndexLayout{..} = go

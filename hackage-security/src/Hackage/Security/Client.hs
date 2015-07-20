@@ -224,9 +224,9 @@ checkForUpdates rep checkExpiry =
               expectedIdx   =
                   -- This definition is a bit ugly, not sure how to improve it
                   case mNewTarInfo of
-                    Nothing -> Some $ RemoteIndex NonEmpty $
+                    Nothing -> Some $ RemoteIndex (HFZ FGz) $
                       FsGz (static fileInfoLength <$$> newTarGzInfo)
-                    Just newTarInfo -> Some $ RemoteIndex NonEmpty $
+                    Just newTarInfo -> Some $ RemoteIndex (HFS (HFZ FGz)) $
                       FsUnGz (static fileInfoLength <$$> newTarInfo)
                              (static fileInfoLength <$$> newTarGzInfo)
           when (infoChanged mOldTarGzInfo newTarGzInfo) $ do
@@ -485,9 +485,9 @@ getRemote r isRetry file = ContT aux
     aux k = repWithRemote r isRetry file (wrapK k)
 
     wrapK :: ((Some Format, TargetPath, TempPath) -> IO r)
-          -> (SelectedFormat fs -> TempPath -> IO r)
+          -> (forall f. HasFormat fs f -> TempPath -> IO r)
     wrapK k format tempPath =
-        k (selectedFormatSome format, targetPath, tempPath)
+        k (Some (hasFormatGet format), targetPath, tempPath)
       where
         targetPath :: TargetPath
         targetPath = TargetPathRepo $ remoteRepoPath' (repLayout r) file format
