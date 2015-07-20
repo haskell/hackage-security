@@ -317,6 +317,10 @@ data UpdateFailure =
     -- | We don't have a local copy of the file to update
   | UpdateImpossibleNoLocalCopy
 
+    -- | Updating the local file would actually mean downloading
+    -- MORE data then doing a regular download.
+  | UpdateTooLarge
+
     -- | Update failed
   | UpdateFailed RecoverableException
 
@@ -468,5 +472,7 @@ instance Pretty UpdateFailure where
       "server does not provide incremental downloads"
   pretty UpdateImpossibleNoLocalCopy =
       "no local copy"
+  pretty UpdateTooLarge =
+      "update too large"
   pretty (UpdateFailed ex) =
       pretty ex

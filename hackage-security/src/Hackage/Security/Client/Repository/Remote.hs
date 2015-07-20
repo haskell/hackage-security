@@ -419,7 +419,6 @@ pickDownloadMethod RemoteConfig{..} remoteFile = multipleExitPoints $ do
     hasUn <- case formatsMember FUn formats of
       Nothing    -> exit $ CannotUpdate hasGz UpdateImpossibleOnlyCompressed
       Just hasUn -> return hasUn
-    let uncompressedSize = formatsLookup hasUn formats
 
     -- Server must support @Range@ with a byte-range
     rangeSupport <- checkServerCapability cfgCaps serverAcceptRangesBytes
@@ -438,14 +437,26 @@ pickDownloadMethod RemoteConfig{..} remoteFile = multipleExitPoints $ do
     -- advantage of the tarball index to find out where the trailer starts.
     let trailerLength = 1024
 
-    -- TODO: Other factors to decide whether or not we want to do incremental updates
-    -- We need to know the compressed length to estimate whether it's worth
-    -- doing an incremental update
-    return $ Update { updateFormat  = hasUn
-                    , updateLength  = uncompressedSize
-                    , updateLocal   = cachedIndex
-                    , updateTrailer = trailerLength
-                    }
+    -- File sizes
+    canCompress <- checkServerCapability cfgCaps serverUsedContentCompression
+    localSize   <- liftIO $ getFileSize cachedIndex
+    let sizeGz = formatsLookup hasGz formats
+        sizeUn = formatsLookup hasUn formats
+        estCompFactor = case (canCompress, cfgCompress) of
+                          (True, AllowContentCompression) -> 10
+                          _otherwise                      -> 1
+        estUpdateSize = (fileLength' sizeUn - fromIntegral localSize)
+                          `div` estCompFactor
+    unless (estUpdateSize < fileLength' sizeGz) $
+      exit $ CannotUpdate hasGz UpdateTooLarge
+
+    -- If all these checks pass try to do an incremental update.
+    return Update {
+         updateFormat  = hasUn
+       , updateLength  = sizeUn
+       , updateLocal   = cachedIndex
+       , updateTrailer = trailerLength
+       }
 
 -- | Download the specified file using the given download method
 getFile :: forall fs a.
@@ -515,7 +526,7 @@ getFile cfg@RemoteConfig{..} isRetry remoteFile callback = go
     update format len cachedFile trailer = do
         currentSize <- getFileSize cachedFile
         let currentMinusTrailer = currentSize - trailer
-            fileSz  = fileLength (trusted len)
+            fileSz  = fileLength' len
             range   = (fromInteger currentMinusTrailer, fileSz)
             rangeSz = FileSizeExact (snd range - fst range)
         withTempFile (Cache.cacheRoot cfgCache) (uriTemplate uri) $ \tempPath h -> do
@@ -616,16 +627,16 @@ remoteFileSize (RemoteTimestamp) =
     FsUn $ FileSizeBound fileSizeBoundTimestamp
 remoteFileSize (RemoteRoot mLen) =
     FsUn $ maybe (FileSizeBound fileSizeBoundRoot)
-                 (FileSizeExact . fileLength . trusted)
+                 (FileSizeExact . fileLength')
                  mLen
 remoteFileSize (RemoteSnapshot len) =
-    FsUn $ FileSizeExact (fileLength (trusted len))
+    FsUn $ FileSizeExact (fileLength' len)
 remoteFileSize (RemoteMirrors len) =
-    FsUn $ FileSizeExact (fileLength (trusted len))
+    FsUn $ FileSizeExact (fileLength' len)
 remoteFileSize (RemoteIndex _ lens) =
-    fmap (FileSizeExact . fileLength . trusted) lens
+    fmap (FileSizeExact . fileLength') lens
 remoteFileSize (RemotePkgTarGz _pkgId len) =
-    FsGz $ FileSizeExact (fileLength (trusted len))
+    FsGz $ FileSizeExact (fileLength' len)
 
 -- | Bound on the size of the timestamp
 --
@@ -686,6 +697,9 @@ data RemoteConfig = RemoteConfig {
 -- | Template for the local file we use to download a URI to
 uriTemplate :: URI -> String
 uriTemplate = unFragment . takeFileName . uriPath
+
+fileLength' :: Trusted FileLength -> Int
+fileLength' = fileLength . trusted
 
 {-------------------------------------------------------------------------------
   Auxiliary: multiple exit points
