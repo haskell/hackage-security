@@ -53,20 +53,22 @@ type BaseName  = String
 -- Currently this is a proof of concept more than anything else; the right
 -- structure is here, but it needs updating. However, until we add author
 -- signing (or out-of-tarball targets) we don't actually use this yet.
+--
+-- NOTE: Haddock lacks GADT support so constructors have only regular comments.
 data Pattern a where
-    -- | Match against a specific filename
+    -- Match against a specific filename
     PatFileConst :: FileName -> Pattern ()
 
-    -- | Match against a filename with the given extension
+    -- Match against a filename with the given extension
     PatFileExt :: Extension -> Pattern (BaseName :- ())
 
-    -- | Match against any filename
+    -- Match against any filename
     PatFileAny :: Pattern (FileName :- ())
 
-    -- | Match against a specific directory
+    -- Match against a specific directory
     PatDirConst :: Directory -> Pattern a -> Pattern a
 
-    -- | Match against any directory
+    -- Match against any directory
     PatDirAny :: Pattern a -> Pattern (Directory :- a)
 
 -- | Replacement patterns

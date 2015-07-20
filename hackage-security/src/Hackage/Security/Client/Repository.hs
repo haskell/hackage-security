@@ -55,37 +55,39 @@ import Hackage.Security.Util.Stack
 --
 -- 'RemoteFile' is parametrized by the type of the formats that we can accept
 -- from the remote repository.
+--
+-- NOTE: Haddock lacks GADT support so constructors have only regular comments.
 data RemoteFile :: * -> * where
-    -- | Timestamp metadata (@timestamp.json@)
+    -- Timestamp metadata (@timestamp.json@)
     --
     -- We never have (explicit) file length available for timestamps.
     RemoteTimestamp :: RemoteFile (FormatUncompressed :- ())
 
-    -- | Root metadata (@root.json@)
+    -- Root metadata (@root.json@)
     --
     -- For root information we may or may not have the file length available:
     --
-    -- * If during the normal update process the new snapshot tells us the root
+    -- - If during the normal update process the new snapshot tells us the root
     --   information has changed, we can use the file length from the snapshot.
-    -- * If however we need to update the root metadata due to a verification
+    -- - If however we need to update the root metadata due to a verification
     --   exception we do not know the file length.
-    -- * We also do not know the file length during bootstrapping.
+    -- - We also do not know the file length during bootstrapping.
     RemoteRoot :: Maybe (Trusted FileLength)
                -> RemoteFile (FormatUncompressed :- ())
 
-    -- | Snapshot metadata (@snapshot.json@)
+    -- Snapshot metadata (@snapshot.json@)
     --
     -- We get file length of the snapshot from the timestamp.
     RemoteSnapshot :: Trusted FileLength
                    -> RemoteFile (FormatUncompressed :- ())
 
-    -- | Mirrors metadata (@mirrors.json@)
+    -- Mirrors metadata (@mirrors.json@)
     --
     -- We get the file length from the snapshot.
     RemoteMirrors :: Trusted FileLength
                   -> RemoteFile (FormatUncompressed :- ())
 
-    -- | Index
+    -- Index
     --
     -- The index file length comes from the snapshot.
     --
@@ -99,7 +101,7 @@ data RemoteFile :: * -> * where
                 -> Formats fs (Trusted FileLength)
                 -> RemoteFile fs
 
-    -- | Actual package
+    -- Actual package
     --
     -- Package file length comes from the corresponding @targets.json@.
     RemotePkgTarGz :: PackageIdentifier
