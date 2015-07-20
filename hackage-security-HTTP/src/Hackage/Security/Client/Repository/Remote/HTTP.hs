@@ -1,6 +1,10 @@
+{-# LANGUAGE CPP #-}
 -- | Implementation of 'HttpClient' using the HTTP package
 module Hackage.Security.Client.Repository.Remote.HTTP (
     withClient
+    -- * Exception types
+  , UnexpectedResponse(..)
+  , InvalidProxy(..)
   ) where
 
 import Control.Concurrent
@@ -13,10 +17,13 @@ import Network.Browser
 import Network.HTTP
 import Network.HTTP.Proxy
 import Network.URI
-import qualified Data.ByteString.Lazy            as BS.L
-import qualified Control.Monad.State             as State
-import qualified Codec.Compression.GZip          as GZip
+import qualified Data.ByteString.Lazy   as BS.L
+import qualified Control.Monad.State    as State
+import qualified Codec.Compression.GZip as GZip
+
+#if MIN_VERSION_zlib(0,6,0)
 import qualified Codec.Compression.Zlib.Internal as GZip (DecompressError)
+#endif
 
 import Hackage.Security.Client
 import Hackage.Security.Client.Repository.Remote
@@ -95,10 +102,14 @@ withResponse response callback = do
 -- | Wrap custom exceptions
 --
 -- The @HTTP@ libary itself does not define any custom exceptions.
+-- The ZLib library defines a custom exception type only from 0.6 and up
+-- (before that a deserialization error will result in an 'error' call.)
 wrapCustomEx :: forall a. IO a -> IO a
 wrapCustomEx act = catches act [
       Handler $ \(ex :: UnexpectedResponse)   -> go ex
+#if MIN_VERSION_zlib(0,6,0)
     , Handler $ \(ex :: GZip.DecompressError) -> go ex
+#endif
       -- Case for InvalidProxy intentionally omitted (not recoverable)
     ]
   where

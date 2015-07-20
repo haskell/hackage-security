@@ -25,4 +25,5 @@ library
   default-extensions:  DeriveDataTypeable
                        RecordWildCards
                        ScopedTypeVariables
+  other-extensions:    CPP
   ghc-options:         -Wall
