@@ -27,6 +27,7 @@ import qualified Codec.Compression.Zlib.Internal as GZip (DecompressError)
 
 import Hackage.Security.Client
 import Hackage.Security.Client.Repository.Remote
+import Hackage.Security.Util.Checked
 import qualified Hackage.Security.Util.Lens as Lens
 
 {-------------------------------------------------------------------------------
@@ -55,7 +56,8 @@ withClient proxyConfig outLog errLog callback =
   Individual methods
 -------------------------------------------------------------------------------}
 
-get :: Browser
+get :: Throws SomeRecoverableException
+    => Browser
     -> [HttpRequestHeader] -> URI
     -> ([HttpResponseHeader] -> BodyReader -> IO a)
     -> IO a
@@ -65,9 +67,10 @@ get browser reqHeaders uri callback = wrapCustomEx $ do
       $ mkRequest GET uri
     case rspCode response of
       (2, 0, 0)  -> withResponse response callback
-      _otherwise -> throwIO $ UnexpectedResponse uri (rspCode response)
+      _otherwise -> throwChecked $ UnexpectedResponse uri (rspCode response)
 
-getRange :: Browser
+getRange :: Throws SomeRecoverableException
+         => Browser
          -> [HttpRequestHeader] -> URI -> (Int, Int)
          -> ([HttpResponseHeader] -> BodyReader -> IO a)
          -> IO a
@@ -78,18 +81,19 @@ getRange browser reqHeaders uri (from, to) callback = wrapCustomEx $ do
       $ mkRequest GET uri
     case rspCode response of
       (2, 0, 6)  -> withResponse response callback
-      _otherwise -> throwIO $ UnexpectedResponse uri (rspCode response)
+      _otherwise -> throwChecked $ UnexpectedResponse uri (rspCode response)
 
 {-------------------------------------------------------------------------------
   Auxiliary methods used to implement the HttpClient interface
 -------------------------------------------------------------------------------}
 
-withResponse :: Response BS.L.ByteString
+withResponse :: Throws SomeRecoverableException
+             => Response BS.L.ByteString
              -> ([HttpResponseHeader] -> BodyReader -> IO a)
              -> IO a
-withResponse response callback = do
+withResponse response callback = wrapCustomEx $ do
     br <- bodyReaderFromBS $ decompress (rspBody response)
-    callback responseHeaders $ wrapCustomEx br
+    callback responseHeaders $ wrapCustomEx (checkDecompressError br)
   where
     responseHeaders    = getResponseHeaders response
     needsDecompression = HttpResponseContentCompression `elem` responseHeaders
@@ -99,22 +103,35 @@ withResponse response callback = do
   Custom exception types
 -------------------------------------------------------------------------------}
 
--- | Wrap custom exceptions
---
--- The @HTTP@ libary itself does not define any custom exceptions.
--- The ZLib library defines a custom exception type only from 0.6 and up
--- (before that a deserialization error will result in an 'error' call.)
-wrapCustomEx :: forall a. IO a -> IO a
-wrapCustomEx act = catches act [
-      Handler $ \(ex :: UnexpectedResponse)   -> go ex
 #if MIN_VERSION_zlib(0,6,0)
-    , Handler $ \(ex :: GZip.DecompressError) -> go ex
-#endif
-      -- Case for InvalidProxy intentionally omitted (not recoverable)
-    ]
+wrapCustomEx :: ( ( Throws UnexpectedResponse
+                  , Throws IOException
+                  , Throws GZip.DecompressError
+                  ) => IO a)
+             -> (Throws SomeRecoverableException => IO a)
+wrapCustomEx act = handleChecked (\(ex :: UnexpectedResponse)   -> go ex)
+                 $ handleChecked (\(ex :: IOException)          -> go ex)
+                 $ handleChecked (\(ex :: GZip.DecompressError) -> go ex)
+                 $ act
   where
-    go :: Exception e => e -> IO a
-    go = throwIO . CustomRecoverableException
+    go ex = throwChecked (SomeRecoverableException ex)
+
+checkDecompressError :: Throws GZip.DecompressError => IO a -> IO a
+checkDecompressError = handle $ \(ex :: GZip.DecompressError) -> throwChecked ex
+#else
+wrapCustomEx :: ( ( Throws UnexpectedResponse
+                  , Throws IOException
+                  ) => IO a)
+             -> (Throws SomeRecoverableException => IO a)
+wrapCustomEx act = handleChecked (\(ex :: UnexpectedResponse) -> go ex)
+                 $ handleChecked (\(ex :: IOException)        -> go ex)
+                 $ act
+  where
+    go ex = throwChecked (SomeRecoverableException ex)
+
+checkDecompressError :: IO a -> IO a
+checkDecompressError = id
+#endif
 
 data UnexpectedResponse = UnexpectedResponse URI (Int, Int, Int)
   deriving (Show, Typeable)
@@ -164,7 +181,7 @@ browserInit proxyConfig outLog errLog = do
       ProxyConfigNone  -> return NoProxy
       ProxyConfigAuto  -> fetchProxy True
       ProxyConfigUse p -> case parseProxy p of
-                             Nothing -> throwIO $ InvalidProxy p
+                             Nothing -> throwUnchecked $ InvalidProxy p
                              Just p' -> return p'
     browserState <- newMVar =<< browse (initAction (emptyAsNone proxy))
     return Browser{..}
@@ -190,8 +207,9 @@ browserCleanup :: Browser -> IO ()
 browserCleanup Browser{..} = void $ takeMVar browserState
 
 -- | Execute a single request
-request' :: Browser -> Request BS.L.ByteString -> IO (Response BS.L.ByteString)
-request' browser = liftM snd . withBrowser browser . request
+request' :: Throws IOException
+         => Browser -> Request BS.L.ByteString -> IO (Response BS.L.ByteString)
+request' browser = checkIO . liftM snd . withBrowser browser . request
 
 {-------------------------------------------------------------------------------
   HTTP auxiliary

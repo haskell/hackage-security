@@ -48,6 +48,7 @@ import Hackage.Security.Client.Repository
 import Hackage.Security.Client.Repository.Cache (Cache)
 import Hackage.Security.Trusted
 import Hackage.Security.TUF
+import Hackage.Security.Util.Checked
 import Hackage.Security.Util.IO
 import Hackage.Security.Util.Path
 import Hackage.Security.Util.Some
@@ -125,8 +126,8 @@ fileSizeWithinBounds sz (FileSizeBound sz') = sz <= sz'
 -- in 'CustomRecoverableException'.
 data HttpClient = HttpClient {
     -- | Download a file
-    httpClientGet :: forall a.
-                     [HttpRequestHeader]
+    httpClientGet :: forall a. Throws SomeRecoverableException
+                  => [HttpRequestHeader]
                   -> URI
                   -> ([HttpResponseHeader] -> BodyReader -> IO a)
                   -> IO a
@@ -134,8 +135,8 @@ data HttpClient = HttpClient {
     -- | Download a byte range
     --
     -- Range is starting and (exclusive) end offset in bytes.
-  , httpClientGetRange :: forall a.
-                          [HttpRequestHeader]
+  , httpClientGetRange :: forall a. Throws SomeRecoverableException
+                       => [HttpRequestHeader]
                        -> URI
                        -> (Int, Int)
                        -> ([HttpResponseHeader] -> BodyReader -> IO a)
@@ -295,7 +296,8 @@ getSelectedMirror selectedMirror = do
        Just baseURI -> return baseURI
 
 -- | Get a file from the server
-withRemote :: (URI -> RemoteConfig)
+withRemote :: Throws SomeRecoverableException
+           => (URI -> RemoteConfig)
            -> SelectedMirror
            -> IsRetry
            -> RemoteFile fs
@@ -306,7 +308,8 @@ withRemote remoteConfig selectedMirror isRetry remoteFile callback = do
    withRemote' (remoteConfig baseURI) isRetry remoteFile callback
 
 -- | Get a file from the server, assuming we have already picked a mirror
-withRemote' :: RemoteConfig
+withRemote' :: Throws SomeRecoverableException
+            => RemoteConfig
             -> IsRetry
             -> RemoteFile fs
             -> (forall f. HasFormat fs f -> TempPath -> IO a)
@@ -358,7 +361,7 @@ withMirror HttpClient{..} selectedMirror logger oobMirrors tufMirrors callback =
     -- mirror
     go (m:ms) = do
       logger $ LogSelectedMirror (show m)
-      recoverableCatch (select m callback) $ \ex -> do
+      catchChecked (select m callback) $ \ex -> do
         logger $ LogMirrorFailed (show m) ex
         go ms
 
@@ -459,8 +462,8 @@ pickDownloadMethod RemoteConfig{..} remoteFile = multipleExitPoints $ do
        }
 
 -- | Download the specified file using the given download method
-getFile :: forall fs a.
-           RemoteConfig         -- ^ Internal configuration
+getFile :: forall fs a. Throws SomeRecoverableException
+        => RemoteConfig         -- ^ Internal configuration
         -> IsRetry              -- ^ Did a security check previously fail?
         -> RemoteFile fs        -- ^ File to get
         -> (forall f. HasFormat fs f -> TempPath -> IO a) -- ^ Callback
@@ -468,7 +471,7 @@ getFile :: forall fs a.
         -> IO a
 getFile cfg@RemoteConfig{..} isRetry remoteFile callback = go
   where
-    go :: DownloadMethod fs -> IO a
+    go :: Throws SomeRecoverableException => DownloadMethod fs -> IO a
     go NeverUpdated{..} = do
         cfgLogger $ LogDownloading (Some remoteFile)
         download downloadFormat
@@ -487,10 +490,10 @@ getFile cfg@RemoteConfig{..} isRetry remoteFile callback = go
         -- an incrementally updated file cannot be verified on the next
         -- attempt, we then try to download the whole file.
         let upd = update updateFormat updateLength updateLocal updateTrailer
-        recoverableCatch upd $ \ex ->
+        catchChecked upd $ \ex ->
           case isRetry of
-            FirstAttempt | recoverableIsVerificationError ex ->
-              recoverableRethrow ex
+            FirstAttempt | Just _ <- recoverableIsVerificationError ex ->
+              throwChecked ex
             _otherwise -> do
              let failure = UpdateFailed ex
              cfgLogger $ LogUpdateFailed (Some remoteFile) failure

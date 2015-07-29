@@ -27,6 +27,7 @@ library
                        Hackage.Security.Key.Env
                        Hackage.Security.Server
                        Hackage.Security.TUF.FileMap
+                       Hackage.Security.Util.Checked
                        Hackage.Security.Util.IO
                        Hackage.Security.Util.Lens
                        Hackage.Security.Util.Path

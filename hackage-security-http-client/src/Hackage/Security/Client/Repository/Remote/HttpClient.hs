@@ -16,6 +16,7 @@ import qualified Data.ByteString.Char8 as BS.C8
 
 import Hackage.Security.Client hiding (Header)
 import Hackage.Security.Client.Repository.Remote
+import Hackage.Security.Util.Checked
 import qualified Hackage.Security.Util.Lens as Lens
 
 {-------------------------------------------------------------------------------
@@ -40,7 +41,8 @@ withClient proxyConfig _logger callback = do
   Individual methods
 -------------------------------------------------------------------------------}
 
-get :: Manager
+get :: Throws SomeRecoverableException
+    => Manager
     -> [HttpRequestHeader] -> URI
     -> ([HttpResponseHeader] -> BodyReader -> IO a)
     -> IO a
@@ -50,11 +52,12 @@ get manager reqHeaders uri callback = wrapCustomEx $ do
     request' <- setUri def uri
     let request = setRequestHeaders reqHeaders
                 $ request'
-    withResponse request manager $ \response -> do
+    checkHttpException $ withResponse request manager $ \response -> do
       let br = wrapCustomEx $ responseBody response
       callback (getResponseHeaders response) br
 
-getRange :: Manager
+getRange :: Throws SomeRecoverableException
+         => Manager
          -> [HttpRequestHeader] -> URI -> (Int, Int)
          -> ([HttpResponseHeader] -> BodyReader -> IO a)
          -> IO a
@@ -63,24 +66,26 @@ getRange manager reqHeaders uri (from, to) callback = wrapCustomEx $ do
     let request = setRange from to
                 $ setRequestHeaders reqHeaders
                 $ request'
-    withResponse request manager $ \response -> do
+    checkHttpException $ withResponse request manager $ \response -> do
       let br = wrapCustomEx $ responseBody response
       case responseStatus response of
         s | s == partialContent206 -> callback (getResponseHeaders response) br
-        s -> throwIO $ StatusCodeException s (responseHeaders response)
-                                             (responseCookieJar response)
+        s -> throwChecked $ StatusCodeException s (responseHeaders response)
+                                                  (responseCookieJar response)
 
 -- | Wrap custom exceptions
 --
 -- NOTE: The only other exception defined in @http-client@ is @TimeoutTriggered@
 -- but it is currently disabled <https://github.com/snoyberg/http-client/issues/116>
-wrapCustomEx :: IO a -> IO a
-wrapCustomEx act = catches act [
-      Handler $ \(ex :: HttpException) -> go ex
-    ]
+wrapCustomEx :: (Throws HttpException => IO a)
+             -> (Throws SomeRecoverableException => IO a)
+wrapCustomEx act = handleChecked (\(ex :: HttpException) -> go ex)
+                 $ act
   where
-    go :: Exception e => e -> IO a
-    go = throwIO . CustomRecoverableException
+    go ex = throwChecked (SomeRecoverableException ex)
+
+checkHttpException :: Throws HttpException => IO a -> IO a
+checkHttpException = handle $ \(ex :: HttpException) -> throwChecked ex
 
 {-------------------------------------------------------------------------------
   http-client auxiliary

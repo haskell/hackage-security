@@ -22,11 +22,9 @@ module Hackage.Security.Client.Repository (
   , remoteRepoPath'
   , indexFilePath
     -- * Recoverable exceptions
-  , RecoverableException(..)
-  , CustomRecoverableException(..)
-  , recoverableCatch
-  , recoverableRethrow
+  , SomeRecoverableException(..)
   , recoverableIsVerificationError
+  , checkVerificationError
     -- * Utility
   , IsCached(..)
   , mustCache
@@ -42,6 +40,7 @@ import Distribution.Text
 import Hackage.Security.Client.Formats
 import Hackage.Security.Trusted
 import Hackage.Security.TUF
+import Hackage.Security.Util.Checked
 import Hackage.Security.Util.Path
 import Hackage.Security.Util.Pretty
 import Hackage.Security.Util.Some
@@ -190,8 +189,8 @@ data Repository = Repository {
     --
     -- NOTE: Calls to 'repWithRemote' should _always_ be in the scope of
     -- 'repWithMirror'.
-    repWithRemote :: forall a fs.
-                     IsRetry
+    repWithRemote :: forall a fs. Throws SomeRecoverableException
+                  => IsRetry
                   -> RemoteFile fs
                   -> (forall f. HasFormat fs f -> TempPath -> IO a)
                   -> IO a
@@ -304,7 +303,7 @@ data LogMessage =
 
     -- | We got an exception with a particular mirror
     -- (we will try with a different mirror if any are available)
-  | LogMirrorFailed MirrorDescription RecoverableException
+  | LogMirrorFailed MirrorDescription SomeRecoverableException
 
 -- | Records why we are downloading a file rather than updating it.
 data UpdateFailure =
@@ -322,7 +321,7 @@ data UpdateFailure =
   | UpdateTooLarge
 
     -- | Update failed
-  | UpdateFailed RecoverableException
+  | UpdateFailed SomeRecoverableException
 
 {-------------------------------------------------------------------------------
   Recoverable exceptions
@@ -339,50 +338,34 @@ data UpdateFailure =
 -- but we don't want to catch just any odd exception. For example, we don't
 -- want to catch a ThreadKilled exception while incrementally updating a file
 -- and then retry by downloading it.
-data RecoverableException =
-    RecoverIOException IOException
-  | RecoverVerificationError VerificationError
-  | RecoverCustom CustomRecoverableException
-
--- | Wrapper for custom recoverable exceptions
--- (for example, those defined in HTTP clients)
---
--- NOTE: Exceptions such as misconfigurations that we cannot recover from do
--- not need to be wrapped.
-data CustomRecoverableException where
-    CustomRecoverableException :: Exception e => e -> CustomRecoverableException
+data SomeRecoverableException :: * where
+    SomeRecoverableException :: Exception e => e -> SomeRecoverableException
   deriving (Typeable)
 
-deriving instance Show CustomRecoverableException
-instance Exception CustomRecoverableException
-
-instance Pretty RecoverableException where
-  pretty (RecoverVerificationError e) = pretty e
 #if MIN_VERSION_base(4,8,0)
-  pretty (RecoverIOException       e) = displayException e
-  pretty (RecoverCustom            e) = displayException e
+
+deriving instance Show SomeRecoverableException
+instance Exception SomeRecoverableException
+  displayException (SomeRecoverableException ex) = displayException ex
+
 #else
-  pretty (RecoverIOException       e) = show e
-  pretty (RecoverCustom            e) = show e
+
+instance Exception SomeRecoverableException
+instance Show SomeRecoverableException where
+  show (SomeRecoverableException ex) = show ex
+
 #endif
 
-recoverableCatch :: IO a -> (RecoverableException -> IO a) -> IO a
-recoverableCatch act handler = catches act [
-      Handler $ handler . RecoverIOException
-    , Handler $ handler . RecoverVerificationError
-    , Handler $ handler . RecoverCustom
-    ]
+instance Pretty SomeRecoverableException where
+    pretty (SomeRecoverableException ex) = displayException ex
 
--- | Rethrow the original exception
-recoverableRethrow :: RecoverableException -> IO a
-recoverableRethrow (RecoverIOException       e) = throwIO e
-recoverableRethrow (RecoverVerificationError e) = throwIO e
-recoverableRethrow (RecoverCustom (CustomRecoverableException e)) = throwIO e
+recoverableIsVerificationError :: SomeRecoverableException
+                               -> Maybe VerificationError
+recoverableIsVerificationError (SomeRecoverableException ex) = cast ex
 
--- | Was the error a verification error?
-recoverableIsVerificationError :: RecoverableException -> Bool
-recoverableIsVerificationError (RecoverVerificationError _) = True
-recoverableIsVerificationError _ = False
+checkVerificationError :: Throws SomeRecoverableException => IO a -> IO a
+checkVerificationError = handle $ \(ex :: VerificationError) ->
+    throwChecked $ SomeRecoverableException ex
 
 {-------------------------------------------------------------------------------
   Paths

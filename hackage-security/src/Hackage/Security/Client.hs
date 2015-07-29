@@ -18,7 +18,7 @@ module Hackage.Security.Client (
   , module Hackage.Security.Key
     -- ** We only a few bits from .Repository
     -- TODO: Maybe this is a sign that these should be in a different module?
-  , CustomRecoverableException(..)
+  , SomeRecoverableException(..)
   , Repository -- opaque
   , LogMessage(..)
   ) where
@@ -45,6 +45,7 @@ import Hackage.Security.Key.Env (KeyEnv)
 import Hackage.Security.Trusted
 import Hackage.Security.Trusted.TCB
 import Hackage.Security.TUF
+import Hackage.Security.Util.Checked
 import Hackage.Security.Util.Path
 import Hackage.Security.Util.Stack
 import Hackage.Security.Util.Some
@@ -75,7 +76,8 @@ data HasUpdates = HasUpdates | NoUpdates
 --
 -- This implements the logic described in Section 5.1, "The client application",
 -- of the TUF spec.
-checkForUpdates :: Repository -> CheckExpiry -> IO HasUpdates
+checkForUpdates :: Throws SomeRecoverableException
+                => Repository -> CheckExpiry -> IO HasUpdates
 checkForUpdates rep checkExpiry =
     withMirror rep $ do
       -- more or less randomly chosen maximum iterations
@@ -86,7 +88,8 @@ checkForUpdates rep checkExpiry =
     -- root information and start over. However, in order to prevent DoS attacks
     -- we limit how often we go round this loop.
     -- See als <https://github.com/theupdateframework/tuf/issues/287>.
-    limitIterations :: IsRetry -> Int -> IO HasUpdates
+    limitIterations :: Throws SomeRecoverableException
+                    => IsRetry -> Int -> IO HasUpdates
     limitIterations _isRetry 0 = throwIO VerificationErrorLoop
     limitIterations  isRetry n = do
       mNow <- case checkExpiry of
@@ -113,7 +116,8 @@ checkForUpdates rep checkExpiry =
     -- that none of the downloaded files will be cached until the entire check
     -- for updates check completes successfully.
     -- See also <https://github.com/theupdateframework/tuf/issues/283>.
-    go :: Maybe UTCTime -> IsRetry -> ContT r IO HasUpdates
+    go :: Throws SomeRecoverableException
+       => Maybe UTCTime -> IsRetry -> ContT r IO HasUpdates
     go mNow isRetry = do
       -- We need the cached root information in order to resolve key IDs and
       -- verify signatures
@@ -309,7 +313,8 @@ instance Exception RootUpdated
 -- cached timestamp whenever the version on the remote timestamp is invalid,
 -- thereby rendering the file version on the timestamp and the snapshot useless.
 -- See <https://github.com/theupdateframework/tuf/issues/283#issuecomment-115739521>
-updateRoot :: Repository
+updateRoot :: Throws SomeRecoverableException
+           => Repository
            -> Maybe UTCTime
            -> IsRetry
            -> Either VerificationError (Trusted FileInfo)
@@ -352,7 +357,8 @@ updateRoot rep mNow isRetry eFileInfo = evalContT $ do
 --   (See also <https://github.com/theupdateframework/tuf/issues/281>.)
 -- * May throw an InvalidPackageException if the requested package does not
 --   exist (this is a programmer error).
-downloadPackage :: Repository -> PackageIdentifier -> (TempPath -> IO a) -> IO a
+downloadPackage :: Throws SomeRecoverableException
+                => Repository -> PackageIdentifier -> (TempPath -> IO a) -> IO a
 downloadPackage rep pkgId callback = withMirror rep $ evalContT $ do
     -- We need the cached root information in order to resolve key IDs and
     -- verify signatures. Note that whenever we read a JSON file, we verify
@@ -456,7 +462,8 @@ requiresBootstrap rep = isNothing <$> repGetCached rep CachedRoot
 -- provided keys, and _not_ against previously downloaded root info (if any).
 -- It is the responsibility of the client to call `bootstrap` only when this
 -- is the desired behaviour.
-bootstrap :: Repository -> [KeyId] -> KeyThreshold -> IO ()
+bootstrap :: Throws SomeRecoverableException
+          => Repository -> [KeyId] -> KeyThreshold -> IO ()
 bootstrap rep trustedRootKeys keyThreshold = withMirror rep $ evalContT $ do
     _newRoot :: Trusted Root <- do
       (targetPath, tempPath) <- getRemote' rep FirstAttempt (RemoteRoot Nothing)
@@ -474,8 +481,8 @@ bootstrap rep trustedRootKeys keyThreshold = withMirror rep $ evalContT $ do
   Wrapper around the Repository functions (to avoid callback hell)
 -------------------------------------------------------------------------------}
 
-getRemote :: forall fs r.
-             Repository
+getRemote :: forall fs r. Throws SomeRecoverableException
+          => Repository
           -> IsRetry
           -> RemoteFile fs
           -> ContT r IO (Some Format, TargetPath, TempPath)
@@ -493,8 +500,8 @@ getRemote r isRetry file = ContT aux
         targetPath = TargetPathRepo $ remoteRepoPath' (repLayout r) file format
 
 -- | Variation on getRemote where we only expect one type of result
-getRemote' :: forall f r.
-              Repository
+getRemote' :: forall f r. Throws SomeRecoverableException
+           => Repository
            -> IsRetry
            -> RemoteFile (f :- ())
            -> ContT r IO (TargetPath, TempPath)

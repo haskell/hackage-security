@@ -10,6 +10,7 @@ module Prelude (
   , (<$>)
   , (<$)
   , traverse
+  , displayException
 #endif
   ) where
 
@@ -22,6 +23,10 @@ import "base" Prelude as P
 import "base" Prelude as P hiding (catch)
 #endif
 import Control.Applicative
+import Control.Exception (Exception)
 import Data.Monoid
 import Data.Traversable (traverse)
+
+displayException :: Exception e => e -> String
+displayException = show
 #endif
