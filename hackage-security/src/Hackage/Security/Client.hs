@@ -26,8 +26,9 @@ module Hackage.Security.Client (
 import Prelude hiding (log)
 import Control.Exception
 import Control.Monad
-import Control.Monad.Cont
-import Control.Monad.Trans.Cont
+import Control.Monad.IO.Class
+import Control.Monad.Cont (ContT(ContT), callCC, lift)
+import Control.Monad.Trans.Cont (evalContT)
 import Data.Maybe (isNothing)
 import Data.Time
 import Data.Traversable (for)
@@ -96,34 +97,40 @@ checkForUpdates rep checkExpiry = do
                 CheckExpiry     -> Just <$> getCurrentTime
                 DontCheckExpiry -> return Nothing
 
-      catches (evalContT (go mNow isRetry cachedInfo)) [
-          Handler $ \(ex :: VerificationError) -> do
-            -- NOTE: This call to updateRoot is not itself protected by an
-            -- exception handler, and may therefore throw a VerificationError.
-            -- This is intentional: if we get verification errors during the
-            -- update process, _and_ we cannot update the main root info, then
-            -- we cannot do anything.
-            log rep $ LogVerificationError ex
-            updateRoot rep mNow AfterVerificationError (Left ex)
-            limitIterations cachedInfo AfterVerificationError (n - 1)
-        , Handler $ \RootUpdated -> do
-            log rep $ LogRootUpdated
-            limitIterations cachedInfo isRetry (n - 1)
-        ]
+      mHasUpdates <- try $ evalContT (go mNow isRetry cachedInfo)
+      case mHasUpdates of
+        Left ex -> do
+          -- NOTE: This call to updateRoot is not itself protected by an
+          -- exception handler, and may therefore throw a VerificationError.
+          -- This is intentional: if we get verification errors during the
+          -- update process, _and_ we cannot update the main root info, then
+          -- we cannot do anything.
+          log rep $ LogVerificationError ex
+          updateRoot rep mNow AfterVerificationError (Left ex)
+          limitIterations cachedInfo AfterVerificationError (n - 1)
+        Right (Left RootUpdated) -> do
+          log rep $ LogRootUpdated
+          limitIterations cachedInfo isRetry (n - 1)
+        Right (Right hasUpdates) ->
+          return hasUpdates
 
-    -- NOTE: None of the downloaded files will be cached until the entire check
-    -- for updates check completes successfully.
+    -- NOTE: We use the ContT monad transformer to make sure that none of the
+    -- downloaded files will be cached until the entire check for updates check
+    -- completes successfully.
     -- See also <https://github.com/theupdateframework/tuf/issues/283>.
     go :: Throws SomeRecoverableException
-       => Maybe UTCTime -> IsRetry -> CachedInfo -> ContT r IO HasUpdates
-    go mNow isRetry cachedInfo@CachedInfo{..} = do
+       => Maybe UTCTime
+       -> IsRetry
+       -> CachedInfo
+       -> ContT r IO (Either RootUpdated HasUpdates)
+    go mNow isRetry cachedInfo@CachedInfo{..} = callCC $ \abort -> do
       -- Get the new timestamp
       newTS <- getRemoteFile' RemoteTimestamp
       let newInfoSS = static timestampInfoSnapshot <$$> newTS
 
       -- Check if the snapshot has changed
       if not (fileChanged cachedInfoSnapshot newInfoSS)
-        then return NoUpdates
+        then return $ Right NoUpdates
         else do
           -- Get the new snapshot
           newSS <- getRemoteFile' (RemoteSnapshot newInfoSS)
@@ -132,20 +139,20 @@ checkForUpdates rep checkExpiry = do
               newInfoTarGz   = static snapshotInfoTarGz   <$$> newSS
               mNewInfoTar    = trustSeq (static snapshotInfoTar <$$> newSS)
 
-          -- If root metadata changed, update and restart
-          when (rootChanged cachedInfoRoot newInfoRoot) $ liftIO $ do
-            updateRoot rep mNow isRetry (Right newInfoRoot)
-            throwIO RootUpdated
+          -- If root metadata changed, download and restart
+          when (rootChanged cachedInfoRoot newInfoRoot) $ do
+            liftIO $ updateRoot rep mNow isRetry (Right newInfoRoot)
+            abort $ Left RootUpdated
 
           -- If mirrors changed, download and verify
           when (fileChanged cachedInfoMirrors newInfoMirrors) $
             newMirrors =<< getRemoteFile' (RemoteMirrors newInfoMirrors)
 
-          -- If the index changed, download it and verify it
+          -- If index changed, download and verify
           when (fileChanged cachedInfoTarGz newInfoTarGz) $
             updateIndex newInfoTarGz mNewInfoTar
 
-          return HasUpdates
+          return $ Right HasUpdates
       where
         getRemoteFile' :: ( VerifyRole a
                           , FromJSON ReadJSON_Keys_Layout (Signed a)
@@ -191,13 +198,8 @@ checkForUpdates rep checkExpiry = do
     newMirrors _ = return ()
 
 -- | Root metadata updated
---
--- We throw this when we (succesfully) updated the root metadata as part of the
--- normal update process so that we know to restart it.
 data RootUpdated = RootUpdated
   deriving (Show, Typeable)
-
-instance Exception RootUpdated
 
 -- | Update the root metadata
 --
