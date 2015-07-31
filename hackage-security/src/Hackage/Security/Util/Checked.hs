@@ -25,7 +25,7 @@ checkIO = handle $ \(ex :: IOException) -> throwChecked ex
 
 -- | Rethrow checked exceptions as unchecked (regular) exceptions
 rethrowUnchecked :: forall e a. (Throws e => IO a) -> (Exception e => IO a)
-rethrowUnchecked act = aux act throw
+rethrowUnchecked act = aux act throwIO
   where
     aux :: (Throws e => IO a) -> ((e -> IO a) -> IO a)
     aux = unsafeCoerce
