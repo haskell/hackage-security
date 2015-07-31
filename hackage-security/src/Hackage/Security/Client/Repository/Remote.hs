@@ -398,7 +398,7 @@ data DownloadMethod fs =
     -- the remote file.
   | forall f. Update {
         updateFormat  :: HasFormat fs f
-      , updateLength  :: Trusted FileLength
+      , updateInfo    :: Trusted FileInfo
       , updateLocal   :: AbsolutePath
       , updateTrailer :: Integer
       }
@@ -443,20 +443,20 @@ pickDownloadMethod RemoteConfig{..} remoteFile = multipleExitPoints $ do
     -- File sizes
     canCompress <- checkServerCapability cfgCaps serverUsedContentCompression
     localSize   <- liftIO $ getFileSize cachedIndex
-    let sizeGz = formatsLookup hasGz formats
-        sizeUn = formatsLookup hasUn formats
+    let infoGz = formatsLookup hasGz formats
+        infoUn = formatsLookup hasUn formats
         estCompFactor = case (canCompress, cfgCompress) of
                           (True, AllowContentCompression) -> 10
                           _otherwise                      -> 1
-        estUpdateSize = (fileLength' sizeUn - fromIntegral localSize)
+        estUpdateSize = (fileLength' infoUn - fromIntegral localSize)
                           `div` estCompFactor
-    unless (estUpdateSize < fileLength' sizeGz) $
+    unless (estUpdateSize < fileLength' infoGz) $
       exit $ CannotUpdate hasGz UpdateTooLarge
 
     -- If all these checks pass try to do an incremental update.
     return Update {
          updateFormat  = hasUn
-       , updateLength  = sizeUn
+       , updateInfo    = infoUn
        , updateLocal   = cachedIndex
        , updateTrailer = trailerLength
        }
@@ -489,7 +489,7 @@ getFile cfg@RemoteConfig{..} isRetry remoteFile callback = go
         -- upstream. Hopefully this will resolve the issue. However, if
         -- an incrementally updated file cannot be verified on the next
         -- attempt, we then try to download the whole file.
-        let upd = update updateFormat updateLength updateLocal updateTrailer
+        let upd = update updateFormat updateInfo updateLocal updateTrailer
         catchChecked upd $ \ex ->
           case isRetry of
             FirstAttempt | Just _ <- recoverableIsVerificationError ex ->
@@ -522,14 +522,14 @@ getFile cfg@RemoteConfig{..} isRetry remoteFile callback = go
     --
     -- Sadly, this has some tar-specific functionality
     update :: HasFormat fs f      -- ^ Selected format
-           -> Trusted FileLength  -- ^ Expected length
+           -> Trusted FileInfo    -- ^ Expected info
            -> AbsolutePath        -- ^ Location of cached tar (after callback)
            -> Integer             -- ^ Trailer length
            -> IO a
-    update format len cachedFile trailer = do
+    update format info cachedFile trailer = do
         currentSize <- getFileSize cachedFile
         let currentMinusTrailer = currentSize - trailer
-            fileSz  = fileLength' len
+            fileSz  = fileLength' info
             range   = (fromInteger currentMinusTrailer, fileSz)
             rangeSz = FileSizeExact (snd range - fst range)
         withTempFile (Cache.cacheRoot cfgCache) (uriTemplate uri) $ \tempPath h -> do
@@ -701,8 +701,8 @@ data RemoteConfig = RemoteConfig {
 uriTemplate :: URI -> String
 uriTemplate = unFragment . takeFileName . uriPath
 
-fileLength' :: Trusted FileLength -> Int
-fileLength' = fileLength . trusted
+fileLength' :: Trusted FileInfo -> Int
+fileLength' = fileLength . fileInfoLength . trusted
 
 {-------------------------------------------------------------------------------
   Auxiliary: multiple exit points

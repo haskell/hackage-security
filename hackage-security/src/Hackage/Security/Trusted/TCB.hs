@@ -11,7 +11,7 @@ module Hackage.Security.Trusted.TCB (
   , SignaturesVerified -- opaque
   , signaturesVerified
   , VerificationError(..)
-  , verifyRole
+  , verifyRole'
   , verifyFingerprints
 #if __GLASGOW_HASKELL__ >= 710
     -- * Re-exports
@@ -153,17 +153,17 @@ instance Pretty VerificationError where
 -- NOTE 2: We are not actually verifying the signatures _themselves_ here
 -- (we did that when we parsed the JSON). We are merely verifying the provenance
 -- of the keys.
-verifyRole :: forall a. HasHeader a
-           => Trusted (RoleSpec a)     -- ^ For signature validation
-           -> TargetPath               -- ^ File source (for error messages)
-           -> Maybe FileVersion        -- ^ Previous version (if available)
-           -> Maybe UTCTime            -- ^ Time now (if checking expiry)
-           -> Signed a -> Either VerificationError (SignaturesVerified a)
-verifyRole (trusted -> RoleSpec{roleSpecThreshold = KeyThreshold threshold, ..})
-           targetPath
-           mPrev
-           mNow
-           Signed{signatures = Signatures sigs, ..} =
+verifyRole' :: forall a. HasHeader a
+            => Trusted (RoleSpec a)     -- ^ For signature validation
+            -> TargetPath               -- ^ File source (for error messages)
+            -> Maybe FileVersion        -- ^ Previous version (if available)
+            -> Maybe UTCTime            -- ^ Time now (if checking expiry)
+            -> Signed a -> Either VerificationError (SignaturesVerified a)
+verifyRole' (trusted -> RoleSpec{roleSpecThreshold = KeyThreshold threshold, ..})
+            targetPath
+            mPrev
+            mNow
+            Signed{signatures = Signatures sigs, ..} =
     runExcept go
   where
     go :: Except VerificationError (SignaturesVerified a)

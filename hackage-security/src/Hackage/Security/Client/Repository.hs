@@ -9,6 +9,7 @@ module Hackage.Security.Client.Repository (
   , CachedFile(..)
   , IndexFile(..)
   , remoteFileDefaultFormat
+  , remoteFileDefaultInfo
     -- * Repository proper
   , Repository(..)
   , TempPath
@@ -64,24 +65,24 @@ data RemoteFile :: * -> * where
 
     -- Root metadata (@root.json@)
     --
-    -- For root information we may or may not have the file length available:
+    -- For root information we may or may not have the file info available:
     --
     -- - If during the normal update process the new snapshot tells us the root
-    --   information has changed, we can use the file length from the snapshot.
+    --   information has changed, we can use the file info from the snapshot.
     -- - If however we need to update the root metadata due to a verification
-    --   exception we do not know the file length.
-    -- - We also do not know the file length during bootstrapping.
-    RemoteRoot :: Maybe (Trusted FileLength) -> RemoteFile (FormatUn :- ())
+    --   exception we do not know the file info.
+    -- - We also do not know the file info during bootstrapping.
+    RemoteRoot :: Maybe (Trusted FileInfo) -> RemoteFile (FormatUn :- ())
 
     -- Snapshot metadata (@snapshot.json@)
     --
-    -- We get file length of the snapshot from the timestamp.
-    RemoteSnapshot :: Trusted FileLength -> RemoteFile (FormatUn :- ())
+    -- We get file info of the snapshot from the timestamp.
+    RemoteSnapshot :: Trusted FileInfo -> RemoteFile (FormatUn :- ())
 
     -- Mirrors metadata (@mirrors.json@)
     --
-    -- We get the file length from the snapshot.
-    RemoteMirrors :: Trusted FileLength -> RemoteFile (FormatUn :- ())
+    -- We get the file info from the snapshot.
+    RemoteMirrors :: Trusted FileInfo -> RemoteFile (FormatUn :- ())
 
     -- Index
     --
@@ -94,17 +95,17 @@ data RemoteFile :: * -> * where
     -- It is a bug to request a file that the repository does not provide
     -- (the snapshot should make it clear which files are available).
     RemoteIndex :: HasFormat fs FormatGz
-                -> Formats fs (Trusted FileLength)
+                -> Formats fs (Trusted FileInfo)
                 -> RemoteFile fs
 
     -- Actual package
     --
     -- Package file length comes from the corresponding @targets.json@.
     RemotePkgTarGz :: PackageIdentifier
-                   -> Trusted FileLength
+                   -> Trusted FileInfo
                    -> RemoteFile (FormatGz :- ())
 
-deriving instance Eq   (RemoteFile fs)
+-- deriving instance Eq   (RemoteFile fs)
 deriving instance Show (RemoteFile fs)
 
 instance Pretty (RemoteFile fs) where
@@ -156,6 +157,15 @@ remoteFileDefaultFormat (RemoteSnapshot _)   = Some $ HFZ FUn
 remoteFileDefaultFormat (RemoteMirrors _)    = Some $ HFZ FUn
 remoteFileDefaultFormat (RemotePkgTarGz _ _) = Some $ HFZ FGz
 remoteFileDefaultFormat (RemoteIndex pf _)   = Some pf
+
+-- | Default file info (see also 'remoteFileDefaultFormat')
+remoteFileDefaultInfo :: RemoteFile fs -> Maybe (Trusted FileInfo)
+remoteFileDefaultInfo RemoteTimestamp         = Nothing
+remoteFileDefaultInfo (RemoteRoot info)       = info
+remoteFileDefaultInfo (RemoteSnapshot info)   = Just info
+remoteFileDefaultInfo (RemoteMirrors info)    = Just info
+remoteFileDefaultInfo (RemotePkgTarGz _ info) = Just info
+remoteFileDefaultInfo (RemoteIndex pf info)   = Just $ formatsLookup pf info
 
 {-------------------------------------------------------------------------------
   Repository proper

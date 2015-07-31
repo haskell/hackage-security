@@ -7,10 +7,7 @@ module Hackage.Security.Trusted (
     -- * Derived functions
   , (<$$>)
     -- ** Role verification
-  , verifyRoot
-  , verifyTimestamp
-  , verifySnapshot
-  , verifyMirrors
+  , VerifyRole(..)
     -- ** File info verification
   , verifyFileInfo
   , trustedFileInfoEqual
@@ -35,46 +32,25 @@ import Hackage.Security.Util.Path
   Role verification
 -------------------------------------------------------------------------------}
 
--- | Verify (new) root info based on (old) root info
-verifyRoot :: Trusted Root             -- ^ Trusted (old) root data
-           -> TargetPath               -- ^ Source (for error messages)
-           -> Maybe UTCTime            -- ^ Time now (if checking expiry)
-           -> Signed Root              -- ^ New root data to verify
-           -> Either VerificationError (SignaturesVerified Root)
-verifyRoot old targetPath =
-     verifyRole (static (rootRolesRoot . rootRoles) <$$> old)
-                targetPath
-                (Just (rootVersion (trusted old)))
+class VerifyRole a where
+  verifyRole :: Trusted Root      -- ^ Root data
+             -> TargetPath        -- ^ Source (for error messages)
+             -> Maybe FileVersion -- ^ Previous version (if available)
+             -> Maybe UTCTime     -- ^ Time now (if checking expiry)
+             -> Signed a          -- ^ Mirrors to verify
+             -> Either VerificationError (SignaturesVerified a)
 
--- | Verify a timestamp
-verifyTimestamp :: Trusted Root      -- ^ Trusted root data
-                -> TargetPath        -- ^ Source (for error messages)
-                -> Maybe FileVersion -- ^ Previous version (if available)
-                -> Maybe UTCTime     -- ^ Time now (if checking expiry)
-                -> Signed Timestamp  -- ^ Timestamp to verify
-                -> Either VerificationError (SignaturesVerified Timestamp)
-verifyTimestamp root =
-     verifyRole (static (rootRolesTimestamp . rootRoles) <$$> root)
+instance VerifyRole Root where
+  verifyRole = verifyRole' . (static (rootRolesRoot . rootRoles) <$$>)
 
--- | Verify snapshot
-verifySnapshot :: Trusted Root       -- ^ Root data
-               -> TargetPath         -- ^ Source (for error messages)
-               -> Maybe FileVersion  -- ^ Previous version (if available)
-               -> Maybe UTCTime      -- ^ Time now (if checking expiry)
-               -> Signed Snapshot    -- ^ Snapshot to verify
-               -> Either VerificationError (SignaturesVerified Snapshot)
-verifySnapshot root =
-     verifyRole (static (rootRolesSnapshot . rootRoles) <$$> root)
+instance VerifyRole Timestamp where
+  verifyRole = verifyRole' . (static (rootRolesTimestamp . rootRoles) <$$>)
 
--- | Verify mirrors
-verifyMirrors :: Trusted Root       -- ^ Root data
-              -> TargetPath         -- ^ Source (for error messages)
-              -> Maybe FileVersion  -- ^ Previous version (if available)
-              -> Maybe UTCTime      -- ^ Time now (if checking expiry)
-              -> Signed Mirrors     -- ^ Mirrors to verify
-              -> Either VerificationError (SignaturesVerified Mirrors)
-verifyMirrors root =
-     verifyRole (static (rootRolesMirrors . rootRoles) <$$> root)
+instance VerifyRole Snapshot where
+  verifyRole = verifyRole' . (static (rootRolesSnapshot . rootRoles) <$$>)
+
+instance VerifyRole Mirrors where
+  verifyRole = verifyRole' . (static (rootRolesMirrors . rootRoles) <$$>)
 
 {-------------------------------------------------------------------------------
   File info verification

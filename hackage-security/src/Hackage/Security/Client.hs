@@ -77,25 +77,26 @@ data HasUpdates = HasUpdates | NoUpdates
 -- of the TUF spec.
 checkForUpdates :: Throws SomeRecoverableException
                 => Repository -> CheckExpiry -> IO HasUpdates
-checkForUpdates rep checkExpiry =
+checkForUpdates rep checkExpiry = do
+    cachedInfo <- getCachedInfo rep
     withMirror rep $ do
       -- more or less randomly chosen maximum iterations
       -- See <https://github.com/theupdateframework/tuf/issues/287>.
-      limitIterations FirstAttempt 5
+      limitIterations cachedInfo FirstAttempt 5
   where
     -- The spec stipulates that on a verification error we must download new
     -- root information and start over. However, in order to prevent DoS attacks
     -- we limit how often we go round this loop.
     -- See als <https://github.com/theupdateframework/tuf/issues/287>.
     limitIterations :: Throws SomeRecoverableException
-                    => IsRetry -> Int -> IO HasUpdates
-    limitIterations _isRetry 0 = throwIO VerificationErrorLoop
-    limitIterations  isRetry n = do
+                    => CachedInfo -> IsRetry -> Int -> IO HasUpdates
+    limitIterations _cachedInfo _isRetry 0 = throwIO VerificationErrorLoop
+    limitIterations  cachedInfo  isRetry n = do
       mNow <- case checkExpiry of
                 CheckExpiry     -> Just <$> getCurrentTime
                 DontCheckExpiry -> return Nothing
 
-      catches (evalContT (go mNow isRetry)) [
+      catches (evalContT (go mNow isRetry cachedInfo)) [
           Handler $ \(ex :: VerificationError) -> do
             -- NOTE: This call to updateRoot is not itself protected by an
             -- exception handler, and may therefore throw a VerificationError.
@@ -104,133 +105,90 @@ checkForUpdates rep checkExpiry =
             -- we cannot do anything.
             log rep $ LogVerificationError ex
             updateRoot rep mNow AfterVerificationError (Left ex)
-            limitIterations AfterVerificationError (n - 1)
+            limitIterations cachedInfo AfterVerificationError (n - 1)
         , Handler $ \RootUpdated -> do
             log rep $ LogRootUpdated
-            limitIterations isRetry (n - 1)
+            limitIterations cachedInfo isRetry (n - 1)
         ]
 
-    -- NOTE: Every call to 'getRemote' in 'go' implicitly scopes over the
-    -- whole remainder of the function (through the use of ContT). This means
-    -- that none of the downloaded files will be cached until the entire check
+    -- NOTE: None of the downloaded files will be cached until the entire check
     -- for updates check completes successfully.
     -- See also <https://github.com/theupdateframework/tuf/issues/283>.
     go :: Throws SomeRecoverableException
-       => Maybe UTCTime -> IsRetry -> ContT r IO HasUpdates
-    go mNow isRetry = do
-      CachedInfo{..} <- getCachedInfo rep
-
+       => Maybe UTCTime -> IsRetry -> CachedInfo -> ContT r IO HasUpdates
+    go mNow isRetry cachedInfo@CachedInfo{..} = do
       -- Get the new timestamp
-      newTS :: Trusted Timestamp <- do
-        (targetPath, tempPath) <- getRemote' rep isRetry RemoteTimestamp
-        signed   <- readJSON (repLayout rep) cachedKeyEnv tempPath
-        verified <- throwErrors $ verifyTimestamp
-                      cachedRoot
-                      targetPath
-                      (fmap (timestampVersion . trusted) cachedTimestamp)
-                      mNow
-                      signed
-        return $ trustVerified verified
+      newTS <- getRemoteFile' RemoteTimestamp
+      let newInfoSS = static timestampInfoSnapshot <$$> newTS
 
       -- Check if the snapshot has changed
-      let newInfoSnapshot = static timestampInfoSnapshot <$$> newTS
-      if not (infoChanged cachedInfoSnapshot newInfoSnapshot)
-        then
-          return NoUpdates
+      if not (fileChanged cachedInfoSnapshot newInfoSS)
+        then return NoUpdates
         else do
           -- Get the new snapshot
-          let expectedSnapshot =
-                RemoteSnapshot (static fileInfoLength <$$> newInfoSnapshot)
-          newSS :: Trusted Snapshot <- do
-            (targetPath, tempPath) <- getRemote' rep isRetry expectedSnapshot
-            verifyFileInfo' (Just newInfoSnapshot) targetPath tempPath
-            signed   <- readJSON (repLayout rep) cachedKeyEnv tempPath
-            verified <- throwErrors $ verifySnapshot
-                          cachedRoot
-                          targetPath
-                          (fmap (snapshotVersion . trusted) cachedSnapshot)
-                          mNow
-                          signed
-            return $ trustVerified verified
+          newSS <- getRemoteFile' (RemoteSnapshot newInfoSS)
+          let newInfoRoot    = static snapshotInfoRoot    <$$> newSS
+              newInfoMirrors = static snapshotInfoMirrors <$$> newSS
+              newInfoTarGz   = static snapshotInfoTarGz   <$$> newSS
+              mNewInfoTar    = trustSeq (static snapshotInfoTar <$$> newSS)
 
           -- If root metadata changed, update and restart
-          let newInfoRoot = static snapshotInfoRoot <$$> newSS
-          case cachedInfoRoot of
-            Nothing ->
-              -- If we didn't have an old snapshot, consider the root info as
-              -- unchanged (otherwise this would loop indefinitely.)
-              -- See also <https://github.com/theupdateframework/tuf/issues/286>
-              return ()
-            Just oldRootInfo ->
-              when (not (trustedFileInfoEqual oldRootInfo newInfoRoot)) $ liftIO $ do
-                updateRoot rep mNow isRetry (Right newInfoRoot)
-                throwIO RootUpdated
+          when (rootChanged cachedInfoRoot newInfoRoot) $ liftIO $ do
+            updateRoot rep mNow isRetry (Right newInfoRoot)
+            throwIO RootUpdated
 
           -- If mirrors changed, download and verify
-          let newInfoMirrors  = static snapshotInfoMirrors <$$> newSS
-              expectedMirrors = RemoteMirrors (static fileInfoLength <$$> newInfoMirrors)
-          when (infoChanged cachedInfoMirrors newInfoMirrors) $ do
-            -- Verify new mirrors
-            _newMirrors :: Trusted Mirrors <- do
-              (targetPath, tempPath) <- getRemote' rep isRetry expectedMirrors
-              verifyFileInfo' (Just newInfoMirrors) targetPath tempPath
-              signed   <- readJSON (repLayout rep) cachedKeyEnv tempPath
-              verified <- throwErrors $ verifyMirrors
-                            cachedRoot
-                            targetPath
-                            (fmap (mirrorsVersion . trusted) cachedMirrors)
-                            mNow
-                           signed
-              return $ trustVerified verified
-
-            -- We don't actually _do_ anything with the mirrors file now
-            -- because we want to use a single server for a single
-            -- check-for-updates request. If validation was successful the
-            -- repository will have cached the mirrors file and it will
-            -- be available on the next request.
-            return ()
+          when (fileChanged cachedInfoMirrors newInfoMirrors) $
+            newMirrors =<< getRemoteFile' (RemoteMirrors newInfoMirrors)
 
           -- If the index changed, download it and verify it
-          let newInfoTarGz  = static snapshotInfoTarGz <$$> newSS
-              mNewTarInfo   = trustSeq (static snapshotInfoTar <$$> newSS)
-              expectedIdx   =
-                  -- This definition is a bit ugly, not sure how to improve it
-                  case mNewTarInfo of
-                    Nothing -> Some $ RemoteIndex (HFZ FGz) $
-                      FsGz (static fileInfoLength <$$> newInfoTarGz)
-                    Just newTarInfo -> Some $ RemoteIndex (HFS (HFZ FGz)) $
-                      FsUnGz (static fileInfoLength <$$> newTarInfo)
-                             (static fileInfoLength <$$> newInfoTarGz)
-          when (infoChanged cachedInfoTarGz newInfoTarGz) $ do
-            (format, targetPath, tempPath) <-
-              case expectedIdx of
-                Some expectedIdx' -> getRemote rep isRetry expectedIdx'
-
-            -- Check against the appropriate hash, depending on which file the
-            -- 'Repository' decided to download. Note that we cannot ask the
-            -- repository for the @.tar@ file independent of which file it
-            -- decides to download; if it downloads a compressed file, we
-            -- don't want to require the 'Repository' to decompress an
-            -- unverified file (because a clever attacker could then exploit,
-            -- say, buffer overrun in the decompression algorithm).
-            case format of
-              Some FGz ->
-                verifyFileInfo' (Just newInfoTarGz) targetPath tempPath
-              Some FUn ->
-                -- If the repository returns an uncompressed index but does
-                -- not list a corresponding hash we throw an exception
-                case mNewTarInfo of
-                  Just info -> verifyFileInfo' (Just info) targetPath tempPath
-                  Nothing   -> liftIO $ throwIO unexpectedUncompressedTar
+          when (fileChanged cachedInfoTarGz newInfoTarGz) $
+            updateIndex newInfoTarGz mNewInfoTar
 
           return HasUpdates
+      where
+        getRemoteFile' :: ( VerifyRole a
+                          , FromJSON ReadJSON_Keys_Layout (Signed a)
+                          , Throws SomeRecoverableException
+                          )
+                       => RemoteFile (f :- ()) -> ContT r IO (Trusted a)
+        getRemoteFile' = getRemoteFile rep cachedInfo isRetry mNow
 
-    infoChanged :: Maybe (Trusted FileInfo) -> Trusted FileInfo -> Bool
-    infoChanged Nothing    _   = True
-    infoChanged (Just old) new = not (trustedFileInfoEqual old new)
+        -- Update the index and check against the appropriate hash
+        updateIndex :: Trusted FileInfo         -- info about @.tar.gz@
+                    -> Maybe (Trusted FileInfo) -- info about @.tar@
+                    -> ContT r IO ()
+        updateIndex newInfoTarGz Nothing = do
+          (targetPath, tempPath) <- getRemote' rep isRetry $
+            RemoteIndex (HFZ FGz) (FsGz newInfoTarGz)
+          verifyFileInfo' (Just newInfoTarGz) targetPath tempPath
+        updateIndex newInfoTarGz (Just newInfoTar) = do
+          (format, targetPath, tempPath) <- getRemote rep isRetry $
+            RemoteIndex (HFS (HFZ FGz)) (FsUnGz newInfoTar newInfoTarGz)
+          case format of
+            Some FGz -> verifyFileInfo' (Just newInfoTarGz) targetPath tempPath
+            Some FUn -> verifyFileInfo' (Just newInfoTar)   targetPath tempPath
 
-    -- TODO: Should these be structured types?
-    unexpectedUncompressedTar = userError "Unexpected uncompressed tarball"
+    -- Unlike for other files, if we didn't have an old snapshot, consider the
+    -- root info unchanged (otherwise we would loop indefinitely).
+    -- See also <https://github.com/theupdateframework/tuf/issues/286>
+    rootChanged :: Maybe (Trusted FileInfo) -> Trusted FileInfo -> Bool
+    rootChanged Nothing    _   = False
+    rootChanged (Just old) new = not (trustedFileInfoEqual old new)
+
+    -- For any file other than the root we consider the file to have changed
+    -- if we do not yet have a local snapshot to tell us the old info.
+    fileChanged :: Maybe (Trusted FileInfo) -> Trusted FileInfo -> Bool
+    fileChanged Nothing    _   = True
+    fileChanged (Just old) new = not (trustedFileInfoEqual old new)
+
+    -- We don't actually _do_ anything with the mirrors file until the next call
+    -- to 'checkUpdates', because we want to use a single server for a single
+    -- check-for-updates request. If validation was successful the repository
+    -- will have cached the mirrors file and it will be available on the next
+    -- request.
+    newMirrors :: Trusted Mirrors -> ContT r IO ()
+    newMirrors _ = return ()
 
 -- | Root metadata updated
 --
@@ -288,20 +246,22 @@ updateRoot :: Throws SomeRecoverableException
            -> Either VerificationError (Trusted FileInfo)
            -> IO ()
 updateRoot rep mNow isRetry eFileInfo = evalContT $ do
-    (oldRoot, _oldKeyEnv) <- trustCachedRoot rep
+    cachedInfo <- getCachedInfo rep
+    newRoot :: Trusted Root <-
+      getRemoteFile
+        rep
+        cachedInfo
+        isRetry
+        mNow
+        (RemoteRoot (eitherToMaybe eFileInfo))
 
-    let mFileInfo    = eitherToMaybe eFileInfo
-        expectedRoot = RemoteRoot (fmap (static fileInfoLength <$$>) mFileInfo)
-    newRoot :: Trusted Root <- do
-      (targetPath, tempPath) <- getRemote' rep isRetry expectedRoot
-      verifyFileInfo' mFileInfo targetPath tempPath
-      signed   <- readJSON (repLayout rep) KeyEnv.empty tempPath
-      verified <- throwErrors $ verifyRoot oldRoot targetPath mNow signed
-      return $ trustVerified verified
-
-    let oldVersion = Lens.get fileVersion (trusted oldRoot)
-        newVersion = Lens.get fileVersion (trusted newRoot)
+    let oldVersion = Lens.get fileVersion $ trusted (cachedRoot cachedInfo)
+        newVersion = Lens.get fileVersion $ trusted newRoot
     when (oldVersion /= newVersion) $ clearCache rep
+
+{-------------------------------------------------------------------------------
+  Convenience functions for downloading and parsing various files
+-------------------------------------------------------------------------------}
 
 data CachedInfo = CachedInfo {
     cachedRoot         :: Trusted Root
@@ -315,13 +275,23 @@ data CachedInfo = CachedInfo {
   , cachedInfoTarGz    :: Maybe (Trusted FileInfo)
   }
 
+cachedVersion :: CachedInfo -> RemoteFile fs -> Maybe FileVersion
+cachedVersion CachedInfo{..} remoteFile =
+    case mustCache remoteFile of
+      CacheAs CachedTimestamp -> timestampVersion . trusted <$> cachedTimestamp
+      CacheAs CachedSnapshot  -> snapshotVersion  . trusted <$> cachedSnapshot
+      CacheAs CachedMirrors   -> mirrorsVersion   . trusted <$> cachedMirrors
+      CacheAs CachedRoot      -> Just . rootVersion . trusted $ cachedRoot
+      CacheIndex -> Nothing
+      DontCache  -> Nothing
+
 -- | Get all cached info (if any)
 getCachedInfo :: (Applicative m, MonadIO m) => Repository -> m CachedInfo
 getCachedInfo rep = do
-    (cachedRoot, cachedKeyEnv) <- trustCachedRoot rep
-    cachedTimestamp <- trustCachedFile rep cachedKeyEnv CachedTimestamp
-    cachedSnapshot  <- trustCachedFile rep cachedKeyEnv CachedSnapshot
-    cachedMirrors   <- trustCachedFile rep cachedKeyEnv CachedMirrors
+    (cachedRoot, cachedKeyEnv) <- readLocalRoot rep
+    cachedTimestamp <- readLocalFile rep cachedKeyEnv CachedTimestamp
+    cachedSnapshot  <- readLocalFile rep cachedKeyEnv CachedSnapshot
+    cachedMirrors   <- readLocalFile rep cachedKeyEnv CachedMirrors
 
     let cachedInfoSnapshot = fmap (static timestampInfoSnapshot <$$>) cachedTimestamp
         cachedInfoRoot     = fmap (static snapshotInfoRoot      <$$>) cachedSnapshot
@@ -330,25 +300,43 @@ getCachedInfo rep = do
 
     return CachedInfo{..}
 
-{-------------------------------------------------------------------------------
-  Convenience functions for downloading and parsing various files
--------------------------------------------------------------------------------}
-
-trustCachedRoot :: MonadIO m => Repository -> m (Trusted Root, KeyEnv)
-trustCachedRoot rep = do
+readLocalRoot :: MonadIO m => Repository -> m (Trusted Root, KeyEnv)
+readLocalRoot rep = do
     cachedPath <- liftIO $ repGetCachedRoot rep
     signedRoot <- readJSON (repLayout rep) KeyEnv.empty cachedPath
     return (trustLocalFile signedRoot, rootKeys (signed signedRoot))
 
-trustCachedFile :: ( FromJSON ReadJSON_Keys_Layout (Signed a)
+readLocalFile :: ( FromJSON ReadJSON_Keys_Layout (Signed a)
                  , MonadIO m, Applicative m
                  )
               => Repository -> KeyEnv -> CachedFile -> m (Maybe (Trusted a))
-trustCachedFile rep cachedKeyEnv file = do
+readLocalFile rep cachedKeyEnv file = do
     mCachedPath <- liftIO $ repGetCached rep file
     for mCachedPath $ \cachedPath -> do
       signed <- readJSON (repLayout rep) cachedKeyEnv cachedPath
       return $ trustLocalFile signed
+
+getRemoteFile :: ( VerifyRole a
+                 , FromJSON ReadJSON_Keys_Layout (Signed a)
+                 , Throws SomeRecoverableException
+                 )
+              => Repository
+              -> CachedInfo
+              -> IsRetry
+              -> Maybe UTCTime
+              -> RemoteFile (f :- ())
+              -> ContT r IO (Trusted a)
+getRemoteFile rep cachedInfo@CachedInfo{..} isRetry mNow file = do
+    (targetPath, tempPath) <- getRemote' rep isRetry file
+    verifyFileInfo' (remoteFileDefaultInfo file) targetPath tempPath
+    signed   <- readJSON (repLayout rep) cachedKeyEnv tempPath
+    verified <- throwErrors $ verifyRole
+                  cachedRoot
+                  targetPath
+                  (cachedVersion cachedInfo file)
+                  mNow
+                  signed
+    return $ trustVerified verified
 
 {-------------------------------------------------------------------------------
   Downloading target files
@@ -376,7 +364,7 @@ downloadPackage rep pkgId callback = withMirror rep $ evalContT $ do
     -- verify signatures. Note that whenever we read a JSON file, we verify
     -- signatures (even if we don't verify the keys); if this is a problem
     -- (for performance) we need to parameterize parseJSON.
-    (_cachedRoot, keyEnv) <- trustCachedRoot rep
+    (_cachedRoot, keyEnv) <- readLocalRoot rep
 
     -- NOTE: The files inside the index as evaluated lazily.
     --
@@ -436,9 +424,9 @@ downloadPackage rep pkgId callback = withMirror rep $ evalContT $ do
              return nfo
 
     -- TODO: should we check if cached package available? (spec says no)
-    let expectedPkg = RemotePkgTarGz pkgId (static fileInfoLength <$$> targetMetaData)
     tarGz <- do
-      (targetPath, tempPath) <- getRemote' rep FirstAttempt expectedPkg
+      (targetPath, tempPath) <- getRemote' rep FirstAttempt $
+        RemotePkgTarGz pkgId targetMetaData
       verifyFileInfo' (Just targetMetaData) targetPath tempPath
       return tempPath
     lift $ callback tarGz

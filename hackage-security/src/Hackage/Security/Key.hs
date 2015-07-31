@@ -69,6 +69,14 @@ deriving instance Eq (Key        typ)
 deriving instance Eq (PublicKey  typ)
 deriving instance Eq (PrivateKey typ)
 
+instance SomeShow Key        where someShow = DictShow
+instance SomeShow PublicKey  where someShow = DictShow
+instance SomeShow PrivateKey where someShow = DictShow
+
+instance SomeEq Key        where someEq = DictEq
+instance SomeEq PublicKey  where someEq = DictEq
+instance SomeEq PrivateKey where someEq = DictEq
+
 publicKey :: Key a -> PublicKey a
 publicKey (KeyEd25519 pub _pri) = PublicKeyEd25519 pub
 
@@ -84,6 +92,9 @@ data KeyType typ where
 
 deriving instance Show (KeyType typ)
 deriving instance Eq   (KeyType typ)
+
+instance SomeShow KeyType where someShow = DictShow
+instance SomeEq   KeyType where someEq   = DictEq
 
 instance Unify KeyType where
   unify KeyTypeEd25519 KeyTypeEd25519 = Just Refl
