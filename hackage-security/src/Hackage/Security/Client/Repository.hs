@@ -355,7 +355,7 @@ data SomeRecoverableException :: * where
 #if MIN_VERSION_base(4,8,0)
 
 deriving instance Show SomeRecoverableException
-instance Exception SomeRecoverableException
+instance Exception SomeRecoverableException where
   displayException (SomeRecoverableException ex) = displayException ex
 
 #else

@@ -118,3 +118,4 @@ library
 
   if impl(ghc >= 7.10)
      other-extensions: StaticPointers
+                       AllowAmbiguousTypes
