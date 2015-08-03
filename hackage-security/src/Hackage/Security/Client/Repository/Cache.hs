@@ -24,6 +24,7 @@ import qualified Data.ByteString.Lazy    as BS.L
 import Hackage.Security.Client.Repository
 import Hackage.Security.Client.Formats
 import Hackage.Security.TUF
+import Hackage.Security.Util.Checked
 import Hackage.Security.Util.IO
 import Hackage.Security.Util.Path
 
@@ -55,11 +56,13 @@ cacheRemoteFile cache tempPath f isCached = do
 -- | Rebuild the tarball index
 --
 -- TODO: Should we attempt to rebuild this incrementally?
+-- TODO: Use throwChecked rather than throwUnchecked, and deal with the fallout.
+-- See <https://github.com/well-typed/hackage-security/issues/84>.
 rebuildTarIndex :: Cache -> IO ()
 rebuildTarIndex cache = do
     entries <- Tar.read <$> readLazyByteString (cachedIndexTarPath cache)
     case TarIndex.build entries of
-      Left  ex    -> throwIO ex
+      Left  ex    -> throwUnchecked ex
       Right index ->
         atomicWithFile (cachedIndexIdxPath cache) $ \h -> do
           hSetBuffering h (BlockBuffering Nothing)
@@ -84,12 +87,15 @@ getCachedIndex cache = do
     localPath = cachedIndexTarPath cache
 
 -- | Get the cached root
+--
+-- Calling 'getCachedRoot' without root info available is a programmer error
+-- and will result in an unchecked exception. See 'requiresBootstrap'.
 getCachedRoot :: Cache -> IO AbsolutePath
 getCachedRoot cache = do
     mPath <- getCached cache CachedRoot
     case mPath of
       Just p  -> return p
-      Nothing -> throwIO $ userError "Client missing root info"
+      Nothing -> internalError "Client missing root info"
 
 -- | Get a file from the index
 getFromIndex :: Cache -> IndexLayout -> IndexFile -> IO (Maybe BS.ByteString)

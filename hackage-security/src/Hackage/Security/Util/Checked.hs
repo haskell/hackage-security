@@ -10,6 +10,7 @@ module Hackage.Security.Util.Checked (
   , catchChecked
   , handleChecked
   , throwUnchecked
+  , internalError
   ) where
 
 import Control.Exception
@@ -52,6 +53,10 @@ handleChecked act handler = catchChecked handler act
 -- intentional use of an unchecked exception.
 throwUnchecked :: Exception e => e -> IO a
 throwUnchecked = throwIO
+
+-- | Variation on 'throwUnchecked' for internal errors
+internalError :: String -> IO a
+internalError = throwUnchecked . userError
 
 -- | Rethrow IO exceptions as checked exceptions
 checkIO :: Throws IOException => IO a -> IO a

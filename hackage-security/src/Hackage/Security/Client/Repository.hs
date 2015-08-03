@@ -24,14 +24,15 @@ module Hackage.Security.Client.Repository (
   , indexFilePath
     -- * Recoverable exceptions
   , SomeRecoverableException(..)
+  , recoverableThrow
   , recoverableIsVerificationError
-  , checkVerificationError
     -- * Utility
   , IsCached(..)
   , mustCache
   ) where
 
 import Control.Exception
+import Control.Monad.IO.Class
 import Data.Typeable
 import qualified Data.ByteString as BS
 
@@ -369,13 +370,16 @@ instance Show SomeRecoverableException where
 instance Pretty SomeRecoverableException where
     pretty (SomeRecoverableException ex) = displayException ex
 
+recoverableThrow :: ( Throws SomeRecoverableException
+                    , Exception e
+                    , MonadIO m
+                    )
+                 => e -> m a
+recoverableThrow = liftIO . throwChecked . SomeRecoverableException
+
 recoverableIsVerificationError :: SomeRecoverableException
                                -> Maybe VerificationError
 recoverableIsVerificationError (SomeRecoverableException ex) = cast ex
-
-checkVerificationError :: Throws SomeRecoverableException => IO a -> IO a
-checkVerificationError = handle $ \(ex :: VerificationError) ->
-    throwChecked $ SomeRecoverableException ex
 
 {-------------------------------------------------------------------------------
   Paths

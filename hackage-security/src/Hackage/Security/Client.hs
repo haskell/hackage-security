@@ -91,8 +91,8 @@ checkForUpdates rep checkExpiry = do
     -- See als <https://github.com/theupdateframework/tuf/issues/287>.
     limitIterations :: Throws SomeRecoverableException
                     => CachedInfo -> IsRetry -> Int -> IO HasUpdates
-    limitIterations _cachedInfo _isRetry 0 = throwIO VerificationErrorLoop
-    limitIterations  cachedInfo  isRetry n = do
+    limitIterations _ _ 0 = recoverableThrow VerificationErrorLoop
+    limitIterations cachedInfo isRetry n = do
       mNow <- case checkExpiry of
                 CheckExpiry     -> Just <$> getCurrentTime
                 DontCheckExpiry -> return Nothing
@@ -305,7 +305,8 @@ getCachedInfo rep = do
 readLocalRoot :: MonadIO m => Repository -> m (Trusted Root, KeyEnv)
 readLocalRoot rep = do
     cachedPath <- liftIO $ repGetCachedRoot rep
-    signedRoot <- readJSON (repLayout rep) KeyEnv.empty cachedPath
+    signedRoot <- throwErrorsUnrecoverable =<<
+                    readJSON (repLayout rep) KeyEnv.empty cachedPath
     return (trustLocalFile signedRoot, rootKeys (signed signedRoot))
 
 readLocalFile :: ( FromJSON ReadJSON_Keys_Layout (Signed a)
@@ -315,7 +316,8 @@ readLocalFile :: ( FromJSON ReadJSON_Keys_Layout (Signed a)
 readLocalFile rep cachedKeyEnv file = do
     mCachedPath <- liftIO $ repGetCached rep file
     for mCachedPath $ \cachedPath -> do
-      signed <- readJSON (repLayout rep) cachedKeyEnv cachedPath
+      signed <- throwErrorsUnrecoverable =<<
+                  readJSON (repLayout rep) cachedKeyEnv cachedPath
       return $ trustLocalFile signed
 
 getRemoteFile :: ( VerifyRole a
@@ -331,8 +333,9 @@ getRemoteFile :: ( VerifyRole a
 getRemoteFile rep cachedInfo@CachedInfo{..} isRetry mNow file = do
     (targetPath, tempPath) <- getRemote' rep isRetry file
     verifyFileInfo' (remoteFileDefaultInfo file) targetPath tempPath
-    signed   <- readJSON (repLayout rep) cachedKeyEnv tempPath
-    verified <- throwErrors $ verifyRole
+    signed   <- throwErrorsRecoverable =<<
+                  readJSON (repLayout rep) cachedKeyEnv tempPath
+    verified <- throwErrorsRecoverable $ verifyRole
                   cachedRoot
                   targetPath
                   (cachedVersion cachedInfo file)
@@ -359,7 +362,9 @@ getRemoteFile rep cachedInfo@CachedInfo{..} isRetry mNow file = do
 --   (See also <https://github.com/theupdateframework/tuf/issues/281>.)
 -- * May throw an InvalidPackageException if the requested package does not
 --   exist (this is a programmer error).
-downloadPackage :: Throws SomeRecoverableException
+downloadPackage :: ( Throws SomeRecoverableException
+                   , Throws InvalidPackageException
+                   )
                 => Repository -> PackageIdentifier -> (TempPath -> IO a) -> IO a
 downloadPackage rep pkgId callback = withMirror rep $ evalContT $ do
     -- We need the cached root information in order to resolve key IDs and
@@ -404,9 +409,10 @@ downloadPackage rep pkgId callback = withMirror rep $ evalContT $ do
     targets :: Trusted Targets <- do
       mRaw <- getFromIndex rep (IndexPkgMetadata pkgId)
       case mRaw of
-        Nothing -> liftIO $ throwIO $ InvalidPackageException pkgId
+        Nothing -> liftIO $ throwChecked $ InvalidPackageException pkgId
         Just raw -> do
-          signed <- throwErrors $ parseJSON_Keys_NoLayout keyEnv raw
+          signed <- throwErrorsUnrecoverable $
+                      parseJSON_Keys_NoLayout keyEnv raw
           return $ trustIndex signed
 
     -- The path of the package, relative to the targets.json file
@@ -420,8 +426,8 @@ downloadPackage rep pkgId callback = withMirror rep $ evalContT $ do
              `trustApply` targets
     targetMetaData :: Trusted FileInfo
       <- case mTargetMetaData of
-           Nothing -> liftIO $
-             throwIO $ VerificationErrorUnknownTarget filePath
+           Nothing ->
+             recoverableThrow $ VerificationErrorUnknownTarget filePath
            Just nfo ->
              return nfo
 
@@ -465,8 +471,9 @@ bootstrap :: Throws SomeRecoverableException
 bootstrap rep trustedRootKeys keyThreshold = withMirror rep $ evalContT $ do
     _newRoot :: Trusted Root <- do
       (targetPath, tempPath) <- getRemote' rep FirstAttempt (RemoteRoot Nothing)
-      signed   <- readJSON (repLayout rep) KeyEnv.empty tempPath
-      verified <- throwErrors $ verifyFingerprints
+      signed   <- throwErrorsRecoverable =<<
+                    readJSON (repLayout rep) KeyEnv.empty tempPath
+      verified <- throwErrorsRecoverable $ verifyFingerprints
                     trustedRootKeys
                     keyThreshold
                     targetPath
@@ -530,7 +537,8 @@ withMirror rep callback = do
     mMirrors <- repGetCached rep CachedMirrors
     mirrors  <- case mMirrors of
       Nothing -> return Nothing
-      Just fp -> filterMirrors <$> (throwErrors =<< readJSON_NoKeys_NoLayout fp)
+      Just fp -> filterMirrors <$>
+                   (throwErrorsUnrecoverable =<< readJSON_NoKeys_NoLayout fp)
     repWithMirror rep mirrors $ callback
   where
     filterMirrors :: UninterpretedSignatures Mirrors -> Maybe [Mirror]
@@ -573,16 +581,21 @@ verifyFileInfo' (Just info) targetPath tempPath = liftIO $ do
     unless verified $ throw $ VerificationErrorFileInfo targetPath
 
 readJSON :: (MonadIO m, FromJSON ReadJSON_Keys_Layout a)
-         => RepoLayout -> KeyEnv -> TempPath -> m a
-readJSON repoLayout keyEnv fpath = liftIO $ do
-    result <- readJSON_Keys_Layout keyEnv repoLayout fpath
-    case result of
-      Left err -> throwIO err
-      Right a  -> return a
+         => RepoLayout -> KeyEnv -> TempPath
+         -> m (Either DeserializationError a)
+readJSON repoLayout keyEnv fpath = liftIO $
+    readJSON_Keys_Layout keyEnv repoLayout fpath
 
-throwErrors :: (MonadIO m, Exception e) => Either e a -> m a
-throwErrors (Left err) = liftIO $ throwIO err
-throwErrors (Right a)  = return a
+throwErrorsRecoverable :: ( Throws SomeRecoverableException
+                          , MonadIO m
+                          , Exception e)
+                       => Either e a -> m a
+throwErrorsRecoverable (Left err) = recoverableThrow err
+throwErrorsRecoverable (Right a)  = return a
+
+throwErrorsUnrecoverable :: (MonadIO m, Exception e) => Either e a -> m a
+throwErrorsUnrecoverable (Left err) = liftIO $ throwUnchecked err
+throwErrorsUnrecoverable (Right a)  = return a
 
 eitherToMaybe :: Either a b -> Maybe b
 eitherToMaybe (Left  _) = Nothing

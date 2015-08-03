@@ -292,7 +292,7 @@ getSelectedMirror :: SelectedMirror -> IO URI
 getSelectedMirror selectedMirror = do
      mBaseURI <- readMVar selectedMirror
      case mBaseURI of
-       Nothing      -> throwIO $ userError "Internal error: no mirror selected"
+       Nothing      -> internalError "Internal error: no mirror selected"
        Just baseURI -> return baseURI
 
 -- | Get a file from the server
@@ -352,7 +352,7 @@ withMirror HttpClient{..} selectedMirror logger oobMirrors tufMirrors callback =
   where
     go :: [URI] -> IO a
     -- Empty list of mirrors is a bug
-    go [] = throwIO $ userError "No mirrors configured"
+    go [] = internalError "No mirrors configured"
     -- If we only have a single mirror left, let exceptions be thrown up
     go [m] = do
       logger $ LogSelectedMirror (show m)
@@ -598,7 +598,8 @@ bodyReaderFromBS lazyBS = do
 -- as part of the same HTTP request.
 --
 -- TODO: Deal with minimum download rate.
-execBodyReader :: TargetPath  -- ^ File source (for error msgs only)
+execBodyReader :: Throws SomeRecoverableException
+               => TargetPath  -- ^ File source (for error msgs only)
                -> FileSize    -- ^ Maximum file size
                -> Handle      -- ^ Handle to write data too
                -> BodyReader  -- ^ The action to give us blocks from the file
@@ -608,7 +609,7 @@ execBodyReader file mlen h br = go 0
     go :: Int -> IO ()
     go sz = do
       unless (sz `fileSizeWithinBounds` mlen) $
-        throwIO $ VerificationErrorFileTooLarge file
+        recoverableThrow $ VerificationErrorFileTooLarge file
       bs <- br
       if BS.null bs
         then return ()
