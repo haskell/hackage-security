@@ -1,5 +1,5 @@
 -- | Implementation of 'HttpClient' using external downloader
-module Hackage.Security.Client.Repository.Remote.Curl (
+module Hackage.Security.Client.Repository.HttpLib.Curl (
     withClient
   ) where
 
@@ -10,7 +10,7 @@ import System.IO
 import qualified Data.ByteString               as BS
 import qualified Data.ByteString.Lazy.Internal as BS.L
 
-import Hackage.Security.Client.Repository.Remote
+import Hackage.Security.Client.Repository.HttpLib
 
 {-------------------------------------------------------------------------------
   Top-level API
@@ -23,11 +23,11 @@ import Hackage.Security.Client.Repository.Remote
 -- more serious implementation.
 --
 -- TODO: Deal with _proxy
-withClient :: ProxyConfig String -> (String -> IO ()) -> (HttpClient -> IO a) -> IO a
+withClient :: ProxyConfig String -> (String -> IO ()) -> (HttpLib -> IO a) -> IO a
 withClient _proxy _logger callback = do
-    callback HttpClient {
-      httpClientGet      = get
-    , httpClientGetRange = undefined -- TODO: support range requests
+    callback HttpLib {
+      httpGet      = get
+    , httpGetRange = undefined -- TODO: support range requests
     }
 
 {-------------------------------------------------------------------------------

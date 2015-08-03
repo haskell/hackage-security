@@ -12,7 +12,7 @@ build-type:          Simple
 cabal-version:       >=1.10
 
 library
-  exposed-modules:     Hackage.Security.Client.Repository.Remote.HttpClient
+  exposed-modules:     Hackage.Security.Client.Repository.HttpLib.HttpClient
   build-depends:       base               >= 4.4,
                        bytestring         >= 0.9,
                        data-default-class >= 0.0,

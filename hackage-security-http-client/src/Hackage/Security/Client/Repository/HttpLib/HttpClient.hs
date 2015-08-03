@@ -1,5 +1,5 @@
 {-# LANGUAGE OverloadedStrings #-}
-module Hackage.Security.Client.Repository.Remote.HttpClient (
+module Hackage.Security.Client.Repository.HttpLib.HttpClient (
     withClient
   ) where
 
@@ -15,7 +15,7 @@ import qualified Data.ByteString       as BS
 import qualified Data.ByteString.Char8 as BS.C8
 
 import Hackage.Security.Client hiding (Header)
-import Hackage.Security.Client.Repository.Remote
+import Hackage.Security.Client.Repository.HttpLib
 import Hackage.Security.Util.Checked
 import qualified Hackage.Security.Util.Lens as Lens
 
@@ -23,13 +23,13 @@ import qualified Hackage.Security.Util.Lens as Lens
   Top-level API
 -------------------------------------------------------------------------------}
 
-withClient :: ProxyConfig Proxy -> (String -> IO ()) -> (HttpClient -> IO a) -> IO a
+withClient :: ProxyConfig Proxy -> (String -> IO ()) -> (HttpLib -> IO a) -> IO a
 withClient proxyConfig _logger callback = do
-    withManager (setProxy defaultManagerSettings) $ \manager ->
-      callback HttpClient {
-          httpClientGet      = get      manager
-        , httpClientGetRange = getRange manager
-        }
+    manager <- newManager (setProxy defaultManagerSettings)
+    callback HttpLib {
+        httpGet      = get      manager
+      , httpGetRange = getRange manager
+      }
   where
     setProxy = managerSetProxy $
       case proxyConfig of
@@ -41,7 +41,7 @@ withClient proxyConfig _logger callback = do
   Individual methods
 -------------------------------------------------------------------------------}
 
-get :: Throws SomeRecoverableException
+get :: Throws SomeRemoteError
     => Manager
     -> [HttpRequestHeader] -> URI
     -> ([HttpResponseHeader] -> BodyReader -> IO a)
@@ -56,7 +56,7 @@ get manager reqHeaders uri callback = wrapCustomEx $ do
       let br = wrapCustomEx $ responseBody response
       callback (getResponseHeaders response) br
 
-getRange :: Throws SomeRecoverableException
+getRange :: Throws SomeRemoteError
          => Manager
          -> [HttpRequestHeader] -> URI -> (Int, Int)
          -> ([HttpResponseHeader] -> BodyReader -> IO a)
@@ -78,11 +78,11 @@ getRange manager reqHeaders uri (from, to) callback = wrapCustomEx $ do
 -- NOTE: The only other exception defined in @http-client@ is @TimeoutTriggered@
 -- but it is currently disabled <https://github.com/snoyberg/http-client/issues/116>
 wrapCustomEx :: (Throws HttpException => IO a)
-             -> (Throws SomeRecoverableException => IO a)
+             -> (Throws SomeRemoteError => IO a)
 wrapCustomEx act = handleChecked (\(ex :: HttpException) -> go ex)
                  $ act
   where
-    go ex = throwChecked (SomeRecoverableException ex)
+    go ex = throwChecked (SomeRemoteError ex)
 
 checkHttpException :: Throws HttpException => IO a -> IO a
 checkHttpException = handle $ \(ex :: HttpException) -> throwChecked ex

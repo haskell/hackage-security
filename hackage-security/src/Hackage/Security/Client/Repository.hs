@@ -16,24 +16,20 @@ module Hackage.Security.Client.Repository (
   , IsRetry(..)
   , LogMessage(..)
   , UpdateFailure(..)
+  , SomeRemoteError(..)
     -- ** Helpers
   , mirrorsUnsupported
     -- * Paths
   , remoteRepoPath
   , remoteRepoPath'
   , indexFilePath
-    -- * Recoverable exceptions
-  , SomeRecoverableException(..)
-  , recoverableThrow
-  , recoverableIsVerificationError
     -- * Utility
   , IsCached(..)
   , mustCache
   ) where
 
 import Control.Exception
-import Control.Monad.IO.Class
-import Data.Typeable
+import Data.Typeable (Typeable)
 import qualified Data.ByteString as BS
 
 import Distribution.Package
@@ -200,7 +196,8 @@ data Repository = Repository {
     --
     -- NOTE: Calls to 'repWithRemote' should _always_ be in the scope of
     -- 'repWithMirror'.
-    repWithRemote :: forall a fs. Throws SomeRecoverableException
+    repWithRemote :: forall a fs.
+                     (Throws VerificationError, Throws SomeRemoteError)
                   => IsRetry
                   -> RemoteFile fs
                   -> (forall f. HasFormat fs f -> TempPath -> IO a)
@@ -314,7 +311,7 @@ data LogMessage =
 
     -- | We got an exception with a particular mirror
     -- (we will try with a different mirror if any are available)
-  | LogMirrorFailed MirrorDescription SomeRecoverableException
+  | LogMirrorFailed MirrorDescription SomeException
 
 -- | Records why we are downloading a file rather than updating it.
 data UpdateFailure =
@@ -332,54 +329,32 @@ data UpdateFailure =
   | UpdateTooLarge
 
     -- | Update failed
-  | UpdateFailed SomeRecoverableException
+  | UpdateFailed SomeException
 
 {-------------------------------------------------------------------------------
-  Recoverable exceptions
+  Exceptions thrown by specific Repository implementations
 -------------------------------------------------------------------------------}
 
--- | An exception that we might be able to recover from
+-- | Repository-specific exceptions
 --
--- Example use cases:
---
--- * When we are updating a file incrementally rather than downloading it
--- * When we are using a particular mirror (but might choose another)
---
--- In examples such as these we can catch these 'RecoverableException's,
--- but we don't want to catch just any odd exception. For example, we don't
--- want to catch a ThreadKilled exception while incrementally updating a file
--- and then retry by downloading it.
-data SomeRecoverableException :: * where
-    SomeRecoverableException :: Exception e => e -> SomeRecoverableException
+-- For instance, for repositories using HTTP this might correspond to a 404;
+-- for local repositories this might correspond to file-not-found, etc.
+data SomeRemoteError :: * where
+    SomeRemoteError :: Exception e => e -> SomeRemoteError
   deriving (Typeable)
 
 #if MIN_VERSION_base(4,8,0)
-
-deriving instance Show SomeRecoverableException
-instance Exception SomeRecoverableException where
-  displayException (SomeRecoverableException ex) = displayException ex
-
+deriving instance Show SomeRemoteError
+instance Exception SomeRemoteError where
+  displayException (SomeRemoteError ex) = displayException ex
 #else
-
-instance Exception SomeRecoverableException
-instance Show SomeRecoverableException where
-  show (SomeRecoverableException ex) = show ex
-
+instance Exception SomeRemoteError
+instance Show SomeRemoteError where
+  show (SomeRemoteError ex) = show ex
 #endif
 
-instance Pretty SomeRecoverableException where
-    pretty (SomeRecoverableException ex) = displayException ex
-
-recoverableThrow :: ( Throws SomeRecoverableException
-                    , Exception e
-                    , MonadIO m
-                    )
-                 => e -> m a
-recoverableThrow = liftIO . throwChecked . SomeRecoverableException
-
-recoverableIsVerificationError :: SomeRecoverableException
-                               -> Maybe VerificationError
-recoverableIsVerificationError (SomeRecoverableException ex) = cast ex
+instance Pretty SomeRemoteError where
+    pretty (SomeRemoteError ex) = displayException ex
 
 {-------------------------------------------------------------------------------
   Paths
@@ -460,7 +435,7 @@ instance Pretty LogMessage where
   pretty (LogUpdateFailed (Some file) ex) =
       "Updating " ++ pretty file ++ " failed (" ++ pretty ex ++ ")"
   pretty (LogMirrorFailed mirror ex) =
-      "Exception " ++ pretty ex ++ " when using mirror " ++ mirror
+      "Exception " ++ displayException ex ++ " when using mirror " ++ mirror
 
 instance Pretty UpdateFailure where
   pretty UpdateImpossibleOnlyCompressed =
@@ -472,4 +447,4 @@ instance Pretty UpdateFailure where
   pretty UpdateTooLarge =
       "update too large"
   pretty (UpdateFailed ex) =
-      pretty ex
+      displayException ex

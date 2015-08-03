@@ -18,9 +18,15 @@ module Hackage.Security.Client (
   , module Hackage.Security.Key
     -- ** We only a few bits from .Repository
     -- TODO: Maybe this is a sign that these should be in a different module?
-  , SomeRecoverableException(..)
   , Repository -- opaque
+  , SomeRemoteError(..)
   , LogMessage(..)
+    -- * Exceptions
+  , uncheckClientErrors
+  , VerificationError(..)
+  , InvalidPackageException(..)
+  , InvalidFileInIndex(..)
+  , LocalFileCorrupted(..)
   ) where
 
 import Prelude hiding (log)
@@ -76,7 +82,7 @@ data HasUpdates = HasUpdates | NoUpdates
 --
 -- This implements the logic described in Section 5.1, "The client application",
 -- of the TUF spec.
-checkForUpdates :: Throws SomeRecoverableException
+checkForUpdates :: (Throws VerificationError, Throws SomeRemoteError)
                 => Repository -> CheckExpiry -> IO HasUpdates
 checkForUpdates rep checkExpiry = do
     cachedInfo <- getCachedInfo rep
@@ -89,9 +95,9 @@ checkForUpdates rep checkExpiry = do
     -- root information and start over. However, in order to prevent DoS attacks
     -- we limit how often we go round this loop.
     -- See als <https://github.com/theupdateframework/tuf/issues/287>.
-    limitIterations :: Throws SomeRecoverableException
+    limitIterations :: (Throws VerificationError, Throws SomeRemoteError)
                     => CachedInfo -> IsRetry -> Int -> IO HasUpdates
-    limitIterations _ _ 0 = recoverableThrow VerificationErrorLoop
+    limitIterations _ _ 0 = throwChecked VerificationErrorLoop
     limitIterations cachedInfo isRetry n = do
       mNow <- case checkExpiry of
                 CheckExpiry     -> Just <$> getCurrentTime
@@ -118,7 +124,7 @@ checkForUpdates rep checkExpiry = do
     -- downloaded files will be cached until the entire check for updates check
     -- completes successfully.
     -- See also <https://github.com/theupdateframework/tuf/issues/283>.
-    go :: Throws SomeRecoverableException
+    go :: Throws SomeRemoteError
        => Maybe UTCTime
        -> IsRetry
        -> CachedInfo
@@ -156,7 +162,7 @@ checkForUpdates rep checkExpiry = do
       where
         getRemoteFile' :: ( VerifyRole a
                           , FromJSON ReadJSON_Keys_Layout (Signed a)
-                          , Throws SomeRecoverableException
+                          , Throws SomeRemoteError
                           )
                        => RemoteFile (f :- ()) -> ContT r IO (Trusted a)
         getRemoteFile' = getRemoteFile rep cachedInfo isRetry mNow
@@ -241,7 +247,7 @@ data RootUpdated = RootUpdated
 -- cached timestamp whenever the version on the remote timestamp is invalid,
 -- thereby rendering the file version on the timestamp and the snapshot useless.
 -- See <https://github.com/theupdateframework/tuf/issues/283#issuecomment-115739521>
-updateRoot :: Throws SomeRecoverableException
+updateRoot :: (Throws VerificationError, Throws SomeRemoteError)
            => Repository
            -> Maybe UTCTime
            -> IsRetry
@@ -305,7 +311,7 @@ getCachedInfo rep = do
 readLocalRoot :: MonadIO m => Repository -> m (Trusted Root, KeyEnv)
 readLocalRoot rep = do
     cachedPath <- liftIO $ repGetCachedRoot rep
-    signedRoot <- throwErrorsUnrecoverable =<<
+    signedRoot <- throwErrorsUnchecked LocalFileCorrupted =<<
                     readJSON (repLayout rep) KeyEnv.empty cachedPath
     return (trustLocalFile signedRoot, rootKeys (signed signedRoot))
 
@@ -316,13 +322,14 @@ readLocalFile :: ( FromJSON ReadJSON_Keys_Layout (Signed a)
 readLocalFile rep cachedKeyEnv file = do
     mCachedPath <- liftIO $ repGetCached rep file
     for mCachedPath $ \cachedPath -> do
-      signed <- throwErrorsUnrecoverable =<<
+      signed <- throwErrorsUnchecked LocalFileCorrupted =<<
                   readJSON (repLayout rep) cachedKeyEnv cachedPath
       return $ trustLocalFile signed
 
-getRemoteFile :: ( VerifyRole a
+getRemoteFile :: ( Throws VerificationError
+                 , Throws SomeRemoteError
+                 , VerifyRole a
                  , FromJSON ReadJSON_Keys_Layout (Signed a)
-                 , Throws SomeRecoverableException
                  )
               => Repository
               -> CachedInfo
@@ -333,9 +340,9 @@ getRemoteFile :: ( VerifyRole a
 getRemoteFile rep cachedInfo@CachedInfo{..} isRetry mNow file = do
     (targetPath, tempPath) <- getRemote' rep isRetry file
     verifyFileInfo' (remoteFileDefaultInfo file) targetPath tempPath
-    signed   <- throwErrorsRecoverable =<<
+    signed   <- throwErrorsChecked SomeRemoteError =<<
                   readJSON (repLayout rep) cachedKeyEnv tempPath
-    verified <- throwErrorsRecoverable $ verifyRole
+    verified <- throwErrorsChecked id $ verifyRole
                   cachedRoot
                   targetPath
                   (cachedVersion cachedInfo file)
@@ -353,17 +360,10 @@ getRemoteFile rep cachedInfo@CachedInfo{..} isRetry mNow file = do
 -- temporary location to a permanent location (if desired). The callback will
 -- only be invoked once the chain of trust has been verified.
 --
--- Possibly exceptions thrown:
---
--- * May throw a VerificationError if the package cannot be verified against
---   the previously downloaded metadata. It is up to the calling code to decide
---   what to do with such an exception; in particular, we do NOT automatically
---   renew the root metadata at this point.
---   (See also <https://github.com/theupdateframework/tuf/issues/281>.)
--- * May throw an InvalidPackageException if the requested package does not
---   exist (this is a programmer error).
-downloadPackage :: ( Throws SomeRecoverableException
-                   , Throws InvalidPackageException
+-- NOTE: Unlike the check for updates, downloading a package never triggers an
+-- update of the root information (even if verification of the package fails).
+downloadPackage :: ( Throws SomeRemoteError
+                   , Throws VerificationError
                    )
                 => Repository -> PackageIdentifier -> (TempPath -> IO a) -> IO a
 downloadPackage rep pkgId callback = withMirror rep $ evalContT $ do
@@ -407,11 +407,12 @@ downloadPackage rep pkgId callback = withMirror rep $ evalContT $ do
     -- delegation rules. Until we have author signing however this is
     -- unnecessary.
     targets :: Trusted Targets <- do
-      mRaw <- getFromIndex rep (IndexPkgMetadata pkgId)
+      let indexFile = IndexPkgMetadata pkgId
+      mRaw <- getFromIndex rep indexFile
       case mRaw of
-        Nothing -> liftIO $ throwChecked $ InvalidPackageException pkgId
+        Nothing -> liftIO $ throwUnchecked $ InvalidPackageException pkgId
         Just raw -> do
-          signed <- throwErrorsUnrecoverable $
+          signed <- throwErrorsUnchecked (InvalidFileInIndex indexFile) $
                       parseJSON_Keys_NoLayout keyEnv raw
           return $ trustIndex signed
 
@@ -426,8 +427,8 @@ downloadPackage rep pkgId callback = withMirror rep $ evalContT $ do
              `trustApply` targets
     targetMetaData :: Trusted FileInfo
       <- case mTargetMetaData of
-           Nothing ->
-             recoverableThrow $ VerificationErrorUnknownTarget filePath
+           Nothing -> liftIO $
+             throwChecked $ VerificationErrorUnknownTarget filePath
            Just nfo ->
              return nfo
 
@@ -438,11 +439,6 @@ downloadPackage rep pkgId callback = withMirror rep $ evalContT $ do
       verifyFileInfo' (Just targetMetaData) targetPath tempPath
       return tempPath
     lift $ callback tarGz
-
-data InvalidPackageException = InvalidPackageException PackageIdentifier
-  deriving (Show, Typeable)
-
-instance Exception InvalidPackageException
 
 {-------------------------------------------------------------------------------
   Bootstrapping
@@ -466,14 +462,14 @@ requiresBootstrap rep = isNothing <$> repGetCached rep CachedRoot
 -- provided keys, and _not_ against previously downloaded root info (if any).
 -- It is the responsibility of the client to call `bootstrap` only when this
 -- is the desired behaviour.
-bootstrap :: Throws SomeRecoverableException
+bootstrap :: (Throws SomeRemoteError, Throws VerificationError)
           => Repository -> [KeyId] -> KeyThreshold -> IO ()
 bootstrap rep trustedRootKeys keyThreshold = withMirror rep $ evalContT $ do
     _newRoot :: Trusted Root <- do
       (targetPath, tempPath) <- getRemote' rep FirstAttempt (RemoteRoot Nothing)
-      signed   <- throwErrorsRecoverable =<<
+      signed   <- throwErrorsChecked SomeRemoteError =<<
                     readJSON (repLayout rep) KeyEnv.empty tempPath
-      verified <- throwErrorsRecoverable $ verifyFingerprints
+      verified <- throwErrorsChecked id $ verifyFingerprints
                     trustedRootKeys
                     keyThreshold
                     targetPath
@@ -486,7 +482,7 @@ bootstrap rep trustedRootKeys keyThreshold = withMirror rep $ evalContT $ do
   Wrapper around the Repository functions (to avoid callback hell)
 -------------------------------------------------------------------------------}
 
-getRemote :: forall fs r. Throws SomeRecoverableException
+getRemote :: forall fs r. (Throws SomeRemoteError, Throws VerificationError)
           => Repository
           -> IsRetry
           -> RemoteFile fs
@@ -505,7 +501,7 @@ getRemote r isRetry file = ContT aux
         targetPath = TargetPathRepo $ remoteRepoPath' (repLayout r) file format
 
 -- | Variation on getRemote where we only expect one type of result
-getRemote' :: forall f r. Throws SomeRecoverableException
+getRemote' :: forall f r. (Throws SomeRemoteError, Throws VerificationError)
            => Repository
            -> IsRetry
            -> RemoteFile (f :- ())
@@ -538,7 +534,8 @@ withMirror rep callback = do
     mirrors  <- case mMirrors of
       Nothing -> return Nothing
       Just fp -> filterMirrors <$>
-                   (throwErrorsUnrecoverable =<< readJSON_NoKeys_NoLayout fp)
+                   (throwErrorsUnchecked LocalFileCorrupted =<<
+                     readJSON_NoKeys_NoLayout fp)
     repWithMirror rep mirrors $ callback
   where
     filterMirrors :: UninterpretedSignatures Mirrors -> Maybe [Mirror]
@@ -554,6 +551,38 @@ withMirror rep callback = do
     -- to see if all of those files are available from this mirror.
     canUseMirror :: MirrorContent -> Bool
     canUseMirror MirrorFull = True
+
+{-------------------------------------------------------------------------------
+  Exceptions
+-------------------------------------------------------------------------------}
+
+-- | Re-throw all exceptions thrown by the client API as unchecked exceptions
+uncheckClientErrors :: ( ( Throws VerificationError
+                         , Throws SomeRemoteError
+                         ) => IO a )
+                     -> IO a
+uncheckClientErrors act = handleChecked rethrowVerificationError
+                        $ handleChecked rethrowSomeRemoteError
+                        $ act
+  where
+     rethrowVerificationError :: VerificationError -> IO a
+     rethrowVerificationError = throwIO
+
+     rethrowSomeRemoteError :: SomeRemoteError -> IO a
+     rethrowSomeRemoteError = throwIO
+
+data InvalidPackageException = InvalidPackageException PackageIdentifier
+  deriving (Show, Typeable)
+
+data LocalFileCorrupted = LocalFileCorrupted DeserializationError
+  deriving (Show, Typeable)
+
+data InvalidFileInIndex = InvalidFileInIndex IndexFile DeserializationError
+  deriving (Show, Typeable)
+
+instance Exception InvalidPackageException
+instance Exception LocalFileCorrupted
+instance Exception InvalidFileInIndex
 
 {-------------------------------------------------------------------------------
   Auxiliary
@@ -586,16 +615,20 @@ readJSON :: (MonadIO m, FromJSON ReadJSON_Keys_Layout a)
 readJSON repoLayout keyEnv fpath = liftIO $
     readJSON_Keys_Layout keyEnv repoLayout fpath
 
-throwErrorsRecoverable :: ( Throws SomeRecoverableException
-                          , MonadIO m
-                          , Exception e)
-                       => Either e a -> m a
-throwErrorsRecoverable (Left err) = recoverableThrow err
-throwErrorsRecoverable (Right a)  = return a
+throwErrorsUnchecked :: ( MonadIO m
+                        , Exception e'
+                        )
+                     => (e -> e') -> Either e a -> m a
+throwErrorsUnchecked f (Left err) = liftIO $ throwUnchecked (f err)
+throwErrorsUnchecked _ (Right a)  = return a
 
-throwErrorsUnrecoverable :: (MonadIO m, Exception e) => Either e a -> m a
-throwErrorsUnrecoverable (Left err) = liftIO $ throwUnchecked err
-throwErrorsUnrecoverable (Right a)  = return a
+throwErrorsChecked :: ( Throws e'
+                      , MonadIO m
+                      , Exception e'
+                      )
+                   => (e -> e') -> Either e a -> m a
+throwErrorsChecked f (Left err) = liftIO $ throwChecked (f err)
+throwErrorsChecked _ (Right a)  = return a
 
 eitherToMaybe :: Either a b -> Maybe b
 eitherToMaybe (Left  _) = Nothing

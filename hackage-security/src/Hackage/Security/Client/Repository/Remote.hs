@@ -19,17 +19,9 @@ module Hackage.Security.Client.Repository.Remote (
     -- * Top-level API
     withRepository
   , AllowContentCompression(..)
-    -- * Abstracting over HTTP libraries
-  , HttpClient(..)
-  , HttpRequestHeader(..)
-  , HttpResponseHeader(..)
-  , ProxyConfig(..)
      -- * File sizes
   , FileSize(..)
   , fileSizeWithinBounds
-    -- ** Body reader
-  , BodyReader
-  , bodyReaderFromBS
   ) where
 
 import Control.Concurrent
@@ -37,7 +29,6 @@ import Control.Exception
 import Control.Monad.Cont
 import Control.Monad.Except
 import Data.List (nub)
-import Data.IORef
 import Network.URI hiding (uriPath, path)
 import System.IO
 import qualified Data.ByteString      as BS
@@ -46,6 +37,7 @@ import qualified Data.ByteString.Lazy as BS.L
 import Hackage.Security.Client.Formats
 import Hackage.Security.Client.Repository
 import Hackage.Security.Client.Repository.Cache (Cache)
+import Hackage.Security.Client.Repository.HttpLib
 import Hackage.Security.Trusted
 import Hackage.Security.TUF
 import Hackage.Security.Util.Checked
@@ -114,93 +106,6 @@ fileSizeWithinBounds sz (FileSizeExact sz') = sz <= sz'
 fileSizeWithinBounds sz (FileSizeBound sz') = sz <= sz'
 
 {-------------------------------------------------------------------------------
-  Abstraction over HTTP clients (such as HTTP, http-conduit, etc.)
--------------------------------------------------------------------------------}
-
--- | Abstraction over HTTP clients
---
--- This avoids insisting on a particular implementation (such as the HTTP
--- package) and allows for other implementations (such as a conduit based one).
---
--- NOTE: HttpClients MUST wrap any library-specific (recoverable) exceptions
--- in 'CustomRecoverableException'.
-data HttpClient = HttpClient {
-    -- | Download a file
-    httpClientGet :: forall a. Throws SomeRecoverableException
-                  => [HttpRequestHeader]
-                  -> URI
-                  -> ([HttpResponseHeader] -> BodyReader -> IO a)
-                  -> IO a
-
-    -- | Download a byte range
-    --
-    -- Range is starting and (exclusive) end offset in bytes.
-  , httpClientGetRange :: forall a. Throws SomeRecoverableException
-                       => [HttpRequestHeader]
-                       -> URI
-                       -> (Int, Int)
-                       -> ([HttpResponseHeader] -> BodyReader -> IO a)
-                       -> IO a
-  }
-
--- | Additional request headers
---
--- Since different libraries represent headers differently, here we just
--- abstract over the few request headers that we might want to set
-data HttpRequestHeader =
-    -- | Set @Cache-Control: max-age=0@
-    HttpRequestMaxAge0
-
-    -- | Set @Cache-Control: no-transform@
-  | HttpRequestNoTransform
-
-    -- | Request transport compression (@Accept-Encoding: gzip@)
-    --
-    -- It is the responsibility of the 'HttpClient' to do compression
-    -- (and report whether the original server reply was compressed or not).
-    --
-    -- NOTE: Clients should NOT allow for compression unless explicitly
-    -- requested (since decompression happens before signature verification, it
-    -- is a potential security concern).
-  | HttpRequestContentCompression
-  deriving (Eq, Ord, Show)
-
--- | Response headers
---
--- Since different libraries represent headers differently, here we just
--- abstract over the few response headers that we might want to know about.
-data HttpResponseHeader =
-    -- | Server accepts byte-range requests (@Accept-Ranges: bytes@)
-    HttpResponseAcceptRangesBytes
-
-    -- | Original server response was compressed
-    -- (the 'HttpClient' however must do decompression)
-  | HttpResponseContentCompression
-  deriving (Eq, Ord, Show)
-
--- | Proxy configuration
---
--- Although actually setting the proxy is the purview of the initialization
--- function for individual 'HttpClient' implementations and therefore outside
--- the scope of this module, we offer this 'ProxyConfiguration' type here as a
--- way to uniformly configure proxies across all 'HttpClient's.
-data ProxyConfig a =
-    -- | Don't use a proxy
-    ProxyConfigNone
-
-    -- | Use this specific proxy
-    --
-    -- Individual HTTP backends use their own types for specifying proxies.
-  | ProxyConfigUse a
-
-    -- | Use automatic proxy settings
-    --
-    -- What precisely automatic means is 'HttpClient' specific, though
-    -- typically it will involve looking at the @HTTP_PROXY@ environment
-    -- variable or the (Windows) registry.
-  | ProxyConfigAuto
-
-{-------------------------------------------------------------------------------
   Top-level API
 -------------------------------------------------------------------------------}
 
@@ -230,7 +135,7 @@ data AllowContentCompression =
 -- here and the mirrors that we get from @mirrors.json@) as well as indicating
 -- mirror preferences.
 withRepository
-  :: HttpClient              -- ^ Implementation of the HTTP protocol
+  :: HttpLib                 -- ^ Implementation of the HTTP protocol
   -> [URI]                   -- ^ "Out of band" list of mirrors
   -> AllowContentCompression -- ^ Should we allow HTTP content compression?
   -> Cache                   -- ^ Location of local cache
@@ -238,7 +143,7 @@ withRepository
   -> (LogMessage -> IO ())   -- ^ Logger
   -> (Repository -> IO a)    -- ^ Callback
   -> IO a
-withRepository http
+withRepository httpLib
                outOfBandMirrors
                allowContentCompression
                cache
@@ -250,7 +155,7 @@ withRepository http
     caps <- newServerCapabilities
     let remoteConfig mirror = RemoteConfig {
                                   cfgLayout   = repLayout
-                                , cfgClient   = http
+                                , cfgHttpLib  = httpLib
                                 , cfgBase     = mirror
                                 , cfgCache    = cache
                                 , cfgCaps     = caps
@@ -263,7 +168,7 @@ withRepository http
       , repGetCachedRoot = Cache.getCachedRoot cache
       , repClearCache    = Cache.clearCache    cache
       , repGetFromIndex  = Cache.getFromIndex  cache (repoIndexLayout repLayout)
-      , repWithMirror    = withMirror http selectedMirror logger outOfBandMirrors
+      , repWithMirror    = withMirror httpLib selectedMirror logger outOfBandMirrors
       , repLog           = logger
       , repLayout        = repLayout
       , repDescription   = "Remote repository at " ++ show outOfBandMirrors
@@ -296,7 +201,7 @@ getSelectedMirror selectedMirror = do
        Just baseURI -> return baseURI
 
 -- | Get a file from the server
-withRemote :: Throws SomeRecoverableException
+withRemote :: (Throws VerificationError, Throws SomeRemoteError)
            => (URI -> RemoteConfig)
            -> SelectedMirror
            -> IsRetry
@@ -308,7 +213,7 @@ withRemote remoteConfig selectedMirror isRetry remoteFile callback = do
    withRemote' (remoteConfig baseURI) isRetry remoteFile callback
 
 -- | Get a file from the server, assuming we have already picked a mirror
-withRemote' :: Throws SomeRecoverableException
+withRemote' :: (Throws VerificationError, Throws SomeRemoteError)
             => RemoteConfig
             -> IsRetry
             -> RemoteFile fs
@@ -340,14 +245,14 @@ httpRequestHeaders RemoteConfig{..} isRetry =
 
 -- | Mirror selection
 withMirror :: forall a.
-              HttpClient             -- ^ HTTP client
+              HttpLib                -- ^ HTTP client
            -> SelectedMirror         -- ^ MVar indicating currently mirror
            -> (LogMessage -> IO ())  -- ^ Logger
            -> [URI]                  -- ^ Out-of-band mirrors
            -> Maybe [Mirror]         -- ^ TUF mirrors
            -> IO a                   -- ^ Callback
            -> IO a
-withMirror HttpClient{..} selectedMirror logger oobMirrors tufMirrors callback =
+withMirror HttpLib{..} selectedMirror logger oobMirrors tufMirrors callback =
     go orderedMirrors
   where
     go :: [URI] -> IO a
@@ -462,7 +367,7 @@ pickDownloadMethod RemoteConfig{..} remoteFile = multipleExitPoints $ do
        }
 
 -- | Download the specified file using the given download method
-getFile :: forall fs a. Throws SomeRecoverableException
+getFile :: forall fs a. (Throws VerificationError, Throws SomeRemoteError)
         => RemoteConfig         -- ^ Internal configuration
         -> IsRetry              -- ^ Did a security check previously fail?
         -> RemoteFile fs        -- ^ File to get
@@ -471,7 +376,8 @@ getFile :: forall fs a. Throws SomeRecoverableException
         -> IO a
 getFile cfg@RemoteConfig{..} isRetry remoteFile callback = go
   where
-    go :: Throws SomeRecoverableException => DownloadMethod fs -> IO a
+    go :: (Throws VerificationError, Throws SomeRemoteError)
+       => DownloadMethod fs -> IO a
     go NeverUpdated{..} = do
         cfgLogger $ LogDownloading (Some remoteFile)
         download downloadFormat
@@ -482,33 +388,41 @@ getFile cfg@RemoteConfig{..} isRetry remoteFile callback = go
     go Update{..} = do
         cfgLogger $ LogUpdating (Some remoteFile)
         -- Attempt to download the file incrementally.
-        --
-        -- If verification of the file fails, and this is the first attempt,
-        -- we let the exception be thrown up to the security layer, so that
-        -- it will try again with instructions to the cache to fetch stuff
-        -- upstream. Hopefully this will resolve the issue. However, if
-        -- an incrementally updated file cannot be verified on the next
-        -- attempt, we then try to download the whole file.
-        let upd = update updateFormat updateInfo updateLocal updateTrailer
-        catchChecked upd $ \ex ->
-          case isRetry of
-            FirstAttempt | Just _ <- recoverableIsVerificationError ex ->
-              throwChecked ex
-            _otherwise -> do
-             let failure = UpdateFailed ex
-             cfgLogger $ LogUpdateFailed (Some remoteFile) failure
-             go $ CannotUpdate updateFormat failure
+        let updateFailed :: SomeException -> IO a
+            updateFailed ex = do
+              let failure = UpdateFailed ex
+              cfgLogger $ LogUpdateFailed (Some remoteFile) failure
+              go $ CannotUpdate updateFormat failure
+
+            -- If verification of the file fails, and this is the first attempt,
+            -- we let the exception be thrown up to the security layer, so that
+            -- it will try again with instructions to the cache to fetch stuff
+            -- upstream. Hopefully this will resolve the issue. However, if
+            -- an incrementally updated file cannot be verified on the next
+            -- attempt, we then try to download the whole file.
+            handleVerificationError :: VerificationError -> IO a
+            handleVerificationError ex =
+              case isRetry of
+                FirstAttempt -> throwChecked ex
+                _otherwise   -> updateFailed $ SomeException ex
+
+            handleHttpException :: SomeRemoteError -> IO a
+            handleHttpException = updateFailed . SomeException
+
+        handleChecked handleVerificationError $
+          handleChecked handleHttpException $
+            update updateFormat updateInfo updateLocal updateTrailer
 
     headers :: [HttpRequestHeader]
     headers = httpRequestHeaders cfg isRetry
 
     -- Get any file from the server, without using incremental updates
-    download :: HasFormat fs f -> IO a
+    download :: Throws SomeRemoteError => HasFormat fs f -> IO a
     download format =
         withTempFile (Cache.cacheRoot cfgCache) (uriTemplate uri) $ \tempPath h -> do
           -- We are careful NOT to scope the remainder of the computation underneath
           -- the httpClientGet
-          httpClientGet headers uri $ \responseHeaders bodyReader -> do
+          httpGet headers uri $ \responseHeaders bodyReader -> do
             updateServerCapabilities cfgCaps responseHeaders
             execBodyReader targetPath sz h bodyReader
           hClose h
@@ -537,7 +451,7 @@ getFile cfg@RemoteConfig{..} isRetry remoteFile callback = go
           hSeek h AbsoluteSeek currentMinusTrailer
           -- As in 'getFile', make sure we don't scope the remainder of the
           -- computation underneath the httpClientGetRange
-          httpClientGetRange headers uri range $ \responseHeaders bodyReader -> do
+          httpGetRange headers uri range $ \responseHeaders bodyReader -> do
             updateServerCapabilities cfgCaps responseHeaders
             execBodyReader targetPath rangeSz h bodyReader
           hClose h
@@ -558,37 +472,7 @@ getFile cfg@RemoteConfig{..} isRetry remoteFile callback = go
                               (mustCache remoteFile)
         return result
 
-    HttpClient{..} = cfgClient
-
-{-------------------------------------------------------------------------------
-  Body readers
--------------------------------------------------------------------------------}
-
--- | An @IO@ action that represents an incoming response body coming from the
--- server.
---
--- The action gets a single chunk of data from the response body, or an empty
--- bytestring if no more data is available.
---
--- This definition is copied from the @http-client@ package.
-type BodyReader = IO BS.ByteString
-
--- | Construct a 'Body' reader from a lazy bytestring
---
--- This is appropriate if the lazy bytestring is constructed, say, by calling
--- 'hGetContents' on a network socket, and the chunks of the bytestring
--- correspond to the chunks as they are returned from the OS network layer.
---
--- If the lazy bytestring needs to be re-chunked this function is NOT suitable.
-bodyReaderFromBS :: BS.L.ByteString -> IO BodyReader
-bodyReaderFromBS lazyBS = do
-    chunks <- newIORef $ BS.L.toChunks lazyBS
-    -- NOTE: Lazy bytestrings invariant: no empty chunks
-    let br = do bss <- readIORef chunks
-                case bss of
-                  []        -> return BS.empty
-                  (bs:bss') -> writeIORef chunks bss' >> return bs
-    return br
+    HttpLib{..} = cfgHttpLib
 
 -- | Execute a body reader
 --
@@ -598,7 +482,7 @@ bodyReaderFromBS lazyBS = do
 -- as part of the same HTTP request.
 --
 -- TODO: Deal with minimum download rate.
-execBodyReader :: Throws SomeRecoverableException
+execBodyReader :: Throws VerificationError
                => TargetPath  -- ^ File source (for error msgs only)
                -> FileSize    -- ^ Maximum file size
                -> Handle      -- ^ Handle to write data too
@@ -609,7 +493,7 @@ execBodyReader file mlen h br = go 0
     go :: Int -> IO ()
     go sz = do
       unless (sz `fileSizeWithinBounds` mlen) $
-        recoverableThrow $ VerificationErrorFileTooLarge file
+        throwChecked $ VerificationErrorFileTooLarge file
       bs <- br
       if BS.null bs
         then return ()
@@ -686,7 +570,7 @@ fileSizeBoundRoot = 2 * 1024 * 2014
 -- This is purely for internal convenience.
 data RemoteConfig = RemoteConfig {
       cfgLayout   :: RepoLayout
-    , cfgClient   :: HttpClient
+    , cfgHttpLib  :: HttpLib
     , cfgBase     :: URI
     , cfgCache    :: Cache
     , cfgCaps     :: ServerCapabilities

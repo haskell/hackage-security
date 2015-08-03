@@ -23,6 +23,7 @@ library
                        Hackage.Security.Client.Repository.Cache
                        Hackage.Security.Client.Repository.Local
                        Hackage.Security.Client.Repository.Remote
+                       Hackage.Security.Client.Repository.HttpLib
                        Hackage.Security.JSON
                        Hackage.Security.Key.Env
                        Hackage.Security.Server

@@ -1,7 +1,8 @@
 {-# LANGUAGE CPP #-}
 -- | Implementation of 'HttpClient' using the HTTP package
-module Hackage.Security.Client.Repository.Remote.HTTP (
+module Hackage.Security.Client.Repository.HttpLib.HTTP (
     withClient
+  , withBrowser
     -- * Exception types
   , UnexpectedResponse(..)
   , InvalidProxy(..)
@@ -26,7 +27,7 @@ import qualified Codec.Compression.Zlib.Internal as GZip (DecompressError)
 #endif
 
 import Hackage.Security.Client
-import Hackage.Security.Client.Repository.Remote
+import Hackage.Security.Client.Repository.HttpLib
 import Hackage.Security.Util.Checked
 import qualified Hackage.Security.Util.Lens as Lens
 
@@ -44,19 +45,19 @@ import qualified Hackage.Security.Util.Lens as Lens
 withClient :: ProxyConfig String -- ^ Proxy
            -> (String -> IO ())  -- ^ stdout log handler
            -> (String -> IO ())  -- ^ stderr log handler
-           -> (HttpClient -> IO a) -> IO a
+           -> (HttpLib -> IO a) -> IO a
 withClient proxyConfig outLog errLog callback =
     bracket (browserInit proxyConfig outLog errLog) browserCleanup $ \browser ->
-      callback HttpClient {
-          httpClientGet      = get      browser
-        , httpClientGetRange = getRange browser
+      callback HttpLib {
+          httpGet      = get      browser
+        , httpGetRange = getRange browser
         }
 
 {-------------------------------------------------------------------------------
   Individual methods
 -------------------------------------------------------------------------------}
 
-get :: Throws SomeRecoverableException
+get :: Throws SomeRemoteError
     => Browser
     -> [HttpRequestHeader] -> URI
     -> ([HttpResponseHeader] -> BodyReader -> IO a)
@@ -69,7 +70,7 @@ get browser reqHeaders uri callback = wrapCustomEx $ do
       (2, 0, 0)  -> withResponse response callback
       _otherwise -> throwChecked $ UnexpectedResponse uri (rspCode response)
 
-getRange :: Throws SomeRecoverableException
+getRange :: Throws SomeRemoteError
          => Browser
          -> [HttpRequestHeader] -> URI -> (Int, Int)
          -> ([HttpResponseHeader] -> BodyReader -> IO a)
@@ -87,7 +88,7 @@ getRange browser reqHeaders uri (from, to) callback = wrapCustomEx $ do
   Auxiliary methods used to implement the HttpClient interface
 -------------------------------------------------------------------------------}
 
-withResponse :: Throws SomeRecoverableException
+withResponse :: Throws SomeRemoteError
              => Response BS.L.ByteString
              -> ([HttpResponseHeader] -> BodyReader -> IO a)
              -> IO a
@@ -108,13 +109,13 @@ wrapCustomEx :: ( ( Throws UnexpectedResponse
                   , Throws IOException
                   , Throws GZip.DecompressError
                   ) => IO a)
-             -> (Throws SomeRecoverableException => IO a)
+             -> (Throws SomeRemoteError => IO a)
 wrapCustomEx act = handleChecked (\(ex :: UnexpectedResponse)   -> go ex)
                  $ handleChecked (\(ex :: IOException)          -> go ex)
                  $ handleChecked (\(ex :: GZip.DecompressError) -> go ex)
                  $ act
   where
-    go ex = throwChecked (SomeRecoverableException ex)
+    go ex = throwChecked (SomeRemoteError ex)
 
 checkDecompressError :: Throws GZip.DecompressError => IO a -> IO a
 checkDecompressError = handle $ \(ex :: GZip.DecompressError) -> throwChecked ex
@@ -122,12 +123,12 @@ checkDecompressError = handle $ \(ex :: GZip.DecompressError) -> throwChecked ex
 wrapCustomEx :: ( ( Throws UnexpectedResponse
                   , Throws IOException
                   ) => IO a)
-             -> (Throws SomeRecoverableException => IO a)
+             -> (Throws SomeRemoteError => IO a)
 wrapCustomEx act = handleChecked (\(ex :: UnexpectedResponse) -> go ex)
                  $ handleChecked (\(ex :: IOException)        -> go ex)
                  $ act
   where
-    go ex = throwChecked (SomeRecoverableException ex)
+    go ex = throwChecked (SomeRemoteError ex)
 
 checkDecompressError :: IO a -> IO a
 checkDecompressError = id

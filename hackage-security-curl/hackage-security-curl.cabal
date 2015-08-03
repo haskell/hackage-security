@@ -12,7 +12,7 @@ build-type:          Simple
 cabal-version:       >=1.10
 
 library
-  exposed-modules:     Hackage.Security.Client.Repository.Remote.Curl
+  exposed-modules:     Hackage.Security.Client.Repository.HttpLib.Curl
   build-depends:       base        >= 4.4,
                        bytestring  >= 0.9,
                        network-uri >= 2.6,
