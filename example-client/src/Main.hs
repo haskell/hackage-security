@@ -87,14 +87,24 @@ withRepo GlobalOpts{..} =
                          else Remote.AllowContentCompression
 
     withClient :: (HttpLib -> IO a) -> IO a
-    withClient =
+    withClient act =
         case globalHttpClient of
-          "HTTP"        -> HttpLib.HTTP.withClient proxyConfig logHTTP logHTTP
-          "curl"        -> HttpLib.Curl.withClient proxyConfig logHTTP
+          "HTTP" ->
+            HttpLib.HTTP.withClient $ \browser httpLib -> do
+              HttpLib.HTTP.setProxy      browser proxyConfig
+              HttpLib.HTTP.setOutHandler browser logHTTP
+              HttpLib.HTTP.setErrHandler browser logHTTP
+              act httpLib
+          "curl" ->
+            HttpLib.Curl.withClient $ \httpLib ->
+              act httpLib
 #if MIN_VERSION_base(4,5,0)
-          "http-client" -> HttpLib.HttpClient.withClient proxyConfig logHTTP
+          "http-client" ->
+            HttpLib.HttpClient.withClient proxyConfig $ \_manager httpLib ->
+              act httpLib
 #endif
-          _otherwise    -> error "unsupported HTTP client"
+          otherClient ->
+            error $ "unsupported HTTP client " ++ show otherClient
 
     -- use automatic proxy configuration
     proxyConfig :: forall a. ProxyConfig a

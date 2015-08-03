@@ -1,6 +1,8 @@
 {-# LANGUAGE OverloadedStrings #-}
 module Hackage.Security.Client.Repository.HttpLib.HttpClient (
     withClient
+    -- ** Re-exports
+  , Manager -- opaque
   ) where
 
 import Control.Exception
@@ -8,11 +10,12 @@ import Data.ByteString (ByteString)
 import Data.Default.Class (def)
 import Data.Monoid
 import Network.URI
-import Network.HTTP.Client hiding (BodyReader)
-import Network.HTTP.Client.Internal (setUri)
-import Network.HTTP.Types
-import qualified Data.ByteString       as BS
-import qualified Data.ByteString.Char8 as BS.C8
+import Network.HTTP.Client (Manager)
+import qualified Data.ByteString              as BS
+import qualified Data.ByteString.Char8        as BS.C8
+import qualified Network.HTTP.Client          as HttpClient
+import qualified Network.HTTP.Client.Internal as HttpClient
+import qualified Network.HTTP.Types           as HttpClient
 
 import Hackage.Security.Client hiding (Header)
 import Hackage.Security.Client.Repository.HttpLib
@@ -23,19 +26,23 @@ import qualified Hackage.Security.Util.Lens as Lens
   Top-level API
 -------------------------------------------------------------------------------}
 
-withClient :: ProxyConfig Proxy -> (String -> IO ()) -> (HttpLib -> IO a) -> IO a
-withClient proxyConfig _logger callback = do
-    manager <- newManager (setProxy defaultManagerSettings)
-    callback HttpLib {
+-- | Initialization
+--
+-- The proxy must be specified at initialization because @http-client@ does not
+-- allow to change the proxy once the 'Manager' is created. 
+withClient :: ProxyConfig HttpClient.Proxy -> (Manager -> HttpLib -> IO a) -> IO a
+withClient proxyConfig callback = do
+    manager <- HttpClient.newManager (setProxy HttpClient.defaultManagerSettings)
+    callback manager HttpLib {
         httpGet      = get      manager
       , httpGetRange = getRange manager
       }
   where
-    setProxy = managerSetProxy $
+    setProxy = HttpClient.managerSetProxy $
       case proxyConfig of
-        ProxyConfigNone  -> noProxy
-        ProxyConfigUse p -> useProxy p
-        ProxyConfigAuto  -> proxyEnvironment Nothing
+        ProxyConfigNone  -> HttpClient.noProxy
+        ProxyConfigUse p -> HttpClient.useProxy p
+        ProxyConfigAuto  -> HttpClient.proxyEnvironment Nothing
 
 {-------------------------------------------------------------------------------
   Individual methods
@@ -49,11 +56,11 @@ get :: Throws SomeRemoteError
 get manager reqHeaders uri callback = wrapCustomEx $ do
     -- TODO: setUri fails under certain circumstances; in particular, when
     -- the URI contains URL auth. Not sure if this is a concern.
-    request' <- setUri def uri
+    request' <- HttpClient.setUri def uri
     let request = setRequestHeaders reqHeaders
                 $ request'
-    checkHttpException $ withResponse request manager $ \response -> do
-      let br = wrapCustomEx $ responseBody response
+    checkHttpException $ HttpClient.withResponse request manager $ \response -> do
+      let br = wrapCustomEx $ HttpClient.responseBody response
       callback (getResponseHeaders response) br
 
 getRange :: Throws SomeRemoteError
@@ -62,44 +69,49 @@ getRange :: Throws SomeRemoteError
          -> ([HttpResponseHeader] -> BodyReader -> IO a)
          -> IO a
 getRange manager reqHeaders uri (from, to) callback = wrapCustomEx $ do
-    request' <- setUri def uri
+    request' <- HttpClient.setUri def uri
     let request = setRange from to
                 $ setRequestHeaders reqHeaders
                 $ request'
-    checkHttpException $ withResponse request manager $ \response -> do
-      let br = wrapCustomEx $ responseBody response
-      case responseStatus response of
-        s | s == partialContent206 -> callback (getResponseHeaders response) br
-        s -> throwChecked $ StatusCodeException s (responseHeaders response)
-                                                  (responseCookieJar response)
+    checkHttpException $ HttpClient.withResponse request manager $ \response -> do
+      let br = wrapCustomEx $ HttpClient.responseBody response
+      if HttpClient.responseStatus response == HttpClient.partialContent206
+        then callback (getResponseHeaders response) br
+        else throwChecked $ HttpClient.StatusCodeException
+                              (HttpClient.responseStatus    response)
+                              (HttpClient.responseHeaders   response)
+                              (HttpClient.responseCookieJar response)
 
 -- | Wrap custom exceptions
 --
 -- NOTE: The only other exception defined in @http-client@ is @TimeoutTriggered@
 -- but it is currently disabled <https://github.com/snoyberg/http-client/issues/116>
-wrapCustomEx :: (Throws HttpException => IO a)
+wrapCustomEx :: (Throws HttpClient.HttpException => IO a)
              -> (Throws SomeRemoteError => IO a)
-wrapCustomEx act = handleChecked (\(ex :: HttpException) -> go ex)
+wrapCustomEx act = handleChecked (\(ex :: HttpClient.HttpException) -> go ex)
                  $ act
   where
     go ex = throwChecked (SomeRemoteError ex)
 
-checkHttpException :: Throws HttpException => IO a -> IO a
-checkHttpException = handle $ \(ex :: HttpException) -> throwChecked ex
+checkHttpException :: Throws HttpClient.HttpException => IO a -> IO a
+checkHttpException = handle $ \(ex :: HttpClient.HttpException) ->
+                       throwChecked ex
 
 {-------------------------------------------------------------------------------
   http-client auxiliary
 -------------------------------------------------------------------------------}
 
-hAcceptRanges :: HeaderName
+hAcceptRanges :: HttpClient.HeaderName
 hAcceptRanges = "Accept-Ranges"
 
-hAcceptEncoding :: HeaderName
+hAcceptEncoding :: HttpClient.HeaderName
 hAcceptEncoding = "Accept-Encoding"
 
-setRange :: Int -> Int -> Request -> Request
+setRange :: Int -> Int
+         -> HttpClient.Request -> HttpClient.Request
 setRange from to req = req {
-      requestHeaders = (hRange, rangeHeader) : requestHeaders req
+      HttpClient.requestHeaders = (HttpClient.hRange, rangeHeader)
+                                : HttpClient.requestHeaders req
     }
   where
     -- Content-Range header uses inclusive rather than exclusive bounds
@@ -107,20 +119,21 @@ setRange from to req = req {
     rangeHeader = BS.C8.pack $ "bytes=" ++ show from ++ "-" ++ show (to - 1)
 
 -- | Set request headers
-setRequestHeaders :: [HttpRequestHeader] -> Request -> Request
+setRequestHeaders :: [HttpRequestHeader]
+                  -> HttpClient.Request -> HttpClient.Request
 setRequestHeaders opts req = req {
-      requestHeaders = trOpt disallowCompressionByDefault opts
+      HttpClient.requestHeaders = trOpt disallowCompressionByDefault opts
     }
   where
-    trOpt :: [(HeaderName, [ByteString])]
+    trOpt :: [(HttpClient.HeaderName, [ByteString])]
           -> [HttpRequestHeader]
-          -> [Header]
+          -> [HttpClient.Header]
     trOpt acc [] =
       concatMap finalizeHeader acc
     trOpt acc (HttpRequestMaxAge0:os) =
-      trOpt (insert hCacheControl ["max-age=0"] acc) os
+      trOpt (insert HttpClient.hCacheControl ["max-age=0"] acc) os
     trOpt acc (HttpRequestNoTransform:os) =
-      trOpt (insert hCacheControl ["no-transform"] acc) os
+      trOpt (insert HttpClient.hCacheControl ["no-transform"] acc) os
     trOpt acc (HttpRequestContentCompression:os) =
       trOpt (insert hAcceptEncoding ["gzip"] acc) os
 
@@ -130,28 +143,29 @@ setRequestHeaders opts req = req {
     -- response stream had been compressed). However, we do have to make sure
     -- that we allow for compression _only_ when explicitly requested because
     -- the default is that it's always enabled.
-    disallowCompressionByDefault :: [(HeaderName, [ByteString])]
+    disallowCompressionByDefault :: [(HttpClient.HeaderName, [ByteString])]
     disallowCompressionByDefault = [(hAcceptEncoding, [])]
 
     -- Some headers are comma-separated, others need multiple headers for
     -- multiple options.
     --
     -- TODO: Right we we just comma-separate all of them.
-    finalizeHeader :: (HeaderName, [ByteString]) -> [Header]
+    finalizeHeader :: (HttpClient.HeaderName, [ByteString])
+                   -> [HttpClient.Header]
     finalizeHeader (name, strs) = [(name, BS.intercalate ", " (reverse strs))]
 
     insert :: (Eq a, Monoid b) => a -> b -> [(a, b)] -> [(a, b)]
     insert x y = Lens.modify (Lens.lookupM x) (mappend y)
 
 -- | Extract the response headers
-getResponseHeaders :: Response a -> [HttpResponseHeader]
+getResponseHeaders :: HttpClient.Response a -> [HttpResponseHeader]
 getResponseHeaders response = concat [
       [ HttpResponseAcceptRangesBytes
       | (hAcceptRanges, "bytes") `elem` headers
       ]
     , [ HttpResponseContentCompression
-      | (hContentEncoding, "gzip") `elem` headers
+      | (HttpClient.hContentEncoding, "gzip") `elem` headers
       ]
     ]
   where
-    headers = responseHeaders response
+    headers = HttpClient.responseHeaders response

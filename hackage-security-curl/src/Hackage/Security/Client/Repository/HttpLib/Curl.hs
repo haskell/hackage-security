@@ -20,11 +20,19 @@ import Hackage.Security.Client.Repository.HttpLib
 --
 -- This is currently just a proof of concept. With a bit of luck we'll be
 -- able to reuse most of https://github.com/haskell/cabal/pull/2613 for a
--- more serious implementation.
+-- more serious implementation. Current TODOs:
 --
--- TODO: Deal with _proxy
-withClient :: ProxyConfig String -> (String -> IO ()) -> (HttpLib -> IO a) -> IO a
-withClient _proxy _logger callback = do
+-- * Set HTTP request headers in 'get'
+-- * Get HTTP response headers in 'get'
+-- * Support range requests
+-- * Deal with proxy settings
+-- * Configure logging
+--
+-- Probably we will want to add a @Browser@ or @Manager@ like abstraction (see
+-- @hackage-security-HTTP@ and @hackage-security-http-client@, respectively)
+-- in order to allow to change settings as we go.
+withClient :: (HttpLib -> IO a) -> IO a
+withClient callback = do
     callback HttpLib {
       httpGet      = get
     , httpGetRange = undefined -- TODO: support range requests
@@ -34,8 +42,6 @@ withClient _proxy _logger callback = do
   Implementation of the individual methods
 -------------------------------------------------------------------------------}
 
--- TODO: Set HTTP request headers
--- TODO: Get HTTP response headers
 get :: [HttpRequestHeader] -> URI
     -> ([HttpResponseHeader] -> BodyReader -> IO a)
     -> IO a
