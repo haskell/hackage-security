@@ -9,6 +9,7 @@ module Hackage.Security.Util.Checked (
   , rethrowUnchecked
   , catchChecked
   , handleChecked
+  , tryChecked
   , throwUnchecked
   , internalError
   ) where
@@ -46,6 +47,10 @@ catchChecked = catch . rethrowUnchecked
 -- | 'catchChecked' with the arguments reversed
 handleChecked :: Exception e => (e -> IO a) -> (Throws e => IO a) -> IO a
 handleChecked act handler = catchChecked handler act
+
+-- | Like 'try', but for checked exceptions
+tryChecked :: Exception e => (Throws e => IO a) -> IO (Either e a)
+tryChecked act = catchChecked (Right <$> act) (return . Left)
 
 -- | Throw an unchecked exception
 --
