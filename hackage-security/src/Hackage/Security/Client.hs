@@ -582,10 +582,12 @@ withMirror rep callback = do
 -- | Re-throw all exceptions thrown by the client API as unchecked exceptions
 uncheckClientErrors :: ( ( Throws VerificationError
                          , Throws SomeRemoteError
+                         , Throws InvalidPackageException
                          ) => IO a )
                      -> IO a
 uncheckClientErrors act = handleChecked rethrowVerificationError
                         $ handleChecked rethrowSomeRemoteError
+                        $ handleChecked rethrowInvalidPackageException
                         $ act
   where
      rethrowVerificationError :: VerificationError -> IO a
@@ -593,6 +595,9 @@ uncheckClientErrors act = handleChecked rethrowVerificationError
 
      rethrowSomeRemoteError :: SomeRemoteError -> IO a
      rethrowSomeRemoteError = throwIO
+
+     rethrowInvalidPackageException :: InvalidPackageException -> IO a
+     rethrowInvalidPackageException = throwIO
 
 data InvalidPackageException = InvalidPackageException PackageIdentifier
   deriving (Show, Typeable)
