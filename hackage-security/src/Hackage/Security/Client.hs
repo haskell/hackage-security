@@ -44,6 +44,7 @@ import qualified Data.ByteString      as BS
 import qualified Data.ByteString.Lazy as BS.L
 
 import Distribution.Package (PackageIdentifier)
+import Distribution.Text (display)
 
 import Hackage.Security.Client.Repository
 import Hackage.Security.Client.Formats
@@ -54,6 +55,7 @@ import Hackage.Security.Trusted
 import Hackage.Security.Trusted.TCB
 import Hackage.Security.TUF
 import Hackage.Security.Util.Checked
+import Hackage.Security.Util.Pretty
 import Hackage.Security.Util.Stack
 import Hackage.Security.Util.Some
 import qualified Hackage.Security.Key.Env   as KeyEnv
@@ -604,6 +606,16 @@ data InvalidFileInIndex = InvalidFileInIndex IndexFile DeserializationError
 instance Exception InvalidPackageException
 instance Exception LocalFileCorrupted
 instance Exception InvalidFileInIndex
+
+instance Pretty InvalidPackageException where
+  pretty (InvalidPackageException pkgId) = "Invalid package " ++ display pkgId
+
+instance Pretty LocalFileCorrupted where
+  pretty (LocalFileCorrupted err) = "Local file corrupted: " ++ pretty err
+
+instance Pretty InvalidFileInIndex where
+   pretty (InvalidFileInIndex file err) = "Invalid file " ++ pretty file
+                                       ++ "in index: " ++ pretty err
 
 {-------------------------------------------------------------------------------
   Auxiliary

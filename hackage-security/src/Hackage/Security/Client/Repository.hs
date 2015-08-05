@@ -143,6 +143,10 @@ data IndexFile =
   | IndexPkgCabal PackageIdentifier
   deriving Show
 
+instance Pretty IndexFile where
+  pretty (IndexPkgMetadata pkgId) = "metadata for " ++ display pkgId
+  pretty (IndexPkgCabal    pkgId) = ".cabal for " ++ display pkgId
+
 -- | Path to temporary file
 type TempPath = AbsolutePath
 
