@@ -34,8 +34,7 @@ import Prelude hiding (log)
 import Control.Exception
 import Control.Monad
 import Control.Monad.IO.Class
-import Control.Monad.Cont (ContT(ContT), callCC, lift)
-import Control.Monad.Trans.Cont (evalContT)
+import Control.Monad.Trans.Cont
 import Data.Maybe (isNothing)
 import Data.Time
 import Data.Traversable (for)
@@ -106,7 +105,9 @@ checkForUpdates rep checkExpiry = do
                 CheckExpiry     -> Just <$> getCurrentTime
                 DontCheckExpiry -> return Nothing
 
-      mHasUpdates <- try $ evalContT (go mNow isRetry cachedInfo)
+      mHasUpdates <- tryChecked -- catch RootUpdated
+                   $ tryChecked -- catch VerificationError
+                   $ evalContT (go mNow isRetry cachedInfo)
       case mHasUpdates of
         Left ex -> do
           -- NOTE: This call to updateRoot is not itself protected by an
@@ -127,19 +128,16 @@ checkForUpdates rep checkExpiry = do
     -- downloaded files will be cached until the entire check for updates check
     -- completes successfully.
     -- See also <https://github.com/theupdateframework/tuf/issues/283>.
-    go :: Throws SomeRemoteError
-       => Maybe UTCTime
-       -> IsRetry
-       -> CachedInfo
-       -> ContT r IO (Either RootUpdated HasUpdates)
-    go mNow isRetry cachedInfo@CachedInfo{..} = callCC $ \abort -> do
+    go :: Throws RootUpdated
+       => Maybe UTCTime -> IsRetry -> CachedInfo -> ContT r IO HasUpdates
+    go mNow isRetry cachedInfo@CachedInfo{..} = do
       -- Get the new timestamp
       newTS <- getRemoteFile' RemoteTimestamp
       let newInfoSS = static timestampInfoSnapshot <$$> newTS
 
       -- Check if the snapshot has changed
       if not (fileChanged cachedInfoSnapshot newInfoSS)
-        then return $ Right NoUpdates
+        then return NoUpdates
         else do
           -- Get the new snapshot
           newSS <- getRemoteFile' (RemoteSnapshot newInfoSS)
@@ -149,9 +147,12 @@ checkForUpdates rep checkExpiry = do
               mNewInfoTar    = trustSeq (static snapshotInfoTar <$$> newSS)
 
           -- If root metadata changed, download and restart
-          when (rootChanged cachedInfoRoot newInfoRoot) $ do
-            liftIO $ updateRoot rep mNow isRetry (Right newInfoRoot)
-            abort $ Left RootUpdated
+          when (rootChanged cachedInfoRoot newInfoRoot) $ liftIO $ do
+            updateRoot rep mNow isRetry (Right newInfoRoot)
+            -- By throwing 'RootUpdated' as an exception we make sure that
+            -- any files previously downloaded (to temporary locations)
+            -- will not be cached.
+            throwChecked RootUpdated
 
           -- If mirrors changed, download and verify
           when (fileChanged cachedInfoMirrors newInfoMirrors) $
@@ -161,7 +162,7 @@ checkForUpdates rep checkExpiry = do
           when (fileChanged cachedInfoTarGz newInfoTarGz) $
             updateIndex newInfoTarGz mNewInfoTar
 
-          return $ Right HasUpdates
+          return HasUpdates
       where
         getRemoteFile' :: ( VerifyRole a
                           , FromJSON ReadJSON_Keys_Layout (Signed a)
@@ -208,6 +209,8 @@ checkForUpdates rep checkExpiry = do
 -- | Root metadata updated
 data RootUpdated = RootUpdated
   deriving (Show, Typeable)
+
+instance Exception RootUpdated
 
 -- | Update the root metadata
 --
@@ -444,7 +447,7 @@ downloadPackage rep pkgId callback = withMirror rep $ evalContT $ do
         RemotePkgTarGz pkgId targetMetaData
       verifyFileInfo' (Just targetMetaData) targetPath tempPath
       return tempPath
-    lift $ callback tarGz
+    liftIO $ callback tarGz
 
 -- | Get a cabal file from the index
 --
