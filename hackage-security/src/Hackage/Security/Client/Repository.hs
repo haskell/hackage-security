@@ -138,6 +138,9 @@ data CachedFile =
 data IndexFile =
     -- | Package-specific metadata (@targets.json@)
     IndexPkgMetadata PackageIdentifier
+
+    -- | Cabal file for a package
+  | IndexPkgCabal PackageIdentifier
   deriving Show
 
 -- | Path to temporary file
@@ -384,6 +387,7 @@ indexFilePath IndexLayout{..} = go
   where
     go :: IndexFile -> IndexPath
     go (IndexPkgMetadata pkgId) = indexLayoutPkgMetadata pkgId
+    go (IndexPkgCabal    pkgId) = indexLayoutPkgCabal    pkgId
 
 {-------------------------------------------------------------------------------
   Utility

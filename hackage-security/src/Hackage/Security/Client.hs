@@ -10,6 +10,7 @@ module Hackage.Security.Client (
   , checkForUpdates
     -- * Downloading targets
   , downloadPackage
+  , getCabalFile
     -- * Bootstrapping
   , requiresBootstrap
   , bootstrap
@@ -364,6 +365,7 @@ getRemoteFile rep cachedInfo@CachedInfo{..} isRetry mNow file = do
 -- update of the root information (even if verification of the package fails).
 downloadPackage :: ( Throws SomeRemoteError
                    , Throws VerificationError
+                   , Throws InvalidPackageException
                    )
                 => Repository -> PackageIdentifier -> (TempPath -> IO a) -> IO a
 downloadPackage rep pkgId callback = withMirror rep $ evalContT $ do
@@ -410,7 +412,7 @@ downloadPackage rep pkgId callback = withMirror rep $ evalContT $ do
       let indexFile = IndexPkgMetadata pkgId
       mRaw <- getFromIndex rep indexFile
       case mRaw of
-        Nothing -> liftIO $ throwUnchecked $ InvalidPackageException pkgId
+        Nothing -> liftIO $ throwChecked $ InvalidPackageException pkgId
         Just raw -> do
           signed <- throwErrorsUnchecked (InvalidFileInIndex indexFile) $
                       parseJSON_Keys_NoLayout keyEnv raw
@@ -439,6 +441,25 @@ downloadPackage rep pkgId callback = withMirror rep $ evalContT $ do
       verifyFileInfo' (Just targetMetaData) targetPath tempPath
       return tempPath
     lift $ callback tarGz
+
+-- | Get a cabal file from the index
+--
+-- This does currently not do any verification (bcause the cabal file comes
+-- from the index, and the index itself is verified). Once we introduce author
+-- signing this needs to be adapted.
+--
+-- Should be called only once a local index is available
+-- (i.e., after 'checkForUpdates').
+--
+-- Throws an 'InvalidPackageException' if there is no cabal file for the
+-- specified package in the index.
+getCabalFile :: Throws InvalidPackageException
+             => Repository -> PackageIdentifier -> IO BS.ByteString
+getCabalFile rep pkgId = do
+    mCabalFile <- repGetFromIndex rep (IndexPkgCabal pkgId)
+    case mCabalFile of
+      Just cabalFile -> return cabalFile
+      Nothing        -> throwChecked $ InvalidPackageException pkgId
 
 {-------------------------------------------------------------------------------
   Bootstrapping
