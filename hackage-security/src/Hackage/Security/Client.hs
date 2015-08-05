@@ -165,7 +165,6 @@ checkForUpdates rep checkExpiry = do
       where
         getRemoteFile' :: ( VerifyRole a
                           , FromJSON ReadJSON_Keys_Layout (Signed a)
-                          , Throws SomeRemoteError
                           )
                        => RemoteFile (f :- ()) -> ContT r IO (Trusted a)
         getRemoteFile' = getRemoteFile rep cachedInfo isRetry mNow
@@ -256,9 +255,9 @@ updateRoot :: (Throws VerificationError, Throws SomeRemoteError)
            -> IsRetry
            -> Either VerificationError (Trusted FileInfo)
            -> IO ()
-updateRoot rep mNow isRetry eFileInfo = evalContT $ do
+updateRoot rep mNow isRetry eFileInfo = do
     cachedInfo <- getCachedInfo rep
-    newRoot :: Trusted Root <-
+    newRoot :: Trusted Root <- evalContT $
       getRemoteFile
         rep
         cachedInfo
@@ -266,6 +265,9 @@ updateRoot rep mNow isRetry eFileInfo = evalContT $ do
         mNow
         (RemoteRoot (eitherToMaybe eFileInfo))
 
+    -- NOTE: We compare versions only. IF the root information has changed
+    -- but the corresponding version number has NOT, then this will result
+    -- in the same infinite loop described above.
     let oldVersion = Lens.get fileVersion $ trusted (cachedRoot cachedInfo)
         newVersion = Lens.get fileVersion $ trusted newRoot
     when (oldVersion /= newVersion) $ clearCache rep
