@@ -76,6 +76,7 @@ withRepo GlobalOpts{..} =
         Remote.withRepository httpClient
                               [baseURI]
                               allowCompression
+                              Remote.DontNeedCompressedIndex
                               cache
                               hackageRepoLayout
                               logTUF

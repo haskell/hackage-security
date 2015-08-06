@@ -325,6 +325,10 @@ data UpdateFailure =
     -- | Server only provides compressed form of the file
     UpdateImpossibleOnlyCompressed
 
+    -- | Likewise, it's possible that client _wants_ the compressed form of
+    -- the file, in which case downloading the uncompressed form is not useful.
+  | UpdateNotUsefulWantsCompressed
+
     -- | Server does not support incremental downloads
   | UpdateImpossibleUnsupported
 
@@ -447,7 +451,9 @@ instance Pretty LogMessage where
 
 instance Pretty UpdateFailure where
   pretty UpdateImpossibleOnlyCompressed =
-      "server only provides file in compressed pretty"
+      "server only provides file in compressed format"
+  pretty UpdateNotUsefulWantsCompressed =
+      "clients wants file in compressed format"
   pretty UpdateImpossibleUnsupported =
       "server does not provide incremental downloads"
   pretty UpdateImpossibleNoLocalCopy =

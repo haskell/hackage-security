@@ -37,18 +37,32 @@ data Cache = Cache {
 -- | Cache a previously downloaded remote file
 cacheRemoteFile :: Cache -> TempPath -> Format f -> IsCached -> IO ()
 cacheRemoteFile cache tempPath f isCached = do
-    go f (cachedFileName cache isCached)
+    go f isCached
     -- TODO: This recreates the tar index ahead of time. Alternatively, we
     -- could delete the index here and then it will be rebuilt on first access.
     when (isCached == CacheIndex) $ rebuildTarIndex cache
   where
-    go :: Format f -> Maybe AbsolutePath -> IO ()
-    go _ Nothing =
-      return () -- Don't cache
-    go FUn (Just fp) = do
+    -- TODO: The case for FGz / CacheAs doesn't really occur in practice,
+    -- because we never download any of the TUF datafiles in compressed format.
+    -- It doesn't really harm though, and if we wanted to avoid this case we'd
+    -- have to encode more information in the types.
+    go :: Format f -> IsCached -> IO ()
+    go _   DontCache            = return ()
+    go FUn (CacheAs cachedFile) = do copyTo $ cachedFilePath cache cachedFile
+    go FGz (CacheAs cachedFile) = do ungzTo $ cachedFilePath cache cachedFile
+    go FUn CacheIndex           = do copyTo $ cachedIndexTarPath cache
+    go FGz CacheIndex           = do ungzTo $ cachedIndexTarPath cache
+                                     case cachedIndexTarGzPath cache of
+                                       Nothing        -> return ()
+                                       Just tarGzPath -> copyTo tarGzPath
+
+    copyTo :: AbsolutePath -> IO ()
+    copyTo fp = do
       createDirectoryIfMissing True (takeDirectory fp)
       atomicCopyFile tempPath fp
-    go FGz (Just fp) = do
+
+    ungzTo :: AbsolutePath -> IO ()
+    ungzTo fp = do
       createDirectoryIfMissing True (takeDirectory fp)
       compressed <- readLazyByteString tempPath
       atomicWriteFile fp $ GZip.decompress compressed
@@ -144,21 +158,6 @@ clearCache cache = void . handleDoesNotExist $ do
   Auxiliary: paths
 -------------------------------------------------------------------------------}
 
--- | The name of the file as cached
---
--- Returns @Nothing@ if we do not cache this file.
---
--- NOTE: We always cache files locally in uncompressed format. This is a
--- policy of this implementation of 'Repository', however, and other policies
--- are possible.
-cachedFileName :: Cache -> IsCached -> Maybe AbsolutePath
-cachedFileName cache = go
-  where
-    go :: IsCached -> Maybe AbsolutePath
-    go (CacheAs cachedFile) = Just $ cachedFilePath     cache cachedFile
-    go CacheIndex           = Just $ cachedIndexTarPath cache
-    go DontCache            = Nothing
-
 cachedFilePath :: Cache -> CachedFile -> AbsolutePath
 cachedFilePath Cache{cacheLayout=CacheLayout{..}, ..} file =
     anchorCachePath cacheRoot $ go file
@@ -172,6 +171,10 @@ cachedFilePath Cache{cacheLayout=CacheLayout{..}, ..} file =
 cachedIndexTarPath :: Cache -> AbsolutePath
 cachedIndexTarPath Cache{..} =
     anchorCachePath cacheRoot $ cacheLayoutIndexTar cacheLayout
+
+cachedIndexTarGzPath :: Cache -> Maybe AbsolutePath
+cachedIndexTarGzPath Cache{..} =
+    fmap (anchorCachePath cacheRoot) $ cacheLayoutIndexTarGz cacheLayout
 
 cachedIndexIdxPath :: Cache -> AbsolutePath
 cachedIndexIdxPath Cache{..} =

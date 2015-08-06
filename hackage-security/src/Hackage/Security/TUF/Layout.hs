@@ -198,6 +198,9 @@ data CacheLayout = CacheLayout {
 
     -- | Index to the uncompressed index tarball
   , cacheLayoutIndexIdx :: CachePath
+
+    -- | Compressed index tarball (if cached)
+  , cacheLayoutIndexTarGz :: Maybe CachePath
   }
 
 -- | The cache layout cabal-install uses
@@ -207,12 +210,13 @@ data CacheLayout = CacheLayout {
 -- the hackage-security library to get files from the index).
 cabalCacheLayout :: CacheLayout
 cabalCacheLayout = CacheLayout {
-      cacheLayoutRoot      = rp $ fragment' "root.json"
-    , cacheLayoutTimestamp = rp $ fragment' "timestamp.json"
-    , cacheLayoutSnapshot  = rp $ fragment' "snapshot.json"
-    , cacheLayoutMirrors   = rp $ fragment' "mirrors.json"
-    , cacheLayoutIndexTar  = rp $ fragment' "00-index.tar"
-    , cacheLayoutIndexIdx  = rp $ fragment' "00-index.tar.idx"
+      cacheLayoutRoot       = rp $ fragment' "root.json"
+    , cacheLayoutTimestamp  = rp $ fragment' "timestamp.json"
+    , cacheLayoutSnapshot   = rp $ fragment' "snapshot.json"
+    , cacheLayoutMirrors    = rp $ fragment' "mirrors.json"
+    , cacheLayoutIndexTar   = rp $ fragment' "00-index.tar"
+    , cacheLayoutIndexIdx   = rp $ fragment' "00-index.tar.idx"
+    , cacheLayoutIndexTarGz = Nothing
     }
   where
     rp :: UnrootedPath -> CachePath

@@ -19,6 +19,7 @@ module Hackage.Security.Client.Repository.Remote (
     -- * Top-level API
     withRepository
   , AllowContentCompression(..)
+  , WantCompressedIndex(..)
      -- * File sizes
   , FileSize(..)
   , fileSizeWithinBounds
@@ -118,6 +119,13 @@ data AllowContentCompression =
     AllowContentCompression
   | DisallowContentCompression
 
+-- | Do we want to a copy of the compressed index?
+--
+-- This is important for mirroring clients only.
+data WantCompressedIndex =
+    WantCompressedIndex
+  | DontNeedCompressedIndex
+
 -- | Initialize the repository (and cleanup resources afterwards)
 --
 -- We allow to specify multiple mirrors to initialize the repository. These
@@ -138,6 +146,7 @@ withRepository
   :: HttpLib                 -- ^ Implementation of the HTTP protocol
   -> [URI]                   -- ^ "Out of band" list of mirrors
   -> AllowContentCompression -- ^ Should we allow HTTP content compression?
+  -> WantCompressedIndex     -- ^ Do we want a copy of the compressed index?
   -> Cache                   -- ^ Location of local cache
   -> RepoLayout              -- ^ Repository layout
   -> (LogMessage -> IO ())   -- ^ Logger
@@ -146,6 +155,7 @@ withRepository
 withRepository httpLib
                outOfBandMirrors
                allowContentCompression
+               wantCompressedIndex
                cache
                repLayout
                logger
@@ -161,6 +171,7 @@ withRepository httpLib
                                 , cfgCaps     = caps
                                 , cfgLogger   = logger
                                 , cfgCompress = allowContentCompression
+                                , cfgWantGz   = wantCompressedIndex
                                 }
     callback Repository {
         repWithRemote    = withRemote remoteConfig selectedMirror
@@ -322,6 +333,13 @@ pickDownloadMethod RemoteConfig{..} remoteFile = multipleExitPoints $ do
       (RemoteMirrors _)    -> exit $ NeverUpdated (HFZ FUn)
       (RemotePkgTarGz _ _) -> exit $ NeverUpdated (HFZ FGz)
       (RemoteIndex pf fs)  -> return (pf, fs)
+
+    -- If the client wants the compressed index, we have no choice
+    case cfgWantGz of
+      WantCompressedIndex ->
+        exit $ CannotUpdate hasGz UpdateNotUsefulWantsCompressed
+      DontNeedCompressedIndex ->
+        return ()
 
     -- Server must have uncompressed index available
     hasUn <- case formatsMember FUn formats of
@@ -576,6 +594,7 @@ data RemoteConfig = RemoteConfig {
     , cfgCaps     :: ServerCapabilities
     , cfgLogger   :: LogMessage -> IO ()
     , cfgCompress :: AllowContentCompression
+    , cfgWantGz   :: WantCompressedIndex
     }
 
 {-------------------------------------------------------------------------------
