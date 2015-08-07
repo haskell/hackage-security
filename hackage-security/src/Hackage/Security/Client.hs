@@ -58,7 +58,6 @@ import Hackage.Security.Util.Pretty
 import Hackage.Security.Util.Stack
 import Hackage.Security.Util.Some
 import qualified Hackage.Security.Key.Env   as KeyEnv
-import qualified Hackage.Security.Util.Lens as Lens
 
 {-------------------------------------------------------------------------------
   Checking for updates
@@ -87,20 +86,29 @@ data HasUpdates = HasUpdates | NoUpdates
 checkForUpdates :: (Throws VerificationError, Throws SomeRemoteError)
                 => Repository -> CheckExpiry -> IO HasUpdates
 checkForUpdates rep checkExpiry = do
-    cachedInfo <- getCachedInfo rep
     withMirror rep $ do
       -- more or less randomly chosen maximum iterations
       -- See <https://github.com/theupdateframework/tuf/issues/287>.
-      limitIterations cachedInfo FirstAttempt 5
+      limitIterations FirstAttempt 5
   where
     -- The spec stipulates that on a verification error we must download new
     -- root information and start over. However, in order to prevent DoS attacks
     -- we limit how often we go round this loop.
     -- See als <https://github.com/theupdateframework/tuf/issues/287>.
     limitIterations :: (Throws VerificationError, Throws SomeRemoteError)
-                    => CachedInfo -> IsRetry -> Int -> IO HasUpdates
-    limitIterations _ _ 0 = throwChecked VerificationErrorLoop
-    limitIterations cachedInfo isRetry n = do
+                    => IsRetry -> Int -> IO HasUpdates
+    limitIterations _ 0 = throwChecked VerificationErrorLoop
+    limitIterations isRetry n = do
+      -- Get all cached info
+      --
+      -- NOTE: Although we don't normally update any cached files until the
+      -- whole verification process successfully completes, in case of a
+      -- verification error, or in case of a regular update of the root info,
+      -- we DO update the local files. Hence, we must re-read all local files
+      -- on each iteration.
+      cachedInfo <- getCachedInfo rep
+
+      -- Get current time for timestamp verification, if requested
       mNow <- case checkExpiry of
                 CheckExpiry     -> Just <$> getCurrentTime
                 DontCheckExpiry -> return Nothing
@@ -116,11 +124,11 @@ checkForUpdates rep checkExpiry = do
           -- update process, _and_ we cannot update the main root info, then
           -- we cannot do anything.
           log rep $ LogVerificationError ex
-          updateRoot rep mNow AfterVerificationError (Left ex)
-          limitIterations cachedInfo AfterVerificationError (n - 1)
+          updateRoot rep mNow AfterVerificationError cachedInfo (Left ex)
+          limitIterations AfterVerificationError (n - 1)
         Right (Left RootUpdated) -> do
           log rep $ LogRootUpdated
-          limitIterations cachedInfo isRetry (n - 1)
+          limitIterations isRetry (n - 1)
         Right (Right hasUpdates) ->
           return hasUpdates
 
@@ -148,7 +156,7 @@ checkForUpdates rep checkExpiry = do
 
           -- If root metadata changed, download and restart
           when (rootChanged cachedInfoRoot newInfoRoot) $ liftIO $ do
-            updateRoot rep mNow isRetry (Right newInfoRoot)
+            updateRoot rep mNow isRetry cachedInfo (Right newInfoRoot)
             -- By throwing 'RootUpdated' as an exception we make sure that
             -- any files previously downloaded (to temporary locations)
             -- will not be cached.
@@ -168,7 +176,7 @@ checkForUpdates rep checkExpiry = do
                           , FromJSON ReadJSON_Keys_Layout (Signed a)
                           )
                        => RemoteFile (f :- ()) -> ContT r IO (Trusted a)
-        getRemoteFile' = getRemoteFile rep cachedInfo isRetry mNow
+        getRemoteFile' = liftM fst . getRemoteFile rep cachedInfo isRetry mNow
 
         -- Update the index and check against the appropriate hash
         updateIndex :: Trusted FileInfo         -- info about @.tar.gz@
@@ -265,11 +273,11 @@ updateRoot :: (Throws VerificationError, Throws SomeRemoteError)
            => Repository
            -> Maybe UTCTime
            -> IsRetry
+           -> CachedInfo
            -> Either VerificationError (Trusted FileInfo)
            -> IO ()
-updateRoot rep mNow isRetry eFileInfo = do
-    cachedInfo <- getCachedInfo rep
-    newRoot :: Trusted Root <- evalContT $
+updateRoot rep mNow isRetry cachedInfo eFileInfo = do
+    (_newRoot :: Trusted Root, newRootFile) <- evalContT $
       getRemoteFile
         rep
         cachedInfo
@@ -277,12 +285,25 @@ updateRoot rep mNow isRetry eFileInfo = do
         mNow
         (RemoteRoot (eitherToMaybe eFileInfo))
 
-    -- NOTE: We compare versions only. IF the root information has changed
-    -- but the corresponding version number has NOT, then this will result
-    -- in the same infinite loop described above.
-    let oldVersion = Lens.get fileVersion $ trusted (cachedRoot cachedInfo)
-        newVersion = Lens.get fileVersion $ trusted newRoot
-    when (oldVersion /= newVersion) $ clearCache rep
+    rootReallyChanged <-
+      case eFileInfo of
+         Right _ ->
+           -- We are downloading the root info because the hash in the snapshot
+           -- changed. In this case the root definitely changed.
+           return True
+         Left _e -> do
+           -- We are downloading the root because of a verification error. In
+           -- this case the root info may or may not have changed. In most cases
+           -- it would suffice to compare the file version now; however, in the
+           -- (exceptional) circumstance where the root info has changed but
+           -- the file version has not, this would result in the same infinite
+           -- loop described above. Hence, we must compare file hashes, and they
+           -- must be computed on the raw file, not the parsed file.
+           oldRootFile <- repGetCachedRoot rep
+           oldRootInfo <- DeclareTrusted <$> computeFileInfo oldRootFile
+           not <$> verifyFileInfo newRootFile oldRootInfo
+
+    when rootReallyChanged $ clearCache rep
 
 {-------------------------------------------------------------------------------
   Convenience functions for downloading and parsing various files
@@ -353,7 +374,7 @@ getRemoteFile :: ( Throws VerificationError
               -> IsRetry
               -> Maybe UTCTime
               -> RemoteFile (f :- ())
-              -> ContT r IO (Trusted a)
+              -> ContT r IO (Trusted a, TempPath)
 getRemoteFile rep cachedInfo@CachedInfo{..} isRetry mNow file = do
     (targetPath, tempPath) <- getRemote' rep isRetry file
     verifyFileInfo' (remoteFileDefaultInfo file) targetPath tempPath
@@ -365,7 +386,7 @@ getRemoteFile rep cachedInfo@CachedInfo{..} isRetry mNow file = do
                   (cachedVersion cachedInfo file)
                   mNow
                   signed
-    return $ trustVerified verified
+    return (trustVerified verified, tempPath)
 
 {-------------------------------------------------------------------------------
   Downloading target files
