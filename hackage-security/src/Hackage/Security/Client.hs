@@ -85,52 +85,58 @@ data HasUpdates = HasUpdates | NoUpdates
 -- of the TUF spec.
 checkForUpdates :: (Throws VerificationError, Throws SomeRemoteError)
                 => Repository -> CheckExpiry -> IO HasUpdates
-checkForUpdates rep checkExpiry = do
-    withMirror rep $ do
-      -- more or less randomly chosen maximum iterations
-      -- See <https://github.com/theupdateframework/tuf/issues/287>.
-      limitIterations FirstAttempt 5
+checkForUpdates rep checkExpiry =
+    withMirror rep $ limitIterations []
   where
+    -- More or less randomly chosen maximum iterations
+    -- See <https://github.com/theupdateframework/tuf/issues/287>.
+    maxNumIterations :: Int
+    maxNumIterations = 5
+
     -- The spec stipulates that on a verification error we must download new
     -- root information and start over. However, in order to prevent DoS attacks
     -- we limit how often we go round this loop.
     -- See als <https://github.com/theupdateframework/tuf/issues/287>.
     limitIterations :: (Throws VerificationError, Throws SomeRemoteError)
-                    => IsRetry -> Int -> IO HasUpdates
-    limitIterations _ 0 = throwChecked VerificationErrorLoop
-    limitIterations isRetry n = do
-      -- Get all cached info
-      --
-      -- NOTE: Although we don't normally update any cached files until the
-      -- whole verification process successfully completes, in case of a
-      -- verification error, or in case of a regular update of the root info,
-      -- we DO update the local files. Hence, we must re-read all local files
-      -- on each iteration.
-      cachedInfo <- getCachedInfo rep
+                    => VerificationHistory -> IO HasUpdates
+    limitIterations history | length history >= maxNumIterations =
+        throwChecked $ VerificationErrorLoop (reverse history)
+    limitIterations history = do
+        -- Get all cached info
+        --
+        -- NOTE: Although we don't normally update any cached files until the
+        -- whole verification process successfully completes, in case of a
+        -- verification error, or in case of a regular update of the root info,
+        -- we DO update the local files. Hence, we must re-read all local files
+        -- on each iteration.
+        cachedInfo <- getCachedInfo rep
 
-      -- Get current time for timestamp verification, if requested
-      mNow <- case checkExpiry of
-                CheckExpiry     -> Just <$> getCurrentTime
-                DontCheckExpiry -> return Nothing
+        -- Get current time for timestamp verification, if requested
+        mNow <- case checkExpiry of
+                  CheckExpiry     -> Just <$> getCurrentTime
+                  DontCheckExpiry -> return Nothing
 
-      mHasUpdates <- tryChecked -- catch RootUpdated
-                   $ tryChecked -- catch VerificationError
-                   $ evalContT (go mNow isRetry cachedInfo)
-      case mHasUpdates of
-        Left ex -> do
-          -- NOTE: This call to updateRoot is not itself protected by an
-          -- exception handler, and may therefore throw a VerificationError.
-          -- This is intentional: if we get verification errors during the
-          -- update process, _and_ we cannot update the main root info, then
-          -- we cannot do anything.
-          log rep $ LogVerificationError ex
-          updateRoot rep mNow AfterVerificationError cachedInfo (Left ex)
-          limitIterations AfterVerificationError (n - 1)
-        Right (Left RootUpdated) -> do
-          log rep $ LogRootUpdated
-          limitIterations isRetry (n - 1)
-        Right (Right hasUpdates) ->
-          return hasUpdates
+        mHasUpdates <- tryChecked -- catch RootUpdated
+                     $ tryChecked -- catch VerificationError
+                     $ evalContT (go mNow isRetry cachedInfo)
+        case mHasUpdates of
+          Left ex -> do
+            -- NOTE: This call to updateRoot is not itself protected by an
+            -- exception handler, and may therefore throw a VerificationError.
+            -- This is intentional: if we get verification errors during the
+            -- update process, _and_ we cannot update the main root info, then
+            -- we cannot do anything.
+            log rep $ LogVerificationError ex
+            updateRoot rep mNow AfterVerificationError cachedInfo (Left ex)
+            limitIterations (Right ex : history)
+          Right (Left RootUpdated) -> do
+            log rep $ LogRootUpdated
+            limitIterations (Left RootUpdated : history)
+          Right (Right hasUpdates) ->
+            return hasUpdates
+      where
+        isRetry :: IsRetry
+        isRetry = if null history then FirstAttempt else AfterVerificationError
 
     -- NOTE: We use the ContT monad transformer to make sure that none of the
     -- downloaded files will be cached until the entire check for updates check
@@ -213,21 +219,6 @@ checkForUpdates rep checkExpiry = do
     -- request.
     newMirrors :: Trusted Mirrors -> ContT r IO ()
     newMirrors _ = return ()
-
--- | Root metadata updated
-data RootUpdated = RootUpdated
-  deriving (Typeable)
-
-instance Pretty RootUpdated where
-  pretty RootUpdated = "Root information updated"
-
-#if MIN_VERSION_base(4,8,0)
-deriving instance Show RootUpdated
-instance Exception RootUpdated where displayException = pretty
-#else
-instance Show RootUpdated where show = pretty
-instance Exception RootUpdated
-#endif
 
 -- | Update the root metadata
 --

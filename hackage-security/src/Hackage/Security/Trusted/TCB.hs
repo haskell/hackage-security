@@ -7,10 +7,13 @@ module Hackage.Security.Trusted.TCB (
   , trustVerified
   , trustApply
   , trustSeq
+    -- * Verification errors
+  , VerificationError(..)
+  , RootUpdated(..)
+  , VerificationHistory
     -- * Role verification
   , SignaturesVerified -- opaque
   , signaturesVerified
-  , VerificationError(..)
   , verifyRole'
   , verifyFingerprints
 #if __GLASGOW_HASKELL__ >= 710
@@ -116,15 +119,27 @@ data VerificationError =
      -- | The spec stipulates that if a verification error occurs during
      -- the check for updates, we must download new root information and
      -- start over. However, we limit how often we attempt this.
-   | VerificationErrorLoop
+     --
+     -- We record all verification errors that occurred before we gave up.
+   | VerificationErrorLoop VerificationHistory
    deriving (Typeable)
+
+-- | Root metadata updated (as part of the normal update process)
+data RootUpdated = RootUpdated
+  deriving (Typeable)
+
+type VerificationHistory = [Either RootUpdated VerificationError]
 
 #if MIN_VERSION_base(4,8,0)
 deriving instance Show VerificationError
+deriving instance Show RootUpdated
 instance Exception VerificationError where displayException = pretty
+instance Exception RootUpdated where displayException = pretty
 #else
 instance Exception VerificationError
 instance Show VerificationError where show = pretty
+instance Show RootUpdated where show = pretty
+instance Exception RootUpdated
 #endif
 
 instance Pretty VerificationError where
@@ -140,8 +155,12 @@ instance Pretty VerificationError where
       pretty file ++ " not found in corresponding target metadata"
   pretty (VerificationErrorFileTooLarge file) =
       pretty file ++ " too large"
-  pretty VerificationErrorLoop =
-      "Verification loop"
+  pretty (VerificationErrorLoop es) =
+      "Verification loop. Errors in order:\n"
+   ++ unlines (map (("  " ++) . either pretty pretty) es)
+
+instance Pretty RootUpdated where
+  pretty RootUpdated = "Root information updated"
 
 -- | Role verification
 --
