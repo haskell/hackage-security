@@ -27,5 +27,6 @@ library
                        RankNTypes
                        RecordWildCards
                        ScopedTypeVariables
+                       StandaloneDeriving
   other-extensions:    CPP
   ghc-options:         -Wall

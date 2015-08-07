@@ -8,7 +8,6 @@ module Hackage.Security.Client.Repository.HttpLib.HttpClient (
 import Control.Exception
 import Data.ByteString (ByteString)
 import Data.Default.Class (def)
-import Data.Monoid
 import Network.URI
 import Network.HTTP.Client (Manager)
 import qualified Data.ByteString              as BS
@@ -29,7 +28,7 @@ import qualified Hackage.Security.Util.Lens as Lens
 -- | Initialization
 --
 -- The proxy must be specified at initialization because @http-client@ does not
--- allow to change the proxy once the 'Manager' is created. 
+-- allow to change the proxy once the 'Manager' is created.
 withClient :: ProxyConfig HttpClient.Proxy -> (Manager -> HttpLib -> IO a) -> IO a
 withClient proxyConfig callback = do
     manager <- HttpClient.newManager (setProxy HttpClient.defaultManagerSettings)
@@ -154,8 +153,8 @@ setRequestHeaders opts req = req {
                    -> [HttpClient.Header]
     finalizeHeader (name, strs) = [(name, BS.intercalate ", " (reverse strs))]
 
-    insert :: (Eq a, Monoid b) => a -> b -> [(a, b)] -> [(a, b)]
-    insert x y = Lens.modify (Lens.lookupM x) (mappend y)
+    insert :: Eq a => a -> [b] -> [(a, [b])] -> [(a, [b])]
+    insert x y = Lens.modify (Lens.lookupM x) (++ y)
 
 -- | Extract the response headers
 getResponseHeaders :: HttpClient.Response a -> [HttpResponseHeader]

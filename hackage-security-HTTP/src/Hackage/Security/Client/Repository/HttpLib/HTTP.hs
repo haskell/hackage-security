@@ -18,7 +18,6 @@ module Hackage.Security.Client.Repository.HttpLib.HTTP (
 import Control.Concurrent
 import Control.Exception
 import Control.Monad
-import Data.Monoid
 import Data.List (intercalate)
 import Data.Typeable (Typeable)
 import Network.URI
@@ -36,6 +35,7 @@ import qualified Codec.Compression.Zlib.Internal as GZip (DecompressError)
 import Hackage.Security.Client
 import Hackage.Security.Client.Repository.HttpLib
 import Hackage.Security.Util.Checked
+import Hackage.Security.Util.Pretty
 import qualified Hackage.Security.Util.Lens as Lens
 
 {-------------------------------------------------------------------------------
@@ -139,13 +139,29 @@ checkDecompressError = id
 #endif
 
 data UnexpectedResponse = UnexpectedResponse URI (Int, Int, Int)
-  deriving (Show, Typeable)
+  deriving (Typeable)
 
 data InvalidProxy = InvalidProxy String
-  deriving (Show, Typeable)
+  deriving (Typeable)
 
+instance Pretty UnexpectedResponse where
+  pretty (UnexpectedResponse uri code) = "Unexpected response " ++ show code
+                                      ++ "for " ++ show uri
+
+instance Pretty InvalidProxy where
+  pretty (InvalidProxy p) = "Invalid proxy " ++ show p
+
+#if MIN_VERSION_base(4,8,0)
+deriving instance Show UnexpectedResponse
+deriving instance Show InvalidProxy
+instance Exception UnexpectedResponse where displayException = pretty
+instance Exception InvalidProxy where displayException = pretty
+#else
+instance Show UnexpectedResponse where show = pretty
+instance Show InvalidProxy where show = pretty
 instance Exception UnexpectedResponse
 instance Exception InvalidProxy
+#endif
 
 {-------------------------------------------------------------------------------
   Additional operations
@@ -259,8 +275,8 @@ setRequestHeaders =
     finalizeHeader :: (HTTP.HeaderName, [String]) -> [(HTTP.HeaderName, String)]
     finalizeHeader (name, strs) = [(name, intercalate ", " (reverse strs))]
 
-    insert :: (Eq a, Monoid b) => a -> b -> [(a, b)] -> [(a, b)]
-    insert x y = Lens.modify (Lens.lookupM x) (mappend y)
+    insert :: Eq a => a -> [b] -> [(a, [b])] -> [(a, [b])]
+    insert x y = Lens.modify (Lens.lookupM x) (++ y)
 
 getResponseHeaders :: HTTP.Response a -> [HttpResponseHeader]
 getResponseHeaders response = concat [
