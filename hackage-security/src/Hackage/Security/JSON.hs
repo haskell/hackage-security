@@ -1,4 +1,5 @@
 -- | Hackage-specific wrappers around the Util.JSON module
+{-# LANGUAGE CPP #-}
 module Hackage.Security.JSON (
     -- * Deserialization errors
     DeserializationError(..)
@@ -80,9 +81,15 @@ data DeserializationError =
     --
     -- Records actual and expected types.
   | DeserializationErrorFileType String String
-  deriving (Typeable, Show)
+  deriving (Typeable)
 
+#if MIN_VERSION_base(4,8,0)
+deriving instance Show DeserializationError
+instance Exception DeserializationError where displayException = pretty
+#else
+instance Show DeserializationError where show = pretty
 instance Exception DeserializationError
+#endif
 
 instance Pretty DeserializationError where
   pretty (DeserializationErrorMalformed str) =

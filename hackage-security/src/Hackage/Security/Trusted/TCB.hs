@@ -117,9 +117,15 @@ data VerificationError =
      -- the check for updates, we must download new root information and
      -- start over. However, we limit how often we attempt this.
    | VerificationErrorLoop
-   deriving (Show, Typeable)
+   deriving (Typeable)
 
+#if MIN_VERSION_base(4,8,0)
+deriving instance Show VerificationError
+instance Exception VerificationError where displayException = pretty
+#else
 instance Exception VerificationError
+instance Show VerificationError where show = pretty
+#endif
 
 instance Pretty VerificationError where
   pretty (VerificationErrorSignatures file) =

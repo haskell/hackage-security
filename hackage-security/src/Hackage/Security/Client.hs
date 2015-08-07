@@ -208,9 +208,18 @@ checkForUpdates rep checkExpiry = do
 
 -- | Root metadata updated
 data RootUpdated = RootUpdated
-  deriving (Show, Typeable)
+  deriving (Typeable)
 
+instance Pretty RootUpdated where
+  pretty RootUpdated = "Root information updated"
+
+#if MIN_VERSION_base(4,8,0)
+deriving instance Show RootUpdated
+instance Exception RootUpdated where displayException = pretty
+#else
+instance Show RootUpdated where show = pretty
 instance Exception RootUpdated
+#endif
 
 -- | Update the root metadata
 --
@@ -605,17 +614,29 @@ uncheckClientErrors act = handleChecked rethrowVerificationError
      rethrowInvalidPackageException = throwIO
 
 data InvalidPackageException = InvalidPackageException PackageIdentifier
-  deriving (Show, Typeable)
+  deriving (Typeable)
 
 data LocalFileCorrupted = LocalFileCorrupted DeserializationError
-  deriving (Show, Typeable)
+  deriving (Typeable)
 
 data InvalidFileInIndex = InvalidFileInIndex IndexFile DeserializationError
-  deriving (Show, Typeable)
+  deriving (Typeable)
 
+#if MIN_VERSION_base(4,8,0)
+deriving instance Show InvalidPackageException
+deriving instance Show LocalFileCorrupted
+deriving instance Show InvalidFileInIndex
+instance Exception InvalidPackageException where displayException = pretty
+instance Exception LocalFileCorrupted where displayException = pretty
+instance Exception InvalidFileInIndex where displayException = pretty
+#else
+instance Show InvalidPackageException where show = pretty
+instance Show LocalFileCorrupted where show = pretty
+instance Show InvalidFileInIndex where show = pretty
 instance Exception InvalidPackageException
 instance Exception LocalFileCorrupted
 instance Exception InvalidFileInIndex
+#endif
 
 instance Pretty InvalidPackageException where
   pretty (InvalidPackageException pkgId) = "Invalid package " ++ display pkgId
@@ -624,8 +645,8 @@ instance Pretty LocalFileCorrupted where
   pretty (LocalFileCorrupted err) = "Local file corrupted: " ++ pretty err
 
 instance Pretty InvalidFileInIndex where
-   pretty (InvalidFileInIndex file err) = "Invalid file " ++ pretty file
-                                       ++ "in index: " ++ pretty err
+  pretty (InvalidFileInIndex file err) = "Invalid file " ++ pretty file
+                                      ++ "in index: " ++ pretty err
 
 {-------------------------------------------------------------------------------
   Auxiliary

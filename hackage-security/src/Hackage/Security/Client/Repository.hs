@@ -356,12 +356,10 @@ data SomeRemoteError :: * where
 
 #if MIN_VERSION_base(4,8,0)
 deriving instance Show SomeRemoteError
-instance Exception SomeRemoteError where
-  displayException (SomeRemoteError ex) = displayException ex
+instance Exception SomeRemoteError where displayException = pretty
 #else
 instance Exception SomeRemoteError
-instance Show SomeRemoteError where
-  show (SomeRemoteError ex) = show ex
+instance Show SomeRemoteError where show = pretty
 #endif
 
 instance Pretty SomeRemoteError where
