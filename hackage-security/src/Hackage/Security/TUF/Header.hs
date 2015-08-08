@@ -33,8 +33,17 @@ class HasHeader a where
 --
 -- The file version is a flat integer which must monotonically increase on
 -- every file update.
+--
+-- 'Show' and 'Read' instance are defined in terms of the underlying 'Int'
+-- (this is use for example by hackage during the backup process).
 newtype FileVersion = FileVersion Int
-  deriving (Eq, Ord, Show, Typeable)
+  deriving (Eq, Ord, Typeable)
+
+instance Show FileVersion where
+  show (FileVersion v) = show v
+
+instance Read FileVersion where
+  readsPrec p = map (\(v, xs) -> (FileVersion v, xs)) . readsPrec p
 
 -- | File expiry date
 --
