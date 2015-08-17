@@ -87,11 +87,17 @@ precomputeSymLink state src dst =
     case splitPath src of
       [_date, "core/", "package/", pkg, _pkgTarGz] -> do
         let blobPath = normalizePath (stateBackupDir state </> takeDirectory src </> dst)
-        precomputePkg state pkg blobPath
-      _otherwise ->
+        precomputePkg state ("package " ++ init pkg) blobPath
+      [_date, "candidates/", "package/", pkg, _pkgTarGz] -> do
+        let blobPath = normalizePath (stateBackupDir state </> takeDirectory src </> dst)
+        precomputePkg state ("candidate " ++ init pkg) blobPath
+      _otherwise -> do
         return ()
 
-precomputePkg :: State -> String -> FilePath -> IO ()
+precomputePkg :: State     -- ^ State to add the computed hash to
+              -> String    -- ^ Package name (for reporting only)
+              -> FilePath  -- ^ Location of the blob ID (ending in @../<md5>@)
+              -> IO ()
 precomputePkg state pkg dst = do
     putStr pkg
     let md5 = takeFileName dst
