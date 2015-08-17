@@ -81,8 +81,8 @@ hackageRepoLayout = RepoLayout {
     , repoLayoutTimestamp  = rp $ fragment' "timestamp.json"
     , repoLayoutSnapshot   = rp $ fragment' "snapshot.json"
     , repoLayoutMirrors    = rp $ fragment' "mirrors.json"
-    , repoLayoutIndexTarGz = rp $ fragment' "00-index.tar.gz"
-    , repoLayoutIndexTar   = rp $ fragment' "00-index.tar"
+    , repoLayoutIndexTarGz = rp $ fragment' "01-index.tar.gz"
+    , repoLayoutIndexTar   = rp $ fragment' "01-index.tar"
     , repoLayoutPkgTarGz   = \pkgId -> rp $ fragment' "package" </> pkgFile pkgId
     , repoIndexLayout      = hackageIndexLayout
     }
