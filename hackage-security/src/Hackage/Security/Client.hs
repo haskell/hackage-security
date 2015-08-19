@@ -5,9 +5,9 @@
 -- | Main entry point into the Hackage Security framework for clients
 module Hackage.Security.Client (
     -- * Checking for updates
-    HasUpdates(..)
+    checkForUpdates
   , CheckExpiry(..)
-  , checkForUpdates
+  , HasUpdates(..)
     -- * Downloading targets
   , downloadPackage
   , getCabalFile
@@ -82,7 +82,9 @@ data HasUpdates = HasUpdates | NoUpdates
 -- | Generic logic for checking if there are updates
 --
 -- This implements the logic described in Section 5.1, "The client application",
--- of the TUF spec.
+-- of the TUF spec. It checks which of the server metadata has changed, and
+-- downloads all changed metadata to the local cache. (Metadata here refers
+-- both to the TUF security metadata as well as the Hackage packge index.)
 checkForUpdates :: (Throws VerificationError, Throws SomeRemoteError)
                 => Repository -> CheckExpiry -> IO HasUpdates
 checkForUpdates rep checkExpiry =
