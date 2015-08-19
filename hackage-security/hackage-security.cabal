@@ -83,7 +83,7 @@ library
                        -- so that we can compile with the version of bytestring
                        -- that comes with ghc for ghc < 7.8
                        bytestring        >= 0.10.2 && < 0.11,
-                       Cabal             >= 1.12   && < 1.23,
+                       Cabal             >= 1.12   && < 1.25,
                        containers        >= 0.4    && < 0.6,
                        directory         >= 1.1    && < 1.3,
                        ed25519           >= 0.0    && < 0.1,
