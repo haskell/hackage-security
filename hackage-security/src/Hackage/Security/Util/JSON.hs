@@ -29,8 +29,8 @@ import Text.JSON.Canonical
 import Network.URI
 import qualified Data.Map as Map
 
-#if !MIN_VERSION_base(4,8,0)
-import System.Locale
+#if !MIN_VERSION_time(1,5,0)
+import System.Locale (defaultTimeLocale)
 #endif
 
 import Hackage.Security.Util.Path
@@ -146,7 +146,7 @@ instance ReportSchemaErrors m => FromJSON m UTCTime where
     case parseTimeM False defaultTimeLocale "%FT%TZ" str of
       Just time -> return time
       Nothing   -> expected "valid date-time string" (Just str)
-#if !MIN_VERSION_base(4,8,0)
+#if !MIN_VERSION_time(1,5,0)
     where
       parseTimeM _trim = parseTime
 #endif
