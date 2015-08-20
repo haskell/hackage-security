@@ -4,7 +4,7 @@ synopsis:            Hackage security bindings against the HTTP library
 description:         The hackage security library provides a 'HttpLib'
                      abstraction to allow to bind against different HTTP
                      libraries. This library implements this abstraction using
-                     the @HTTP@ library. 
+                     the @HTTP@ library.
 homepage:            http://github.com/well-typed/hackage-security/
 license:             BSD3
 license-file:        LICENSE
@@ -15,13 +15,16 @@ category:            Distribution
 build-type:          Simple
 cabal-version:       >=1.10
 
+flag use-network-uri
+  description: Are we using network-uri?
+  manual: False
+
 library
   exposed-modules:     Hackage.Security.Client.Repository.HttpLib.HTTP
   build-depends:       base             >= 4.4       && < 5,
                        bytestring       >= 0.9       && < 0.11,
                        HTTP             >= 4000.2.19 && < 4000.3,
                        mtl              >= 2.2       && < 2.3,
-                       network-uri      >= 2.6       && < 2.7,
                        zlib             >= 0.5       && < 0.7,
                        hackage-security >= 0.1       && < 0.2
   hs-source-dirs:      src
@@ -34,3 +37,10 @@ library
                        StandaloneDeriving
   other-extensions:    CPP
   ghc-options:         -Wall
+
+  -- See comments in hackage-security.cabal
+  if flag(use-network-uri)
+    build-depends: network-uri >= 2.6 && < 2.7,
+                   network     >= 2.6 && < 2.7
+  else
+    build-depends: network     >= 2.5 && < 2.6

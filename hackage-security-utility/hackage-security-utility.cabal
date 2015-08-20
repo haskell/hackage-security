@@ -11,6 +11,10 @@ category:            Distribution
 build-type:          Simple
 cabal-version:       >=1.10
 
+flag use-network-uri
+  description: Are we using network-uri?
+  manual: False
+
 executable hackage-security
   main-is:             Main.hs
   other-modules:       Hackage.Security.Utility.Options
@@ -21,7 +25,6 @@ executable hackage-security
                        Cabal                >= 1.12,
                        directory            >= 1.1,
                        filepath             >= 1.2,
-                       network-uri          >= 2.6,
                        optparse-applicative >= 0.11,
                        tar                  >= 0.4,
                        time                 >= 1.2,
@@ -40,3 +43,10 @@ executable hackage-security
                        RecordWildCards
   other-extensions:    TemplateHaskell
   ghc-options:         -Wall
+
+  -- see comments in hackage-security.cabal
+  if flag(use-network-uri)
+    build-depends: network-uri >= 2.6 && < 2.7,
+                   network     >= 2.6 && < 2.7
+  else
+    build-depends: network     >= 2.5 && < 2.6
