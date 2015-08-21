@@ -18,8 +18,8 @@
 module Hackage.Security.Client.Repository.Remote (
     -- * Top-level API
     withRepository
-  , AllowContentCompression(..)
-  , WantCompressedIndex(..)
+  , RepoOpts(..)
+  , defaultRepoOpts
      -- * File sizes
   , FileSize(..)
   , fileSizeWithinBounds
@@ -110,21 +110,37 @@ fileSizeWithinBounds sz (FileSizeBound sz') = sz <= sz'
   Top-level API
 -------------------------------------------------------------------------------}
 
--- | Should we allow HTTP content compression?
+-- | Repository options with a reasonable default
 --
--- Since content compression happens before signature verification, users who
--- are concerned about potential exploits of the decompression algorithm may
--- prefer to disallow content compression.
-data AllowContentCompression =
-    AllowContentCompression
-  | DisallowContentCompression
+-- Clients should use 'defaultRepositoryOpts' and override required settings.
+data RepoOpts = RepoOpts {
+      -- | Should we allow HTTP content compression?
+      --
+      -- Since content compression happens before signature verification, users
+      -- who are concerned about potential exploits of the decompression
+      -- algorithm may prefer to disallow content compression.
+      repoAllowContentCompression :: Bool
 
--- | Do we want to a copy of the compressed index?
---
--- This is important for mirroring clients only.
-data WantCompressedIndex =
-    WantCompressedIndex
-  | DontNeedCompressedIndex
+      -- | Do we want to a copy of the compressed index?
+      --
+      -- This is important for mirroring clients only.
+    , repoWantCompressedIndex :: Bool
+
+      -- | Allow additional mirrors?
+      --
+      -- If this is set to True (default), in addition to the (out-of-band)
+      -- specified mirrors we will also use mirrors reported by those
+      -- out-of-band mirrors (that is, @mirrors.json@).
+    , repoAllowAdditionalMirrors :: Bool
+    }
+
+-- | Default repository options
+defaultRepoOpts :: RepoOpts
+defaultRepoOpts = RepoOpts {
+      repoAllowContentCompression = True
+    , repoWantCompressedIndex     = False
+    , repoAllowAdditionalMirrors  = True
+    }
 
 -- | Initialize the repository (and cleanup resources afterwards)
 --
@@ -145,8 +161,7 @@ data WantCompressedIndex =
 withRepository
   :: HttpLib                 -- ^ Implementation of the HTTP protocol
   -> [URI]                   -- ^ "Out of band" list of mirrors
-  -> AllowContentCompression -- ^ Should we allow HTTP content compression?
-  -> WantCompressedIndex     -- ^ Do we want a copy of the compressed index?
+  -> RepoOpts                -- ^ Repository options
   -> Cache                   -- ^ Location of local cache
   -> RepoLayout              -- ^ Repository layout
   -> (LogMessage -> IO ())   -- ^ Logger
@@ -154,8 +169,7 @@ withRepository
   -> IO a
 withRepository httpLib
                outOfBandMirrors
-               allowContentCompression
-               wantCompressedIndex
+               repoOpts
                cache
                repLayout
                logger
@@ -170,8 +184,7 @@ withRepository httpLib
                                 , cfgCache    = cache
                                 , cfgCaps     = caps
                                 , cfgLogger   = logger
-                                , cfgCompress = allowContentCompression
-                                , cfgWantGz   = wantCompressedIndex
+                                , cfgOpts     = repoOpts
                                 }
     callback Repository {
         repWithRemote    = withRemote remoteConfig selectedMirror
@@ -179,7 +192,11 @@ withRepository httpLib
       , repGetCachedRoot = Cache.getCachedRoot cache
       , repClearCache    = Cache.clearCache    cache
       , repGetFromIndex  = Cache.getFromIndex  cache (repoIndexLayout repLayout)
-      , repWithMirror    = withMirror httpLib selectedMirror logger outOfBandMirrors
+      , repWithMirror    = withMirror httpLib
+                                      selectedMirror
+                                      logger
+                                      outOfBandMirrors
+                                      repoOpts
       , repLog           = logger
       , repLayout        = repLayout
       , repDescription   = "Remote repository at " ++ show outOfBandMirrors
@@ -250,7 +267,7 @@ httpRequestHeaders RemoteConfig{..} isRetry =
     defaultHeaders = concat [
         [ HttpRequestNoTransform ]
       , [ HttpRequestContentCompression
-        | AllowContentCompression <- [cfgCompress]
+        | repoAllowContentCompression cfgOpts
         ]
       ]
 
@@ -260,10 +277,18 @@ withMirror :: forall a.
            -> SelectedMirror         -- ^ MVar indicating currently mirror
            -> (LogMessage -> IO ())  -- ^ Logger
            -> [URI]                  -- ^ Out-of-band mirrors
+           -> RepoOpts               -- ^ Repository options
            -> Maybe [Mirror]         -- ^ TUF mirrors
            -> IO a                   -- ^ Callback
            -> IO a
-withMirror HttpLib{..} selectedMirror logger oobMirrors tufMirrors callback =
+withMirror HttpLib{..}
+           selectedMirror
+           logger
+           oobMirrors
+           repoOpts
+           tufMirrors
+           callback
+           =
     go orderedMirrors
   where
     go :: [URI] -> IO a
@@ -283,7 +308,12 @@ withMirror HttpLib{..} selectedMirror logger oobMirrors tufMirrors callback =
 
     -- TODO: We will want to make the construction of this list configurable.
     orderedMirrors :: [URI]
-    orderedMirrors = nub $ oobMirrors ++ maybe [] (map mirrorUrlBase) tufMirrors
+    orderedMirrors = nub $ concat [
+        oobMirrors
+      , if repoAllowAdditionalMirrors repoOpts
+          then maybe [] (map mirrorUrlBase) tufMirrors
+          else []
+      ]
 
     select :: URI -> IO a -> IO a
     select uri =
@@ -335,11 +365,8 @@ pickDownloadMethod RemoteConfig{..} remoteFile = multipleExitPoints $ do
       (RemoteIndex pf fs)  -> return (pf, fs)
 
     -- If the client wants the compressed index, we have no choice
-    case cfgWantGz of
-      WantCompressedIndex ->
-        exit $ CannotUpdate hasGz UpdateNotUsefulWantsCompressed
-      DontNeedCompressedIndex ->
-        return ()
+    when (repoWantCompressedIndex cfgOpts) $
+      exit $ CannotUpdate hasGz UpdateNotUsefulWantsCompressed
 
     -- Server must have uncompressed index available
     hasUn <- case formatsMember FUn formats of
@@ -368,9 +395,9 @@ pickDownloadMethod RemoteConfig{..} remoteFile = multipleExitPoints $ do
     localSize   <- liftIO $ getFileSize cachedIndex
     let infoGz = formatsLookup hasGz formats
         infoUn = formatsLookup hasUn formats
-        estCompFactor = case (canCompress, cfgCompress) of
-                          (True, AllowContentCompression) -> 10
-                          _otherwise                      -> 1
+        estCompFactor = if canCompress && repoAllowContentCompression cfgOpts
+                          then 10
+                          else 1
         estUpdateSize = (fileLength' infoUn - fromIntegral localSize)
                           `div` estCompFactor
     unless (estUpdateSize < fileLength' infoGz) $
@@ -593,8 +620,7 @@ data RemoteConfig = RemoteConfig {
     , cfgCache    :: Cache
     , cfgCaps     :: ServerCapabilities
     , cfgLogger   :: LogMessage -> IO ()
-    , cfgCompress :: AllowContentCompression
-    , cfgWantGz   :: WantCompressedIndex
+    , cfgOpts     :: RepoOpts
     }
 
 {-------------------------------------------------------------------------------
