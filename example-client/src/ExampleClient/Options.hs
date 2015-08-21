@@ -94,7 +94,7 @@ parseGlobalOptions = GlobalOpts
        , metavar "CLIENT"
        , value "HTTP"
        , showDefault
-#if MIN_VERSION_base(4,5,0)
+#ifdef MIN_VERSION_hackage_security_http_client
        , help "HTTP client to use (currently supported: HTTP, http-conduit, curl)"
 #else
        , help "HTTP client to use (currently supported: HTTP, curl)"

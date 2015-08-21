@@ -14,7 +14,7 @@ import qualified Hackage.Security.Client.Repository.Remote      as Remote
 import qualified Hackage.Security.Client.Repository.HttpLib.HTTP as HttpLib.HTTP
 import qualified Hackage.Security.Client.Repository.HttpLib.Curl as HttpLib.Curl
 
-#if MIN_VERSION_base(4,5,0)
+#ifdef MIN_VERSION_hackage_security_http_client
 import qualified Hackage.Security.Client.Repository.HttpLib.HttpClient as HttpLib.HttpClient
 #endif
 
@@ -99,7 +99,7 @@ withRepo GlobalOpts{..} =
           "curl" ->
             HttpLib.Curl.withClient $ \httpLib ->
               act httpLib
-#if MIN_VERSION_base(4,5,0)
+#ifdef MIN_VERSION_hackage_security_http_client
           "http-client" ->
             HttpLib.HttpClient.withClient proxyConfig $ \_manager httpLib ->
               act httpLib
