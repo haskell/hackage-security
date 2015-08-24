@@ -1,5 +1,5 @@
 name:                hackage-security-HTTP
-version:             0.1.0.0
+version:             0.1.0.1
 synopsis:            Hackage security bindings against the HTTP library
 description:         The hackage security library provides a 'HttpLib'
                      abstraction to allow to bind against different HTTP
