@@ -270,31 +270,32 @@ updateRoot :: (Throws VerificationError, Throws SomeRemoteError)
            -> Either VerificationError (Trusted FileInfo)
            -> IO ()
 updateRoot rep mNow isRetry cachedInfo eFileInfo = do
-    (_newRoot :: Trusted Root, newRootFile) <- evalContT $
-      getRemoteFile
+    rootReallyChanged <- evalContT $ do
+      (_newRoot :: Trusted Root, rootTempFile) <- getRemoteFile
         rep
         cachedInfo
         isRetry
         mNow
         (RemoteRoot (eitherToMaybe eFileInfo))
 
-    rootReallyChanged <-
+      -- NOTE: It is important that we do this check within the evalContT,
+      -- because the temporary file will be deleted once we leave its scope.
       case eFileInfo of
-         Right _ ->
-           -- We are downloading the root info because the hash in the snapshot
-           -- changed. In this case the root definitely changed.
-           return True
-         Left _e -> do
-           -- We are downloading the root because of a verification error. In
-           -- this case the root info may or may not have changed. In most cases
-           -- it would suffice to compare the file version now; however, in the
-           -- (exceptional) circumstance where the root info has changed but
-           -- the file version has not, this would result in the same infinite
-           -- loop described above. Hence, we must compare file hashes, and they
-           -- must be computed on the raw file, not the parsed file.
-           oldRootFile <- repGetCachedRoot rep
-           oldRootInfo <- DeclareTrusted <$> computeFileInfo oldRootFile
-           not <$> verifyFileInfo newRootFile oldRootInfo
+        Right _ ->
+          -- We are downloading the root info because the hash in the snapshot
+          -- changed. In this case the root definitely changed.
+          return True
+        Left _e -> liftIO $ do
+          -- We are downloading the root because of a verification error. In
+          -- this case the root info may or may not have changed. In most cases
+          -- it would suffice to compare the file version now; however, in the
+          -- (exceptional) circumstance where the root info has changed but
+          -- the file version has not, this would result in the same infinite
+          -- loop described above. Hence, we must compare file hashes, and they
+          -- must be computed on the raw file, not the parsed file.
+          oldRootFile <- repGetCachedRoot rep
+          oldRootInfo <- DeclareTrusted <$> computeFileInfo oldRootFile
+          not <$> verifyFileInfo rootTempFile oldRootInfo
 
     when rootReallyChanged $ clearCache rep
 
