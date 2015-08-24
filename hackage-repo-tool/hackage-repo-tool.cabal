@@ -1,4 +1,4 @@
-name:                hackage-security-local
+name:                hackage-repo-tool
 version:             0.1.0.0
 synopsis:            Utility to manage secure file-based package repositories
 homepage:            http://github.com/well-typed/hackage-security/
@@ -15,7 +15,7 @@ flag use-network-uri
   description: Are we using network-uri?
   manual: False
 
-executable hackage-security
+executable hackage-repo-tool
   main-is:             Main.hs
   other-modules:       Hackage.Security.Utility.Options
                        Hackage.Security.Utility.Layout
