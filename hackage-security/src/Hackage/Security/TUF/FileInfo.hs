@@ -11,7 +11,7 @@ module Hackage.Security.TUF.FileInfo (
 
 import Prelude hiding (lookup)
 import Data.Map (Map)
-import Data.Digest.Pure.SHA
+import qualified Crypto.Hash          as CH
 import qualified Data.Map             as Map
 import qualified Data.ByteString.Lazy as BS.L
 
@@ -50,14 +50,12 @@ data FileInfo = FileInfo {
 --
 -- TODO: Currently this will load the entire input bytestring into memory.
 -- We need to make this incremental, by computing the length and all hashes
--- in a single traversal over the input. However, the precise way to
--- do that will depend on the hashing package we will use, and we have
--- yet to pick that package.
+-- in a single traversal over the input.
 fileInfo :: BS.L.ByteString -> FileInfo
 fileInfo bs = FileInfo {
       fileInfoLength = FileLength . fromIntegral $ BS.L.length bs
     , fileInfoHashes = Map.fromList [
-          (HashFnSHA256, Hash $ showDigest (sha256 bs))
+          (HashFnSHA256, Hash $ show (CH.hashlazy bs :: CH.Digest CH.SHA256))
         ]
     }
 

@@ -26,10 +26,10 @@ module Hackage.Security.Key (
   ) where
 
 import Control.Monad
-import Data.Digest.Pure.SHA
 import Data.Functor.Identity
 import Data.Typeable (Typeable)
 import Text.JSON.Canonical
+import qualified Crypto.Hash          as CH
 import qualified Crypto.Sign.Ed25519  as Ed25519
 import qualified Data.ByteString      as BS
 import qualified Data.ByteString.Lazy as BS.L
@@ -159,8 +159,8 @@ class HasKeyId key where
 
 instance HasKeyId PublicKey where
   keyId = KeyId
-        . showDigest
-        . sha256
+        . show
+        . (CH.hashlazy :: BS.L.ByteString -> CH.Digest CH.SHA256)
         . renderCanonicalJSON
         . runIdentity
         . toJSON
