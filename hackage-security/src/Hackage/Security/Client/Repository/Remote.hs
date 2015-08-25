@@ -62,18 +62,11 @@ newtype ServerCapabilities = SC (MVar ServerCapabilities_)
 data ServerCapabilities_ = ServerCapabilities {
       -- | Does the server support range requests?
       serverAcceptRangesBytes :: Bool
-
-      -- | Did the server apply content compression previously?
-      --
-      -- We use this as a heuristic to decide whether we want to do an
-      -- incremental update of the index or not.
-    , serverUsedContentCompression :: Bool
     }
 
 newServerCapabilities :: IO ServerCapabilities
 newServerCapabilities = SC <$> newMVar ServerCapabilities {
       serverAcceptRangesBytes      = False
-    , serverUsedContentCompression = False
     }
 
 updateServerCapabilities :: ServerCapabilities -> [HttpResponseHeader] -> IO ()
@@ -81,8 +74,6 @@ updateServerCapabilities (SC mv) responseHeaders = modifyMVar_ mv $ \caps ->
     return $ caps {
         serverAcceptRangesBytes = serverAcceptRangesBytes caps
           || HttpResponseAcceptRangesBytes `elem` responseHeaders
-      , serverUsedContentCompression = serverUsedContentCompression caps
-          || HttpResponseContentCompression `elem` responseHeaders
       }
 
 checkServerCapability :: MonadIO m
@@ -256,8 +247,11 @@ withRemote' cfg isRetry remoteFile callback =
 -- mess things up with respect to hashes etc). Additionally, after a validation
 -- error we want to make sure caches get files upstream in case the validation
 -- error was because the cache updated files out of order.
-httpRequestHeaders :: RemoteConfig -> IsRetry -> [HttpRequestHeader]
-httpRequestHeaders RemoteConfig{..} isRetry =
+httpRequestHeaders :: RemoteConfig
+                   -> IsRetry
+                   -> DownloadMethod fs
+                   -> [HttpRequestHeader]
+httpRequestHeaders RemoteConfig{..} isRetry method =
     case isRetry of
       FirstAttempt           -> defaultHeaders
       AfterVerificationError -> HttpRequestMaxAge0 : defaultHeaders
@@ -267,9 +261,17 @@ httpRequestHeaders RemoteConfig{..} isRetry =
     defaultHeaders = concat [
         [ HttpRequestNoTransform ]
       , [ HttpRequestContentCompression
-        | repoAllowContentCompression cfgOpts
+        | repoAllowContentCompression cfgOpts && not (isRangeRequest method)
         ]
       ]
+
+    -- If we are doing a range request, we must not request content compression:
+    -- servers such as Apache interpret this range against the _compressed_
+    -- stream, making it near useless for our purposes here.
+    isRangeRequest :: DownloadMethod fs -> Bool
+    isRangeRequest NeverUpdated{} = False
+    isRangeRequest CannotUpdate{} = False
+    isRangeRequest Update{}       = True
 
 -- | Mirror selection
 withMirror :: forall a.
@@ -391,16 +393,11 @@ pickDownloadMethod RemoteConfig{..} remoteFile = multipleExitPoints $ do
     let trailerLength = 1024
 
     -- File sizes
-    canCompress <- checkServerCapability cfgCaps serverUsedContentCompression
-    localSize   <- liftIO $ getFileSize cachedIndex
-    let infoGz = formatsLookup hasGz formats
-        infoUn = formatsLookup hasUn formats
-        estCompFactor = if canCompress && repoAllowContentCompression cfgOpts
-                          then 10
-                          else 1
-        estUpdateSize = (fileLength' infoUn - fromIntegral localSize)
-                          `div` estCompFactor
-    unless (estUpdateSize < fileLength' infoGz) $
+    localSize <- liftIO $ getFileSize cachedIndex
+    let infoGz     = formatsLookup hasGz formats
+        infoUn     = formatsLookup hasUn formats
+        updateSize = fileLength' infoUn - fromIntegral localSize
+    unless (updateSize < fileLength' infoGz) $
       exit $ CannotUpdate hasGz UpdateTooLarge
 
     -- If all these checks pass try to do an incremental update.
@@ -419,7 +416,8 @@ getFile :: forall fs a. (Throws VerificationError, Throws SomeRemoteError)
         -> (forall f. HasFormat fs f -> TempPath -> IO a) -- ^ Callback
         -> DownloadMethod fs    -- ^ Selected format
         -> IO a
-getFile cfg@RemoteConfig{..} isRetry remoteFile callback = go
+getFile cfg@RemoteConfig{..} isRetry remoteFile callback method =
+    go method
   where
     go :: (Throws VerificationError, Throws SomeRemoteError)
        => DownloadMethod fs -> IO a
@@ -459,7 +457,7 @@ getFile cfg@RemoteConfig{..} isRetry remoteFile callback = go
             update updateFormat updateInfo updateLocal updateTrailer
 
     headers :: [HttpRequestHeader]
-    headers = httpRequestHeaders cfg isRetry
+    headers = httpRequestHeaders cfg isRetry method
 
     -- Get any file from the server, without using incremental updates
     download :: Throws SomeRemoteError => HasFormat fs f -> IO a
