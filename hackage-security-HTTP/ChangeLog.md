@@ -1,3 +1,8 @@
+0.1.0.2
+-------
+* Allow for hackage-security 0.3.*
+* Include ChangeLog.md in sdist (#98)
+
 0.1.0.1
 -------
 * Allow for hackage-security 0.2.*

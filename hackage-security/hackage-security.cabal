@@ -1,5 +1,5 @@
 name:                hackage-security
-version:             0.2.0.0
+version:             0.3.0.0
 synopsis:            Hackage security library
 description:         The hackage security library provides both server and
                      client utilities for securing the Hackage package server
@@ -28,6 +28,9 @@ copyright:           Copyright 2015 Well-Typed LLP
 category:            Distribution
 build-type:          Simple
 cabal-version:       >=1.10
+
+extra-source-files:
+  ChangeLog.md
 
 flag base48
   description: Are we using base 4.8 or later?
