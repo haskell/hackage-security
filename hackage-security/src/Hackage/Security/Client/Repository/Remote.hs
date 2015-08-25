@@ -344,11 +344,12 @@ data DownloadMethod fs =
     -- We record the trailer for the file; that is, the number of bytes
     -- (counted from the end of the file) that we should overwrite with
     -- the remote file.
-  | forall f. Update {
-        updateFormat  :: HasFormat fs f
-      , updateInfo    :: Trusted FileInfo
-      , updateLocal   :: AbsolutePath
-      , updateTrailer :: Integer
+  | forall f f'. Update {
+        updateFormat   :: HasFormat fs f
+      , updateInfo     :: Trusted FileInfo
+      , updateLocal    :: AbsolutePath
+      , updateTrailer  :: Integer
+      , downloadFormat :: HasFormat fs f'    -- ^ In case an update fails
       }
 
 pickDownloadMethod :: RemoteConfig
@@ -402,10 +403,11 @@ pickDownloadMethod RemoteConfig{..} remoteFile = multipleExitPoints $ do
 
     -- If all these checks pass try to do an incremental update.
     return Update {
-         updateFormat  = hasUn
-       , updateInfo    = infoUn
-       , updateLocal   = cachedIndex
-       , updateTrailer = trailerLength
+         updateFormat   = hasUn
+       , updateInfo     = infoUn
+       , updateLocal    = cachedIndex
+       , updateTrailer  = trailerLength
+       , downloadFormat = hasGz
        }
 
 -- | Download the specified file using the given download method
@@ -425,17 +427,14 @@ getFile cfg@RemoteConfig{..} isRetry remoteFile callback method =
         cfgLogger $ LogDownloading (Some remoteFile)
         download downloadFormat
     go CannotUpdate{..} = do
-        cfgLogger $ LogUpdateFailed (Some remoteFile) downloadReason
+        cfgLogger $ LogCannotUpdate (Some remoteFile) downloadReason
         cfgLogger $ LogDownloading (Some remoteFile)
         download downloadFormat
     go Update{..} = do
         cfgLogger $ LogUpdating (Some remoteFile)
         -- Attempt to download the file incrementally.
         let updateFailed :: SomeException -> IO a
-            updateFailed ex = do
-              let failure = UpdateFailed ex
-              cfgLogger $ LogUpdateFailed (Some remoteFile) failure
-              go $ CannotUpdate updateFormat failure
+            updateFailed = go . CannotUpdate downloadFormat . UpdateFailed
 
             -- If verification of the file fails, and this is the first attempt,
             -- we let the exception be thrown up to the security layer, so that

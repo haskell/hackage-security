@@ -313,8 +313,8 @@ data LogMessage =
   | LogSelectedMirror MirrorDescription
 
     -- | Updating a file failed
-    -- (we will try again by downloading it whole)
-  | LogUpdateFailed (Some RemoteFile) UpdateFailure
+    -- (we will instead download it whole)
+  | LogCannotUpdate (Some RemoteFile) UpdateFailure
 
     -- | We got an exception with a particular mirror
     -- (we will try with a different mirror if any are available)
@@ -442,8 +442,8 @@ instance Pretty LogMessage where
       "Updating " ++ pretty file
   pretty (LogSelectedMirror mirror) =
       "Selected mirror " ++ mirror
-  pretty (LogUpdateFailed (Some file) ex) =
-      "Updating " ++ pretty file ++ " failed (" ++ pretty ex ++ ")"
+  pretty (LogCannotUpdate (Some file) ex) =
+      "Cannot update " ++ pretty file ++ " (" ++ pretty ex ++ ")"
   pretty (LogMirrorFailed mirror ex) =
       "Exception " ++ displayException ex ++ " when using mirror " ++ mirror
 
