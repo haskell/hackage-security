@@ -128,6 +128,12 @@ data CachedFile =
   | CachedMirrors
   deriving (Eq, Ord, Show)
 
+instance Pretty CachedFile where
+  pretty CachedTimestamp = "timestamp"
+  pretty CachedRoot      = "root"
+  pretty CachedSnapshot  = "snapshot"
+  pretty CachedMirrors   = "mirrors"
+
 -- | Files that we might request from the index
 --
 -- TODO: We should also provide a way to extract preferred versions info from

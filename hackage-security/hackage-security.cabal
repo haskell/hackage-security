@@ -44,6 +44,7 @@ library
   -- Most functionality is exported through the top-level entry points .Client
   -- and .Server; the other exported modules are intended for qualified imports.
   exposed-modules:     Hackage.Security.Client
+                       Hackage.Security.Client.Formats
                        Hackage.Security.Client.Repository
                        Hackage.Security.Client.Repository.Cache
                        Hackage.Security.Client.Repository.Local
@@ -60,8 +61,7 @@ library
                        Hackage.Security.Util.Pretty
                        Hackage.Security.Util.Some
                        Text.JSON.Canonical
-  other-modules:       Hackage.Security.Client.Formats
-                       Hackage.Security.Key
+  other-modules:       Hackage.Security.Key
                        Hackage.Security.Trusted
                        Hackage.Security.Trusted.TCB
                        Hackage.Security.TUF
@@ -187,3 +187,31 @@ library
 --                       StaticPointers
 -- ^^^ Temporarily disabled because Hackage doesn't know yet about this
 -- extension and will therefore reject this package.
+
+test-suite TestSuite
+  type:                exitcode-stdio-1.0
+  main-is:             TestSuite.hs
+  other-modules:       TestSuite.InMemCache
+                       TestSuite.InMemRepo
+                       TestSuite.InMemRepository
+                       TestSuite.PrivateKeys
+  build-depends:       base,
+                       Cabal,
+                       containers,
+                       HUnit,
+                       bytestring,
+                       hackage-security,
+                       tar,
+                       tasty,
+                       tasty-hunit,
+                       temporary,
+                       time,
+                       zlib
+  hs-source-dirs:      tests
+  default-language:    Haskell2010
+  default-extensions:  FlexibleContexts
+                       GADTs
+                       RankNTypes
+                       RecordWildCards
+                       ScopedTypeVariables
+  ghc-options:         -Wall

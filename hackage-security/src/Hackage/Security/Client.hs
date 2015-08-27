@@ -77,7 +77,7 @@ data CheckExpiry =
   deriving Show
 
 data HasUpdates = HasUpdates | NoUpdates
-  deriving Show
+  deriving (Show, Eq, Ord)
 
 -- | Generic logic for checking if there are updates
 --
