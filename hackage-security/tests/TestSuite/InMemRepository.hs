@@ -3,7 +3,6 @@ module TestSuite.InMemRepository (
   ) where
 
 -- stdlib
-import Prelude hiding (log)
 import qualified Data.ByteString as BS
 
 -- hackage-security
@@ -11,21 +10,24 @@ import Hackage.Security.Client
 import Hackage.Security.Client.Formats
 import Hackage.Security.Client.Repository
 import Hackage.Security.Util.Checked
-import Hackage.Security.Util.Pretty
 
 -- TestSuite
 import TestSuite.InMemCache
 import TestSuite.InMemRepo
 
-newInMemRepository :: RepoLayout -> InMemRepo -> InMemCache -> Repository
-newInMemRepository layout repo cache = Repository {
+newInMemRepository :: RepoLayout
+                   -> InMemRepo
+                   -> InMemCache
+                   -> (LogMessage -> IO ())
+                   -> Repository
+newInMemRepository layout repo cache logger = Repository {
       repWithRemote    = withRemote    repo cache
     , repGetCached     = inMemCacheGet      cache
     , repGetCachedRoot = inMemCacheGetRoot  cache
     , repClearCache    = inMemCacheClear    cache
     , repGetFromIndex  = getFromIndex
     , repWithMirror    = withMirror
-    , repLog           = log
+    , repLog           = logger
     , repLayout        = layout
     , repDescription   = "In memory repository"
     }
@@ -58,9 +60,3 @@ withMirror :: forall a. Maybe [Mirror] -> IO a -> IO a
 withMirror Nothing   callback = callback
 withMirror (Just []) callback = callback
 withMirror _ _ = error "Mirror selection not implemented"
-
--- | Logging
---
--- TODO: We should write these to an MVar and verify them
-log :: LogMessage -> IO ()
-log = putStrLn . pretty
