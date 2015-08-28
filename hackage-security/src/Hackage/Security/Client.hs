@@ -359,7 +359,7 @@ getRemoteFile :: ( Throws VerificationError
 getRemoteFile rep cachedInfo@CachedInfo{..} isRetry mNow file = do
     (targetPath, tempPath) <- getRemote' rep isRetry file
     verifyFileInfo' (remoteFileDefaultInfo file) targetPath tempPath
-    signed   <- throwErrorsChecked SomeRemoteError =<<
+    signed   <- throwErrorsChecked (VerificationErrorDeserialization targetPath) =<<
                   readJSON (repLayout rep) cachedKeyEnv tempPath
     verified <- throwErrorsChecked id $ verifyRole
                   cachedRoot
@@ -506,7 +506,7 @@ bootstrap :: (Throws SomeRemoteError, Throws VerificationError)
 bootstrap rep trustedRootKeys keyThreshold = withMirror rep $ evalContT $ do
     _newRoot :: Trusted Root <- do
       (targetPath, tempPath) <- getRemote' rep FirstAttempt (RemoteRoot Nothing)
-      signed   <- throwErrorsChecked SomeRemoteError =<<
+      signed   <- throwErrorsChecked (VerificationErrorDeserialization targetPath) =<<
                     readJSON (repLayout rep) KeyEnv.empty tempPath
       verified <- throwErrorsChecked id $ verifyFingerprints
                     trustedRootKeys

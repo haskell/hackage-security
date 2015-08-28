@@ -31,6 +31,7 @@ import Control.Monad.Except
 import Data.Typeable
 import Data.Time
 import Hackage.Security.TUF
+import Hackage.Security.JSON
 import Hackage.Security.Key
 import Hackage.Security.Util.Pretty
 import qualified Hackage.Security.Util.Lens as Lens
@@ -116,6 +117,13 @@ data VerificationError =
      -- (potential endless data attack)
    | VerificationErrorFileTooLarge TargetPath
 
+     -- | Some verification errors materialize as deserialization errors
+     --
+     -- For example: if we try to deserialize a timestamp file but the timestamp
+     -- key has been rolled over, deserialization of the file will fail with
+     -- 'DeserializationErrorUnknownKey'.
+   | VerificationErrorDeserialization TargetPath DeserializationError
+
      -- | The spec stipulates that if a verification error occurs during
      -- the check for updates, we must download new root information and
      -- start over. However, we limit how often we attempt this.
@@ -155,6 +163,8 @@ instance Pretty VerificationError where
       pretty file ++ " not found in corresponding target metadata"
   pretty (VerificationErrorFileTooLarge file) =
       pretty file ++ " too large"
+  pretty (VerificationErrorDeserialization file err) =
+      "Could not deserialize " ++ pretty file ++ ": " ++ pretty err
   pretty (VerificationErrorLoop es) =
       "Verification loop. Errors in order:\n"
    ++ unlines (map (("  " ++) . either pretty pretty) es)
