@@ -1,3 +1,10 @@
+0.4.0.0
+-------
+* Allow clients to pass in their own time for expiry verification
+  (this is an API change hence the major version bump)
+* Export .Client.Formats (necessary to define new Repositories)
+* Start work on basic test framework
+
 0.3.0.0
 -------
 * Don't use compression for range requests (#101)

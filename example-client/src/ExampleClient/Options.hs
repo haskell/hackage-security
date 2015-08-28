@@ -36,7 +36,7 @@ data GlobalOpts = GlobalOpts {
   , globalRootKeys :: [KeyId]
 
     -- | Should we check expiry times?
-  , globalCheckExpiry :: CheckExpiry
+  , globalCheckExpiry :: Bool
 
     -- | Should we disable content compression? (For the security paranoid)
   , globalDisallowCompression :: Bool
@@ -105,7 +105,7 @@ parseGlobalOptions = GlobalOpts
        , metavar "KEYID"
        , help "Root key (used for bootstrapping; can be used multiple times)"
        ])
-  <*> (flag CheckExpiry DontCheckExpiry $ mconcat [
+  <*> (switch $ mconcat [
          long "ignore-expiry"
        , help "Don't check expiry dates (should only be used in exceptional circumstances)"
        ])

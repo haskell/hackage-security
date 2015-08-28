@@ -29,7 +29,7 @@ library
                        HTTP             >= 4000.2.19 && < 4000.3,
                        mtl              >= 2.2       && < 2.3,
                        zlib             >= 0.5       && < 0.7,
-                       hackage-security >= 0.1       && < 0.4
+                       hackage-security >= 0.1       && < 0.5
   hs-source-dirs:      src
   default-language:    Haskell2010
   default-extensions:  DeriveDataTypeable

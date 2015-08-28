@@ -26,10 +26,16 @@ import Hackage.Security.Util.IO
 import TestSuite.PrivateKeys
 
 data InMemRepo = InMemRepo {
+    -- | Get a file from the repository
     inMemWithRemote :: forall a fs.
                        RemoteFile fs
                     -> (forall f. HasFormat fs f -> TempPath -> IO a)
                     -> IO a
+
+    -- | Run the "cron job" on the server
+    --
+    -- That is, resign the timestamp and the snapshot
+  , inMemCron :: UTCTime -> IO ()
   }
 
 newInMemRepo :: AbsolutePath
@@ -42,6 +48,7 @@ newInMemRepo tempDir layout root now keys = do
     state <- newMVar $ initRemoteState now layout keys root
     return InMemRepo {
         inMemWithRemote = withRemote tempDir state
+      , inMemCron       = cron               state
       }
 
 {-------------------------------------------------------------------------------
@@ -148,3 +155,28 @@ withRemote remoteTempDir state remoteFile callback = do
         withMVar state $ BS.L.hPut h . f
         hClose h
         callback hasFormat tempFile
+
+cron :: MVar RemoteState -> UTCTime -> IO ()
+cron state now = modifyMVar_ state $ \st@RemoteState{..} -> do
+    let snapshot, snapshot' :: Snapshot
+        snapshot  = signed remoteSnapshot
+        snapshot' = snapshot {
+            snapshotVersion = versionIncrement $ snapshotVersion snapshot
+          , snapshotExpires = expiresInDays now 3
+          }
+
+        timestamp, timestamp' :: Timestamp
+        timestamp  = signed remoteTimestamp
+        timestamp' = Timestamp {
+            timestampVersion      = versionIncrement $ timestampVersion timestamp
+          , timestampExpires      = expiresInDays now 3
+          , timestampInfoSnapshot = fileInfo $ renderJSON remoteLayout signedSnapshot
+          }
+
+        signedTimestamp = withSignatures remoteLayout [privateTimestamp remoteKeys] timestamp'
+        signedSnapshot  = withSignatures remoteLayout [privateSnapshot  remoteKeys] snapshot'
+
+    return st {
+        remoteTimestamp = signedTimestamp
+      , remoteSnapshot  = signedSnapshot
+      }

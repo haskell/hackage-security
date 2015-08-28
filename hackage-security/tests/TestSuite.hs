@@ -29,6 +29,7 @@ main = defaultMain (testGroup "InMem" tests)
     tests = [
         testCase "testInitialHasForUpdates" testInitialHasUpdates
       , testCase "testNoUpdates"            testNoUpdates
+      , testCase "testUpdatesAfterCron"     testUpdatesAfterCron
       ]
 
 {-------------------------------------------------------------------------------
@@ -41,19 +42,30 @@ main = defaultMain (testGroup "InMem" tests)
 
 -- | Initial check for updates: empty cache
 testInitialHasUpdates :: Assertion
-testInitialHasUpdates = inMemTest $ \repo -> do
-    assertEqual "" HasUpdates =<< checkForUpdates repo CheckExpiry
+testInitialHasUpdates = inMemTest $ \_inMemRepo repo -> do
+    assertEqual "A" HasUpdates =<< checkForUpdates repo =<< checkExpiry
 
 -- | Check that if we run updates again, with no changes on the server,
 -- we get NoUpdates
 testNoUpdates :: Assertion
-testNoUpdates = inMemTest $ \repo -> do
-    assertEqual "" HasUpdates =<< checkForUpdates repo CheckExpiry
-    assertEqual "" NoUpdates  =<< checkForUpdates repo CheckExpiry
+testNoUpdates = inMemTest $ \_inMemRepo repo -> do
+    assertEqual "A" HasUpdates =<< checkForUpdates repo =<< checkExpiry
+    assertEqual "B" NoUpdates  =<< checkForUpdates repo =<< checkExpiry
+
+-- | Test that we have updates reported after the timestamp is resigned
+testUpdatesAfterCron :: Assertion
+testUpdatesAfterCron = inMemTest $ \inMemRepo repo -> do
+    assertEqual "A" HasUpdates =<< checkForUpdates repo =<< checkExpiry
+    assertEqual "B" NoUpdates  =<< checkForUpdates repo =<< checkExpiry
+
+    inMemCron inMemRepo =<< getCurrentTime
+
+    assertEqual "C" HasUpdates =<< checkForUpdates repo =<< checkExpiry
+    assertEqual "D" NoUpdates  =<< checkForUpdates repo =<< checkExpiry
 
 inMemTest :: ( ( Throws SomeRemoteError
                , Throws VerificationError
-               ) => Repository -> Assertion
+               ) => InMemRepo -> Repository -> Assertion
              )
           -> Assertion
 inMemTest test = uncheckClientErrors $ do
@@ -61,10 +73,17 @@ inMemTest test = uncheckClientErrors $ do
     keys <- createPrivateKeys
     let root = initRoot now layout keys
     withSystemTempDirectory "hackage-security-test" $ \tempDir' -> do
-      tempDir <- makeAbsolute $ fromFilePath tempDir'
-      repo    <- newInMemRepo  tempDir layout root now keys
-      cache   <- newInMemCache tempDir layout root
-      test $ newInMemRepository layout repo cache
+      tempDir    <- makeAbsolute $ fromFilePath tempDir'
+      inMemRepo  <- newInMemRepo  tempDir layout root now keys
+      inMemCache <- newInMemCache tempDir layout root
+      test inMemRepo $ newInMemRepository layout inMemRepo inMemCache
   where
     layout :: RepoLayout
     layout = hackageRepoLayout
+
+{-------------------------------------------------------------------------------
+  Auxiliary
+-------------------------------------------------------------------------------}
+
+checkExpiry :: IO (Maybe UTCTime)
+checkExpiry = Just `fmap` getCurrentTime

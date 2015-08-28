@@ -1,8 +1,13 @@
 {-# LANGUAGE CPP #-}
 module Main where
 
+-- stdlib
+import Data.Time
+
+-- Cabal
 import Distribution.Package
 
+-- hackage-security
 import Hackage.Security.Client
 import Hackage.Security.Util.IO
 import Hackage.Security.Util.Path
@@ -18,6 +23,7 @@ import qualified Hackage.Security.Client.Repository.HttpLib.Curl as HttpLib.Curl
 import qualified Hackage.Security.Client.Repository.HttpLib.HttpClient as HttpLib.HttpClient
 #endif
 
+-- example-client
 import ExampleClient.Options
 
 main :: IO ()
@@ -40,8 +46,11 @@ cmdBootstrap opts threshold =
 
 cmdCheck :: GlobalOpts -> IO ()
 cmdCheck opts =
-    withRepo opts $ \rep -> uncheckClientErrors $
-      print =<< checkForUpdates rep (globalCheckExpiry opts)
+    withRepo opts $ \rep -> uncheckClientErrors $ do
+      mNow <- if globalCheckExpiry opts
+                then Just `fmap` getCurrentTime
+                else return Nothing
+      print =<< checkForUpdates rep mNow
 
 cmdGet :: GlobalOpts -> PackageIdentifier -> IO ()
 cmdGet opts pkgId = do

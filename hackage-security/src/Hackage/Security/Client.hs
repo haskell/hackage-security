@@ -6,7 +6,6 @@
 module Hackage.Security.Client (
     -- * Checking for updates
     checkForUpdates
-  , CheckExpiry(..)
   , HasUpdates(..)
     -- * Downloading targets
   , downloadPackage
@@ -63,19 +62,6 @@ import qualified Hackage.Security.Key.Env   as KeyEnv
   Checking for updates
 -------------------------------------------------------------------------------}
 
--- | Should we check expiry dates?
-data CheckExpiry =
-    -- | Yes, check expiry dates
-    CheckExpiry
-
-    -- | No, don't check expiry dates.
-    --
-    -- This should ONLY be used in exceptional circumstances (such as when
-    -- the main server is down for longer than the expiry dates used in the
-    -- timestamp files on mirrors).
-  | DontCheckExpiry
-  deriving Show
-
 data HasUpdates = HasUpdates | NoUpdates
   deriving (Show, Eq, Ord)
 
@@ -85,9 +71,15 @@ data HasUpdates = HasUpdates | NoUpdates
 -- of the TUF spec. It checks which of the server metadata has changed, and
 -- downloads all changed metadata to the local cache. (Metadata here refers
 -- both to the TUF security metadata as well as the Hackage packge index.)
+--
+-- You should pass @Nothing@ for the UTCTime _only_ under exceptional
+-- circumstances (such as when the main server is down for longer than the
+-- expiry dates used in the timestamp files on mirrors).
 checkForUpdates :: (Throws VerificationError, Throws SomeRemoteError)
-                => Repository -> CheckExpiry -> IO HasUpdates
-checkForUpdates rep checkExpiry =
+                => Repository
+                -> Maybe UTCTime -- ^ To check expiry times against (if using)
+                -> IO HasUpdates
+checkForUpdates rep mNow =
     withMirror rep $ limitIterations []
   where
     -- More or less randomly chosen maximum iterations
@@ -113,14 +105,10 @@ checkForUpdates rep checkExpiry =
         -- on each iteration.
         cachedInfo <- getCachedInfo rep
 
-        -- Get current time for timestamp verification, if requested
-        mNow <- case checkExpiry of
-                  CheckExpiry     -> Just <$> getCurrentTime
-                  DontCheckExpiry -> return Nothing
-
         mHasUpdates <- tryChecked -- catch RootUpdated
                      $ tryChecked -- catch VerificationError
-                     $ evalContT (go mNow isRetry cachedInfo)
+                     $ evalContT  -- clean up temp files
+                     $ go isRetry cachedInfo
         case mHasUpdates of
           Left ex -> do
             -- NOTE: This call to updateRoot is not itself protected by an
@@ -144,9 +132,8 @@ checkForUpdates rep checkExpiry =
     -- downloaded files will be cached until the entire check for updates check
     -- completes successfully.
     -- See also <https://github.com/theupdateframework/tuf/issues/283>.
-    go :: Throws RootUpdated
-       => Maybe UTCTime -> IsRetry -> CachedInfo -> ContT r IO HasUpdates
-    go mNow isRetry cachedInfo@CachedInfo{..} = do
+    go :: Throws RootUpdated => IsRetry -> CachedInfo -> ContT r IO HasUpdates
+    go isRetry cachedInfo@CachedInfo{..} = do
       -- Get the new timestamp
       newTS <- getRemoteFile' RemoteTimestamp
       let newInfoSS = static timestampInfoSnapshot <$$> newTS
