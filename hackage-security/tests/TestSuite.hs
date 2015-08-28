@@ -61,13 +61,14 @@ testNoUpdates = inMemTest $ \_inMemRepo logMsgs repo -> do
 testUpdatesAfterCron :: Assertion
 testUpdatesAfterCron = inMemTest $ \inMemRepo logMsgs repo -> do
     withAssertLog "A" logMsgs [] $ do
-      assertEqual "A" HasUpdates =<< checkForUpdates repo =<< checkExpiry
-      assertEqual "B" NoUpdates  =<< checkForUpdates repo =<< checkExpiry
+      assertEqual "A.1" HasUpdates =<< checkForUpdates repo =<< checkExpiry
+      assertEqual "A.2" NoUpdates  =<< checkForUpdates repo =<< checkExpiry
 
-      inMemRepoCron inMemRepo =<< getCurrentTime
+    inMemRepoCron inMemRepo =<< getCurrentTime
 
-      assertEqual "C" HasUpdates =<< checkForUpdates repo =<< checkExpiry
-      assertEqual "D" NoUpdates  =<< checkForUpdates repo =<< checkExpiry
+    withAssertLog "B" logMsgs [] $ do
+      assertEqual "B.1" HasUpdates =<< checkForUpdates repo =<< checkExpiry
+      assertEqual "B.2" NoUpdates  =<< checkForUpdates repo =<< checkExpiry
 
 -- | Test what happens when the timestamp/snapshot keys rollover
 testKeyRollover :: Assertion
@@ -79,10 +80,10 @@ testKeyRollover = inMemTest $ \inMemRepo logMsgs repo -> do
     inMemRepoKeyRollover inMemRepo =<< getCurrentTime
 
     withAssertLog "B" logMsgs [unknownKeyError timestampPath] $ do
-      assertEqual "D" HasUpdates =<< checkForUpdates repo =<< checkExpiry
+      assertEqual "B.1" HasUpdates =<< checkForUpdates repo =<< checkExpiry
 
     withAssertLog "C" logMsgs [] $ do
-      assertEqual "H" NoUpdates =<< checkForUpdates repo =<< checkExpiry
+      assertEqual "C.1" NoUpdates =<< checkForUpdates repo =<< checkExpiry
   where
     timestampPath = repoLayoutTimestamp hackageRepoLayout
 
