@@ -30,6 +30,7 @@ main = defaultMain (testGroup "InMem" tests)
         testCase "testInitialHasForUpdates" testInitialHasUpdates
       , testCase "testNoUpdates"            testNoUpdates
       , testCase "testUpdatesAfterCron"     testUpdatesAfterCron
+      , testCase "testKeyRollover"          testKeyRollover
       ]
 
 {-------------------------------------------------------------------------------
@@ -58,7 +59,18 @@ testUpdatesAfterCron = inMemTest $ \inMemRepo repo -> do
     assertEqual "A" HasUpdates =<< checkForUpdates repo =<< checkExpiry
     assertEqual "B" NoUpdates  =<< checkForUpdates repo =<< checkExpiry
 
-    inMemCron inMemRepo =<< getCurrentTime
+    inMemRepoCron inMemRepo =<< getCurrentTime
+
+    assertEqual "C" HasUpdates =<< checkForUpdates repo =<< checkExpiry
+    assertEqual "D" NoUpdates  =<< checkForUpdates repo =<< checkExpiry
+
+-- | Test what happens when the timestamp/snapshot keys rollover
+testKeyRollover :: Assertion
+testKeyRollover = inMemTest $ \inMemRepo repo -> do
+    assertEqual "A" HasUpdates =<< checkForUpdates repo =<< checkExpiry
+    assertEqual "B" NoUpdates  =<< checkForUpdates repo =<< checkExpiry
+
+    inMemRepoKeyRollover inMemRepo =<< getCurrentTime
 
     assertEqual "C" HasUpdates =<< checkForUpdates repo =<< checkExpiry
     assertEqual "D" NoUpdates  =<< checkForUpdates repo =<< checkExpiry

@@ -20,9 +20,9 @@ import TestSuite.InMemRepo
 newInMemRepository :: RepoLayout -> InMemRepo -> InMemCache -> Repository
 newInMemRepository layout repo cache = Repository {
       repWithRemote    = withRemote    repo cache
-    , repGetCached     = inMemGetCached     cache
-    , repGetCachedRoot = inMemGetCachedRoot cache
-    , repClearCache    = inMemClearCache    cache
+    , repGetCached     = inMemCacheGet      cache
+    , repGetCachedRoot = inMemCacheGetRoot  cache
+    , repClearCache    = inMemCacheClear    cache
     , repGetFromIndex  = getFromIndex
     , repWithMirror    = withMirror
     , repLog           = log
@@ -44,9 +44,9 @@ withRemote :: forall a fs.
            -> (forall f. HasFormat fs f -> TempPath -> IO a)
            -> IO a
 withRemote InMemRepo{..} InMemCache{..} _isRetry remoteFile callback =
-    inMemWithRemote remoteFile $ \format tempPath -> do
+    inMemRepoGet remoteFile $ \format tempPath -> do
       result <- callback format tempPath
-      inMemCacheFile tempPath (hasFormatGet format) (mustCache remoteFile)
+      inMemCachePut tempPath (hasFormatGet format) (mustCache remoteFile)
       return result
 
 -- | Get a file from the index

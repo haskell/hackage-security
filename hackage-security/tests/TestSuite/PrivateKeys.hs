@@ -2,7 +2,7 @@ module TestSuite.PrivateKeys (
     PrivateKeys(..)
   , createPrivateKeys
   , privateKeysEnv
-  , privateRoles
+  , privateKeysRoles
   ) where
 
 -- stdlib
@@ -44,8 +44,8 @@ privateKeysEnv PrivateKeys{..} = KeyEnv.fromKeys $ concat [
     , [privateMirrors]
     ]
 
-privateRoles :: PrivateKeys -> RootRoles
-privateRoles PrivateKeys{..} = RootRoles {
+privateKeysRoles :: PrivateKeys -> RootRoles
+privateKeysRoles PrivateKeys{..} = RootRoles {
       rootRolesRoot      = RoleSpec {
           roleSpecKeys      = map somePublicKey privateRoot
         , roleSpecThreshold = KeyThreshold 2

@@ -195,6 +195,7 @@ test-suite TestSuite
                        TestSuite.InMemRepo
                        TestSuite.InMemRepository
                        TestSuite.PrivateKeys
+                       TestSuite.Util.StrictMVar
   build-depends:       base,
                        Cabal,
                        containers,
@@ -209,7 +210,8 @@ test-suite TestSuite
                        zlib
   hs-source-dirs:      tests
   default-language:    Haskell2010
-  default-extensions:  FlexibleContexts
+  default-extensions:  BangPatterns
+                       FlexibleContexts
                        GADTs
                        RankNTypes
                        RecordWildCards

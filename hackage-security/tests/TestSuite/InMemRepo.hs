@@ -5,7 +5,6 @@ module TestSuite.InMemRepo (
   ) where
 
 -- stdlib
-import Control.Concurrent
 import Data.Time
 import qualified Codec.Archive.Tar      as Tar
 import qualified Codec.Compression.GZip as GZip
@@ -24,18 +23,22 @@ import Hackage.Security.Util.IO
 
 -- TestSuite
 import TestSuite.PrivateKeys
+import TestSuite.Util.StrictMVar
 
 data InMemRepo = InMemRepo {
     -- | Get a file from the repository
-    inMemWithRemote :: forall a fs.
-                       RemoteFile fs
-                    -> (forall f. HasFormat fs f -> TempPath -> IO a)
-                    -> IO a
+    inMemRepoGet :: forall a fs.
+                    RemoteFile fs
+                 -> (forall f. HasFormat fs f -> TempPath -> IO a)
+                 -> IO a
 
     -- | Run the "cron job" on the server
     --
     -- That is, resign the timestamp and the snapshot
-  , inMemCron :: UTCTime -> IO ()
+  , inMemRepoCron :: UTCTime -> IO ()
+
+    -- | Rollover the timestamp and snapshot keys
+  , inMemRepoKeyRollover :: UTCTime -> IO ()
   }
 
 newInMemRepo :: AbsolutePath
@@ -47,8 +50,9 @@ newInMemRepo :: AbsolutePath
 newInMemRepo tempDir layout root now keys = do
     state <- newMVar $ initRemoteState now layout keys root
     return InMemRepo {
-        inMemWithRemote = withRemote tempDir state
-      , inMemCron       = cron               state
+        inMemRepoGet         = get tempDir state
+      , inMemRepoCron        = cron        state
+      , inMemRepoKeyRollover = keyRollover state
       }
 
 {-------------------------------------------------------------------------------
@@ -56,22 +60,22 @@ newInMemRepo tempDir layout root now keys = do
 -------------------------------------------------------------------------------}
 
 data RemoteState = RemoteState {
-      remoteKeys      :: PrivateKeys
-    , remoteLayout    :: RepoLayout
-    , remoteRoot      :: Signed Root
-    , remoteTimestamp :: Signed Timestamp
-    , remoteSnapshot  :: Signed Snapshot
-    , remoteMirrors   :: Signed Mirrors
-    , remoteTar       :: BS.L.ByteString
-    , remoteTarGz     :: BS.L.ByteString
+      remoteKeys      :: !PrivateKeys
+    , remoteLayout    :: !RepoLayout
+    , remoteRoot      :: !(Signed Root)
+    , remoteTimestamp :: !(Signed Timestamp)
+    , remoteSnapshot  :: !(Signed Snapshot)
+    , remoteMirrors   :: !(Signed Mirrors)
+    , remoteTar       :: !BS.L.ByteString
+    , remoteTarGz     :: !BS.L.ByteString
     }
 
 initRoot :: UTCTime -> RepoLayout -> PrivateKeys -> Signed Root
 initRoot now layout keys = withSignatures layout (privateRoot keys) Root {
       rootVersion = FileVersion 1
     , rootExpires = expiresInDays now (365 * 10)
-    , rootKeys    = privateKeysEnv keys
-    , rootRoles   = privateRoles   keys
+    , rootKeys    = privateKeysEnv   keys
+    , rootRoles   = privateKeysRoles keys
     }
 
 initRemoteState :: UTCTime
@@ -129,13 +133,13 @@ initRemoteState now layout keys signedRoot = RemoteState {
 -------------------------------------------------------------------------------}
 
 -- | Get a file from the server
-withRemote :: forall a fs.
-              AbsolutePath
-           -> MVar RemoteState
-           -> RemoteFile fs
-           -> (forall f. HasFormat fs f -> TempPath -> IO a)
-           -> IO a
-withRemote remoteTempDir state remoteFile callback = do
+get :: forall a fs.
+       AbsolutePath
+    -> MVar RemoteState
+    -> RemoteFile fs
+    -> (forall f. HasFormat fs f -> TempPath -> IO a)
+    -> IO a
+get remoteTempDir state remoteFile callback = do
     case remoteFile of
       RemoteTimestamp        -> serve "timestamp.json"  (HFZ FUn) $ render remoteTimestamp
       RemoteSnapshot       _ -> serve "snapshot.json"   (HFZ FUn) $ render remoteSnapshot
@@ -178,5 +182,51 @@ cron state now = modifyMVar_ state $ \st@RemoteState{..} -> do
 
     return st {
         remoteTimestamp = signedTimestamp
+      , remoteSnapshot  = signedSnapshot
+      }
+
+keyRollover :: MVar RemoteState -> UTCTime -> IO ()
+keyRollover state now = modifyMVar_ state $ \st@RemoteState{..} -> do
+    newKeySnapshot  <- createKey' KeyTypeEd25519
+    newKeyTimestamp <- createKey' KeyTypeEd25519
+
+    let remoteKeys' :: PrivateKeys
+        remoteKeys' = remoteKeys {
+            privateSnapshot  = newKeySnapshot
+          , privateTimestamp = newKeyTimestamp
+          }
+
+        root, root' :: Root
+        root  = signed remoteRoot
+        root' = Root {
+            rootVersion = versionIncrement $ rootVersion root
+          , rootExpires = expiresInDays now (365 * 10)
+          , rootKeys    = privateKeysEnv   remoteKeys'
+          , rootRoles   = privateKeysRoles remoteKeys'
+          }
+
+        snapshot, snapshot' :: Snapshot
+        snapshot  = signed remoteSnapshot
+        snapshot' = snapshot {
+            snapshotVersion  = versionIncrement $ snapshotVersion snapshot
+          , snapshotExpires  = expiresInDays now 3
+          , snapshotInfoRoot = fileInfo $ renderJSON remoteLayout signedRoot
+          }
+
+        timestamp, timestamp' :: Timestamp
+        timestamp  = signed remoteTimestamp
+        timestamp' = Timestamp {
+            timestampVersion      = versionIncrement $ timestampVersion timestamp
+          , timestampExpires      = expiresInDays now 3
+          , timestampInfoSnapshot = fileInfo $ renderJSON remoteLayout signedSnapshot
+          }
+
+        signedRoot      = withSignatures remoteLayout (privateRoot      remoteKeys') root'
+        signedTimestamp = withSignatures remoteLayout [privateTimestamp remoteKeys'] timestamp'
+        signedSnapshot  = withSignatures remoteLayout [privateSnapshot  remoteKeys'] snapshot'
+
+    return st {
+        remoteRoot      = signedRoot
+      , remoteTimestamp = signedTimestamp
       , remoteSnapshot  = signedSnapshot
       }
