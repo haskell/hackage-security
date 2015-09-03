@@ -1,0 +1,33 @@
+name:                hackage-root-tool
+version:             0.1.0.0
+synopsis:            Utility for Hackage key holders to generate keys and sign root info.
+                     .
+                     This is part of the Hackage Security infrastructure.
+homepage:            http://github.com/well-typed/hackage-security/
+license:             BSD3
+license-file:        LICENSE
+author:              Duncan Coutts, Edsko de Vries
+maintainer:          duncan@well-typed.com
+copyright:           Copyright 2015 Well-Typed LLP
+category:            Distribution
+build-type:          Simple
+cabal-version:       >=1.10
+
+extra-source-files:
+  ChangeLog.md
+
+flag use-network-uri
+  description: Are we using network-uri?
+  manual: False
+
+executable hackage-root-tool
+  main-is:             Main.hs
+  build-depends:       base                 >= 4.4  && < 5,
+                       filepath             >= 1.2  && < 1.5,
+                       optparse-applicative >= 0.11 && < 0.12,
+                       hackage-security     >= 0.2  && < 0.4
+  hs-source-dirs:      src
+  default-language:    Haskell2010
+  other-extensions:    CPP, ScopedTypeVariables, RecordWildCards
+  ghc-options:         -Wall
+
