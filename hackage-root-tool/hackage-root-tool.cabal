@@ -1,6 +1,8 @@
 name:                hackage-root-tool
 version:             0.1.0.0
 synopsis:            Utility for Hackage key holders to generate keys and sign root info.
+description:         A command line tool for people who hold Hackage root keys.
+                     It can generate new keys, and can sign root information.
                      .
                      This is part of the Hackage Security infrastructure.
 homepage:            http://github.com/well-typed/hackage-security/
@@ -16,9 +18,10 @@ cabal-version:       >=1.10
 extra-source-files:
   ChangeLog.md
 
-flag use-network-uri
-  description: Are we using network-uri?
-  manual: False
+source-repository head
+  type:                git
+  location:            http://github.com/well-typed/hackage-security
+  subdir:              hackage-root-tool
 
 executable hackage-root-tool
   main-is:             Main.hs
