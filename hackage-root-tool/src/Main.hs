@@ -27,10 +27,10 @@ main = do
       CreateKeys ->
         createKeys
 
-      Sign key deleteExisting file -> do
+      Sign key file -> do
         key'  <- makeAbsolute (fromFilePath key)
         file' <- makeAbsolute (fromFilePath file)
-        signFile key' deleteExisting file'
+        signFile key' file'
 
 -- | Top-level exception handler that uses 'displayException'
 --
@@ -80,17 +80,15 @@ writeKey keypair = do
   Signing individual files
 -------------------------------------------------------------------------------}
 
-signFile :: KeyLoc -> DeleteExistingSignatures -> AbsolutePath -> IO ()
-signFile keyLoc deleteExisting fp = do
-    UninterpretedSignatures (payload :: JSValue) oldSigs <-
+signFile :: KeyLoc -> AbsolutePath -> IO ()
+signFile keyLoc fp = do
+    UninterpretedSignatures (payload :: JSValue) _oldSigs <-
       throwErrors =<< readJSON_NoKeys_NoLayout fp
-    keys :: [Some Key] <-
+    key :: Some Key <-
       throwErrors =<< readJSON_NoKeys_NoLayout keyLoc
-    let newSigs = concat [
-            if deleteExisting then [] else oldSigs
-          , toPreSignatures (signRendered keys $ renderJSON_NoLayout payload)
-          ]
-    writeJSON_NoLayout (fp </> fragment' "sig") newSigs
+    let newSig = toPreSignatures (signRendered [key]
+                                               (renderJSON_NoLayout payload))
+    writeJSON_NoLayout (fp <.> "sig") newSig
 
 {-------------------------------------------------------------------------------
   Logging
@@ -123,10 +121,9 @@ data Command =
     CreateKeys
 
     -- | Sign an individual file
-  | Sign FilePath DeleteExistingSignatures FilePath
+  | Sign FilePath FilePath
 
-type KeyLoc                   = AbsolutePath
-type DeleteExistingSignatures = Bool
+type KeyLoc = AbsolutePath
 
 {-------------------------------------------------------------------------------
   Parsers
@@ -145,14 +142,7 @@ parseCreateKeys = pure CreateKeys
 
 parseSign :: Parser Command
 parseSign = Sign
-  <$> (option str $ mconcat [
-         long "key"
-       , help "Path to private key (can be specified multiple times)"
-       ])
-  <*> (switch $ mconcat [
-         long "delete-existing"
-       , help "Delete any existing signatures"
-       ])
+  <$> argument str (metavar "KEY")
   <*> argument str (metavar "FILE")
 
 -- | Global options
