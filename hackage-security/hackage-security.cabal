@@ -202,6 +202,7 @@ test-suite TestSuite
                        HUnit,
                        bytestring,
                        hackage-security,
+                       network-uri,
                        tar,
                        tasty,
                        tasty-hunit,

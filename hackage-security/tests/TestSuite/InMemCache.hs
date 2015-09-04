@@ -5,7 +5,6 @@ module TestSuite.InMemCache (
 
 -- base
 import Control.Exception
-import Data.Maybe (fromJust)
 import qualified Codec.Compression.GZip as GZip
 import qualified Data.ByteString.Lazy   as BS.L
 
@@ -26,9 +25,9 @@ data InMemCache = InMemCache {
     , inMemCachePut     :: forall f. TempPath -> Format f -> IsCached -> IO ()
     }
 
-newInMemCache :: AbsolutePath -> RepoLayout -> Signed Root -> IO InMemCache
-newInMemCache tempDir layout root = do
-    state <- newMVar $ initLocalState layout root
+newInMemCache :: AbsolutePath -> RepoLayout -> IO InMemCache
+newInMemCache tempDir layout = do
+    state <- newMVar $ initLocalState layout
     return InMemCache {
         inMemCacheGet     = get     state tempDir
       , inMemCacheGetRoot = getRoot state tempDir
@@ -42,7 +41,7 @@ newInMemCache tempDir layout root = do
 
 data LocalState = LocalState {
       cacheRepoLayout :: !RepoLayout
-    , cachedRoot      :: !(Signed Root)
+    , cachedRoot      :: !(Maybe (Signed Root))
     , cachedMirrors   :: !(Maybe (Signed Mirrors))
     , cachedTimestamp :: !(Maybe (Signed Timestamp))
     , cachedSnapshot  :: !(Maybe (Signed Snapshot))
@@ -54,10 +53,17 @@ data LocalState = LocalState {
     , cachedIndex :: Maybe BS.L.ByteString
     }
 
-initLocalState :: RepoLayout -> Signed Root -> LocalState
-initLocalState layout root = LocalState {
+cachedRoot' :: LocalState -> Signed Root
+cachedRoot' LocalState{..} = needRoot cachedRoot
+
+needRoot :: Maybe a -> a
+needRoot Nothing    = error "InMemCache: no root info (did you bootstrap?)"
+needRoot (Just root) = root
+
+initLocalState :: RepoLayout -> LocalState
+initLocalState layout = LocalState {
       cacheRepoLayout = layout
-    , cachedRoot      = root
+    , cachedRoot      = Nothing
     , cachedMirrors   = Nothing
     , cachedTimestamp = Nothing
     , cachedSnapshot  = Nothing
@@ -72,7 +78,7 @@ initLocalState layout root = LocalState {
 get :: MVar LocalState -> AbsolutePath -> CachedFile -> IO (Maybe AbsolutePath)
 get state cacheTempDir cachedFile =
       case cachedFile of
-        CachedRoot      -> serve "root.json"      $ render (Just `fmap` cachedRoot)
+        CachedRoot      -> serve "root.json"      $ render cachedRoot
         CachedMirrors   -> serve "mirrors.json"   $ render cachedMirrors
         CachedTimestamp -> serve "timestamp.json" $ render cachedTimestamp
         CachedSnapshot  -> serve "snapshot.json"  $ render cachedSnapshot
@@ -97,7 +103,7 @@ get state cacheTempDir cachedFile =
 -- | Get the cached root
 getRoot :: MVar LocalState -> AbsolutePath -> IO AbsolutePath
 getRoot state cacheTempDir =
-    fromJust `fmap` get state cacheTempDir CachedRoot
+    needRoot `fmap` get state cacheTempDir CachedRoot
 
 -- | Clear all cached data
 clear :: MVar LocalState -> IO ()
@@ -129,7 +135,7 @@ put' state bs = go
                            }
 
     go' :: CachedFile -> IO ()
-    go' CachedRoot      = go'' $ \x st -> st { cachedRoot      = x }
+    go' CachedRoot      = go'' $ \x st -> st { cachedRoot      = Just x }
     go' CachedTimestamp = go'' $ \x st -> st { cachedTimestamp = Just x }
     go' CachedSnapshot  = go'' $ \x st -> st { cachedSnapshot  = Just x }
     go' CachedMirrors   = go'' $ \x st -> st { cachedMirrors   = Just x }
@@ -138,7 +144,7 @@ put' state bs = go
          => (a -> LocalState -> LocalState) -> IO ()
     go'' f = do
       modifyMVar_ state $ \st@LocalState{..} -> do
-        let keyEnv = rootKeys (signed cachedRoot)
+        let keyEnv = rootKeys . signed . cachedRoot' $ st
         case parseJSON_Keys_Layout keyEnv cacheRepoLayout bs of
            Left  err    -> throwIO err
            Right parsed -> return $ f parsed st

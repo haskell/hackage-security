@@ -5,6 +5,7 @@ module TestSuite.InMemRepo (
   ) where
 
 -- stdlib
+import Control.Exception
 import Data.Time
 import qualified Codec.Archive.Tar      as Tar
 import qualified Codec.Compression.GZip as GZip
@@ -32,6 +33,9 @@ data InMemRepo = InMemRepo {
                  -> (forall f. HasFormat fs f -> TempPath -> IO a)
                  -> IO a
 
+    -- | Get a file, based on a path (uses hackageRepoLayout)
+  , inMemRepoGetPath :: forall a. RepoPath -> (TempPath -> IO a) -> IO a
+
     -- | Run the "cron job" on the server
     --
     -- That is, resign the timestamp and the snapshot
@@ -50,9 +54,10 @@ newInMemRepo :: AbsolutePath
 newInMemRepo tempDir layout root now keys = do
     state <- newMVar $ initRemoteState now layout keys root
     return InMemRepo {
-        inMemRepoGet         = get tempDir state
-      , inMemRepoCron        = cron        state
-      , inMemRepoKeyRollover = keyRollover state
+        inMemRepoGet         = get     tempDir state
+      , inMemRepoGetPath     = getPath tempDir state
+      , inMemRepoCron        = cron            state
+      , inMemRepoKeyRollover = keyRollover     state
       }
 
 {-------------------------------------------------------------------------------
@@ -148,17 +153,38 @@ get remoteTempDir state remoteFile callback = do
       RemoteIndex    hasGz _ -> serve "01-index.tar.gz" hasGz     $ remoteTarGz
       RemotePkgTarGz pkgId _ -> error $ "withRemote: RemotePkgTarGz " ++ display pkgId
   where
-    render :: forall b. ToJSON WriteJSON b
-           => (RemoteState -> b)
-           -> (RemoteState -> BS.L.ByteString)
-    render f st = renderJSON (remoteLayout st) (f st)
-
     serve :: String -> HasFormat fs f -> (RemoteState -> BS.L.ByteString) -> IO a
     serve template hasFormat f =
       withTempFile remoteTempDir template $ \tempFile h -> do
         withMVar state $ BS.L.hPut h . f
         hClose h
         callback hasFormat tempFile
+
+getPath :: forall a.
+           AbsolutePath
+        -> MVar RemoteState
+        -> RepoPath
+        -> (TempPath -> IO a)
+        -> IO a
+getPath remoteTempDir state repoPath callback = do
+    case toFilePath (castRoot repoPath) of
+      "/root.json"       -> serve $ render remoteRoot
+      "/timestamp.json"  -> serve $ render remoteTimestamp
+      "/snapshot.json"   -> serve $ render remoteSnapshot
+      "/mirrors.json"    -> serve $ render remoteMirrors
+      "/01-index.tar.gz" -> serve $ remoteTarGz
+      "/01-index.tar"    -> serve $ remoteTar
+      otherPath -> throwIO . userError $ "getPath: Unknown path " ++ otherPath
+  where
+    template :: String
+    template = unFragment (takeFileName repoPath)
+
+    serve :: (RemoteState -> BS.L.ByteString) -> IO a
+    serve f =
+      withTempFile remoteTempDir template $ \tempFile h -> do
+        withMVar state $ BS.L.hPut h . f
+        hClose h
+        callback tempFile
 
 cron :: MVar RemoteState -> UTCTime -> IO ()
 cron state now = modifyMVar_ state $ \st@RemoteState{..} -> do
@@ -230,3 +256,12 @@ keyRollover state now = modifyMVar_ state $ \st@RemoteState{..} -> do
       , remoteTimestamp = signedTimestamp
       , remoteSnapshot  = signedSnapshot
       }
+
+{-------------------------------------------------------------------------------
+  Auxiliary
+-------------------------------------------------------------------------------}
+
+render :: forall b. ToJSON WriteJSON b
+       => (RemoteState -> b)
+       -> (RemoteState -> BS.L.ByteString)
+render f st = renderJSON (remoteLayout st) (f st)
