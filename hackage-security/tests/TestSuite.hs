@@ -198,10 +198,10 @@ msgsKeyRollover = [
     , downloading isRoot
     , downloading isTimestamp
     , downloading isSnapshot
-    -- TODO: We are seeing downloads for mirrors and the index, but
-    -- I don't understand why we are downloading these files?
-    -- , downloading isMirrors
-    -- , updating isIndex
+    -- Since we delete the timestamp and snapshot on a root info change,
+    -- we will then conclude that we need to update the mirrors and the index.
+    , downloading isMirrors
+    , updating isIndex
     ]
 
 {-------------------------------------------------------------------------------
