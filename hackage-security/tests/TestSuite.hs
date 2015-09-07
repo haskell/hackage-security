@@ -1,6 +1,8 @@
 module Main (main) where
 
 -- stdlib
+import Control.Exception
+import Control.Monad
 import Data.Maybe (fromJust)
 import Data.Time
 import Network.URI (URI, parseURI)
@@ -41,12 +43,14 @@ tests = testGroup "hackage-security" [
         , testCase "testInMemNoUpdates"            testInMemNoUpdates
         , testCase "testInMemUpdatesAfterCron"     testInMemUpdatesAfterCron
         , testCase "testInMemKeyRollover"          testInMemKeyRollover
+        , testCase "testInMemOutdatedTimestamp"    testInMemOutdatedTimestamp
         ]
     , testGroup "HttpMem" [
           testCase "testHttpMemInitialHasForUpdates" testHttpMemInitialHasUpdates
         , testCase "testHttpMemNoUpdates"            testHttpMemNoUpdates
         , testCase "testHttpMemUpdatesAfterCron"     testHttpMemUpdatesAfterCron
         , testCase "testHttpMemKeyRollover"          testHttpMemKeyRollover
+        , testCase "testHttpMemOutdatedTimestamp"    testHttpMemOutdatedTimestamp
         ]
   ]
 
@@ -98,12 +102,28 @@ testInMemKeyRollover = inMemTest $ \inMemRepo logMsgs repo -> do
 
     inMemRepoKeyRollover inMemRepo =<< getCurrentTime
 
-    withAssertLog "C" logMsgs [unknownKeyError timestampPath] $ do
+    let msgs = [verificationError $ unknownKeyError timestampPath]
+    withAssertLog "C" logMsgs msgs $ do
       assertEqual "C.1" HasUpdates =<< checkForUpdates repo =<< checkExpiry
     withAssertLog "D" logMsgs [] $ do
       assertEqual "D.1" NoUpdates =<< checkForUpdates repo =<< checkExpiry
-  where
-    timestampPath = repoLayoutTimestamp hackageRepoLayout
+
+-- | Test what happens when server has an outdated timestamp
+-- (after a successful initial update)
+testInMemOutdatedTimestamp :: Assertion
+testInMemOutdatedTimestamp = inMemTest $ \_inMemRepo logMsgs repo -> do
+    withAssertLog "A" logMsgs [] $ do
+      assertEqual "A.1" HasUpdates =<< checkForUpdates repo =<< checkExpiry
+    withAssertLog "B" logMsgs [] $ do
+      assertEqual "B.2" NoUpdates  =<< checkForUpdates repo =<< checkExpiry
+
+    now <- getCurrentTime
+    let (FileExpires fourDaysLater) = expiresInDays now 4
+
+    let msgs = replicate 5 (inHistory (Right (expired timestampPath)))
+    catchVerificationLoop msgs $ do
+      withAssertLog "C" logMsgs [] $ do
+        assertEqual "C.1" HasUpdates =<< checkForUpdates repo fourDaysLater
 
 {-------------------------------------------------------------------------------
   Same tests, but going through the "real" Remote repository and Cache, though
@@ -159,6 +179,23 @@ testHttpMemKeyRollover = httpMemTest $ \inMemRepo logMsgs repo -> do
     withAssertLog "D" logMsgs msgsNoUpdates $ do
       assertEqual "D.1" NoUpdates =<< checkForUpdates repo =<< checkExpiry
 
+-- | Test what happens when server has an outdated timestamp
+-- (after a successful initial update)
+testHttpMemOutdatedTimestamp :: Assertion
+testHttpMemOutdatedTimestamp = httpMemTest $ \_inMemRepo logMsgs repo -> do
+    withAssertLog "A" logMsgs msgsInitialUpdate $ do
+      assertEqual "A.1" HasUpdates =<< checkForUpdates repo =<< checkExpiry
+    withAssertLog "B" logMsgs msgsNoUpdates $ do
+      assertEqual "B.2" NoUpdates  =<< checkForUpdates repo =<< checkExpiry
+
+    now <- getCurrentTime
+    let (FileExpires fourDaysLater) = expiresInDays now 4
+
+    let msgs = replicate 5 (inHistory (Right (expired timestampPath)))
+    catchVerificationLoop msgs $ do
+      withAssertLog "C" logMsgs [] $ do
+        assertEqual "C.1" HasUpdates =<< checkForUpdates repo fourDaysLater
+
 {-------------------------------------------------------------------------------
   Log messages we expect when using the Remote repository
 -------------------------------------------------------------------------------}
@@ -194,7 +231,7 @@ msgsKeyRollover :: [LogMessage -> Bool]
 msgsKeyRollover = [
       selectedMirror inMemURI
     , downloading isTimestamp
-    , unknownKeyError $ repoLayoutTimestamp hackageRepoLayout
+    , verificationError $ unknownKeyError timestampPath
     , downloading isRoot
     , downloading isTimestamp
     , downloading isSnapshot
@@ -207,17 +244,6 @@ msgsKeyRollover = [
 {-------------------------------------------------------------------------------
   Classifying log messages
 -------------------------------------------------------------------------------}
-
-unknownKeyError :: RepoPath -> LogMessage -> Bool
-unknownKeyError repoPath msg =
-    case msg of
-      LogVerificationError
-        (VerificationErrorDeserialization
-           (TargetPathRepo repoPath')
-           (DeserializationErrorUnknownKey _keyId))
-        -> repoPath == repoPath'
-      _otherwise ->
-        False
 
 downloading :: (forall fs. RemoteFile fs -> Bool) -> LogMessage -> Bool
 downloading isFile (LogDownloading (Some file)) = isFile file
@@ -234,6 +260,43 @@ selectedMirror _ _ = False
 updating :: (forall fs. RemoteFile fs -> Bool) -> LogMessage -> Bool
 updating isFile (LogUpdating (Some file)) = isFile file
 updating _ _ = False
+
+expired :: TargetPath -> VerificationError -> Bool
+expired f (VerificationErrorExpired f') = f == f'
+expired _ _ = False
+
+unknownKeyError :: TargetPath -> VerificationError -> Bool
+unknownKeyError f (VerificationErrorDeserialization f' (DeserializationErrorUnknownKey _keyId)) =
+    f == f'
+unknownKeyError _ _ = False
+
+verificationError :: (VerificationError -> Bool) -> LogMessage -> Bool
+verificationError isErr (LogVerificationError err) = isErr err
+verificationError _ _ = False
+
+inHistory :: Either RootUpdated (VerificationError -> Bool) -> HistoryMsg -> Bool
+inHistory (Right isErr) (Right err) = isErr err
+inHistory (Left _)      (Left _)    = True
+inHistory _             _           = False
+
+type HistoryMsg = Either RootUpdated VerificationError
+
+catchVerificationLoop :: ([HistoryMsg -> Bool]) -> Assertion -> Assertion
+catchVerificationLoop history = handleJust isLoop handler
+  where
+    isLoop :: VerificationError -> Maybe VerificationHistory
+    isLoop (VerificationErrorLoop history') = Just history'
+    isLoop _ = Nothing
+
+    handler :: VerificationHistory -> Assertion
+    handler history' =
+      unless (length history == length history' && and (zipWith ($) history history')) $
+        assertFailure $ "Unexpected verification history:"
+                     ++ unlines (map pretty' history')
+
+    pretty' :: HistoryMsg -> String
+    pretty' (Left RootUpdated) = "root updated"
+    pretty' (Right err)        = pretty err
 
 {-------------------------------------------------------------------------------
   Classifying files
@@ -258,6 +321,9 @@ isSnapshot _ = False
 isTimestamp :: RemoteFile fs -> Bool
 isTimestamp RemoteTimestamp = True
 isTimestamp _ = False
+
+timestampPath :: TargetPath
+timestampPath = TargetPathRepo $ repoLayoutTimestamp hackageRepoLayout
 
 {-------------------------------------------------------------------------------
   Auxiliary

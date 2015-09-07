@@ -24,6 +24,8 @@ module Hackage.Security.Client (
     -- * Exceptions
   , uncheckClientErrors
   , VerificationError(..)
+  , VerificationHistory
+  , RootUpdated(..)
   , InvalidPackageException(..)
   , InvalidFileInIndex(..)
   , LocalFileCorrupted(..)
