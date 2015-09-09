@@ -106,7 +106,14 @@ script:
  - SRC_TGZ=$(cabal info . | awk '{print $2;exit}').tar.gz && (cd dist && cabal install --force-reinstalls "$SRC_TGZ")
  - cd ..
 
-# TODO: only for base>=4.5 
+ - cd hackage-repo-tool/
+ - cabal configure -v2
+ - cabal build
+ - cabal sdist
+ - SRC_TGZ=$(cabal info . | awk '{print $2;exit}').tar.gz && (cd dist && cabal install --force-reinstalls "$SRC_TGZ")
+ - cd ..
+
+ # TODO: only for base>=4.5 
  - cd hackage-security-http-client/
  - if [ "$GHCVER" != "7.2.2" ]; then cabal configure -v2; fi
  - if [ "$GHCVER" != "7.2.2" ]; then cabal build; fi
