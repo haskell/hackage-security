@@ -1,0 +1,13 @@
+resolver: lts-3.4
+packages:
+- hackage-security
+- precompute-fileinfo
+- hackage-security-http-client
+- example-client
+- hackage-security-curl
+- hackage-root-tool
+- hackage-repo-tool
+- hackage-security-HTTP
+extra-deps:
+- ed25519-0.0.2.0
+- zlib-0.6.1.1
