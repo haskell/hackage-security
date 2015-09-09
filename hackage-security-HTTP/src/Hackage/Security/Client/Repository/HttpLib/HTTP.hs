@@ -69,6 +69,8 @@ get :: Throws SomeRemoteError
 get browser reqHeaders uri callback = wrapCustomEx $ do
     response <- request browser
       $ setRequestHeaders reqHeaders
+      -- avoid silly `Content-Length: 0` header inserted by `mkRequest`
+      $ removeHeader HTTP.HdrContentLength
       $ HTTP.mkRequest HTTP.GET uri
     case HTTP.rspCode response of
       (2, 0, 0) -> withResponse response callback
@@ -83,10 +85,17 @@ getRange browser reqHeaders uri (from, to) callback = wrapCustomEx $ do
     response <- request browser
       $ setRange from to
       $ setRequestHeaders reqHeaders
+      -- avoid silly `Content-Length: 0` header inserted by `mkRequest`
+      $ removeHeader HTTP.HdrContentLength
       $ HTTP.mkRequest HTTP.GET uri
     case HTTP.rspCode response of
       (2, 0, 6) -> withResponse response callback
       otherCode -> throwChecked $ UnexpectedResponse uri otherCode
+
+removeHeader :: HTTP.HasHeaders a => HTTP.HeaderName -> a -> a
+removeHeader name h = HTTP.setHeaders h newHeaders
+  where
+    newHeaders = [ x | x@(HTTP.Header n _) <- HTTP.getHeaders h, name /= n ]
 
 {-------------------------------------------------------------------------------
   Auxiliary methods used to implement the HttpClient interface
