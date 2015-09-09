@@ -21,6 +21,8 @@ flag use-network-uri
 
 executable example-client
   main-is:             Main.hs
+  other-modules: Prelude ExampleClient.Options
+
   build-depends:       base                 >= 4.4,
                        Cabal                >= 1.12,
                        directory            >= 1.1,
