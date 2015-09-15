@@ -82,27 +82,28 @@ library
                        Hackage.Security.Util.TypedEmbedded
                        Prelude
   -- We support ghc 7.2 (bundled with Cabal 1.12) and up
-  build-depends:       base              >= 4.4    && < 5,
-                       base64-bytestring >= 1.0    && < 1.1,
+  build-depends:       base              >= 4.4     && < 5,
+                       base64-bytestring >= 1.0     && < 1.1,
                        -- we need Data.ByteString.Builder to build tar indices,
                        -- which is only available from bytestring-0.10.2 and up
                        -- TODO: We should probably fix that upstream (in tar)
                        -- so that we can compile with the version of bytestring
                        -- that comes with ghc for ghc < 7.8
-                       bytestring        >= 0.10.2 && < 0.11,
-                       Cabal             >= 1.12   && < 1.25,
-                       containers        >= 0.4    && < 0.6,
-                       directory         >= 1.1    && < 1.3,
-                       ed25519           >= 0.0    && < 0.1,
-                       filepath          >= 1.2    && < 1.5,
-                       mtl               >= 2.2    && < 2.3,
-                       parsec            >= 3.1    && < 3.2,
-                       cryptohash        >= 0.11   && < 0.12,
+                       bytestring        >= 0.10.2  && < 0.11,
+                       Cabal             >= 1.12    && < 1.25,
+                       containers        >= 0.4     && < 0.6,
+                       directory         >= 1.1     && < 1.3,
+                       ed25519           >= 0.0     && < 0.1,
+                       filepath          >= 1.2     && < 1.5,
+                       mtl               >= 2.2     && < 2.3,
+                       parsec            >= 3.1     && < 3.2,
+                       cryptohash        >= 0.11    && < 0.12,
                        -- version 0.4.2 of tar introduces TarIndex
-                       tar               >= 0.4.2  && < 0.5,
-                       time              >= 1.2    && < 1.6,
-                       transformers      >= 0.4    && < 0.5,
-                       zlib              >= 0.5    && < 0.7,
+		       -- version 0.4.2.2 contains a crucial bugfix
+                       tar               >= 0.4.2.2 && < 0.5,
+                       time              >= 1.2     && < 1.6,
+                       transformers      >= 0.4     && < 0.5,
+                       zlib              >= 0.5     && < 0.7,
                        -- whatever versions are bundled with ghc:
                        template-haskell,
                        ghc-prim
