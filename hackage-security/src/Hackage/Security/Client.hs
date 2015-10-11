@@ -149,7 +149,7 @@ checkForUpdates rep mNow =
           let newInfoRoot    = static snapshotInfoRoot    <$$> newSS
               newInfoMirrors = static snapshotInfoMirrors <$$> newSS
               newInfoTarGz   = static snapshotInfoTarGz   <$$> newSS
-              mNewInfoTar    = trustSeq (static snapshotInfoTar <$$> newSS)
+              mNewInfoTar    = trustElems (static snapshotInfoTar <$$> newSS)
 
           -- If root metadata changed, download and restart
           when (rootChanged cachedInfoRoot newInfoRoot) $ liftIO $ do
@@ -443,7 +443,7 @@ downloadPackage rep pkgId callback = withMirror rep $ evalContT $ do
         filePath = TargetPathRepo $ repoLayoutPkgTarGz (repLayout rep) pkgId
 
     let mTargetMetaData :: Maybe (Trusted FileInfo)
-        mTargetMetaData = trustSeq
+        mTargetMetaData = trustElems
                         $ trustStatic (static targetsLookup)
              `trustApply` DeclareTrusted filePath
              `trustApply` targets

@@ -6,7 +6,7 @@ module Hackage.Security.Trusted.TCB (
   , trustStatic
   , trustVerified
   , trustApply
-  , trustSeq
+  , trustElems
     -- * Verification errors
   , VerificationError(..)
   , RootUpdated(..)
@@ -82,12 +82,79 @@ trustVerified = DeclareTrusted . signaturesVerified
 trustApply :: Trusted (a -> b) -> Trusted a -> Trusted b
 trustApply (DeclareTrusted f) (DeclareTrusted x) = DeclareTrusted (f x)
 
--- | Equivalent of 'sequenceA'
+-- | Trust all elements of some trusted (traversable) container
 --
--- Trusted isn't quite Traversable (no Functor instance), but it is
--- somehow Traversable-like: we have the equivalent of 'sequenceA'
-trustSeq :: Functor f => Trusted (f a) -> f (Trusted a)
-trustSeq (DeclareTrusted fa) = DeclareTrusted `fmap` fa
+-- If we have, say, a trusted list of values, we should be able to get a list
+-- of trusted values out of it.
+--
+-- > trustElems :: Trusted [a] -> [Trusted a]
+--
+-- NOTE. It might appear that the more natural primitive to offer is a
+-- 'sequenceA'-like operator such as
+--
+-- > trustSeq :: Applicative f => Trusted (f a) -> f (Trusted a)
+--
+-- However, this is unsound. To see this, consider that @((->) a)@ is
+-- 'Applicative' (it's the reader monad); hence, we can instantiate 'trustSeq'
+-- at
+--
+-- > trustSeq :: Trusted (a -> a) -> a -> Trusted a
+--
+-- and by passing @trustStatic (static id)@ make 'Trusted' a functor, which we
+-- certainly don't want to do (see comments for 'Trusted').
+--
+-- So why is it okay when we insist on 'Traversable' rather than 'Applicative'?
+-- To see this, it's instructive to consider how we might make a @((->) a)@ an
+-- instance of 'Traversable'. If we define the domain of enumerable types as
+--
+-- > class Eq a => Enumerable a where
+-- >   enumerate :: [a]
+--
+-- then we can make @((->) r)@ traversable by
+--
+-- > instance Enumerable r => Traversable ((->) r) where
+-- >   sequenceA f = rebuild <$> sequenceA ((\r -> (r,) <$> f r) <$> enumerate)
+-- >     where
+-- >       rebuild :: [(r, a)] -> r -> a
+-- >       rebuild fun arg = fromJust (lookup arg fun)
+--
+-- The idea is that if the domain of a function is enumerable, we can apply the
+-- function to each possible input, collect the outputs, and construct a new
+-- function by pairing the inputs with the outputs. I.e., if we had something of
+-- type
+--
+-- > a -> IO b
+--
+-- and @a@ is enumerable, we just run the @IO@ action on each possible @a@ and
+-- collect all @b@s to get a pure function @a -> b@. Of course, you probably
+-- don't want to be doing that, but the point is that as far as the type system
+-- is concerned you could.
+--
+-- In the context of 'Trusted', this means that we can derive
+--
+-- > enumPure :: Enumerable a => a -> Trusted a
+--
+-- but in a way this this makes sense anyway. If a domain is enumerable, it
+-- would not be unreasonable to change @Enumerable@ to
+--
+-- > class Eq a => Enumerable a where
+-- >   enumerate :: [StaticPtr a]
+--
+-- so we could define @enumPure@ as
+--
+-- > enumPure :: Enumerable a => a -> Trusted a
+-- > enumPure x = trustStatic
+-- >            $ fromJust (find ((== x) . deRefStaticPtr) enumerate)
+--
+-- In other words, we just enumerate the entire domain as trusted values
+-- (because we defined them locally) and then return the one that matched the
+-- untrusted value.
+--
+-- The conclusion from all of this is that the types of untrusted input  (like
+-- the types of the TUF files we download from the server) should probably not
+-- be considered enumerable.
+trustElems :: Traversable f => Trusted (f a) -> f (Trusted a)
+trustElems (DeclareTrusted fa) = DeclareTrusted `fmap` fa
 
 {-------------------------------------------------------------------------------
   Role verification
