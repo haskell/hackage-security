@@ -7,10 +7,14 @@ module Hackage.Security.Util.IO (
   , atomicCopyFile
   , atomicWriteFile
   , atomicWithFile
+    -- * Debugging
+  , timedIO
   ) where
 
 import Control.Exception
 import Control.Monad
+import Data.Time
+import System.IO hiding (openTempFile)
 import System.IO.Error
 import qualified Data.ByteString.Lazy as BS.L
 
@@ -92,3 +96,16 @@ atomicWithFile final callback =
   where
     finalDir      = takeDirectory final
     finalFileName = unFragment (takeFileName final)
+
+{-------------------------------------------------------------------------------
+  Debugging
+-------------------------------------------------------------------------------}
+
+timedIO :: String -> IO a -> IO a
+timedIO label act = do
+    before <- getCurrentTime
+    result <- act
+    after  <- getCurrentTime
+    hPutStrLn stderr $ label ++ ": " ++ show (after `diffUTCTime` before)
+    hFlush stderr
+    return result

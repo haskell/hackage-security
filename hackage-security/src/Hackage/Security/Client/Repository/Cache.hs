@@ -1,3 +1,4 @@
+{-# LANGUAGE BangPatterns #-}
 -- | The files we cache from the repository
 --
 -- Both the Local and the Remote repositories make use of this module.
@@ -13,7 +14,8 @@ module Hackage.Security.Client.Repository.Cache (
 
 import Control.Exception
 import Control.Monad
-import Codec.Archive.Tar.Index (TarIndex)
+import Codec.Archive.Tar (Entries(..))
+import Codec.Archive.Tar.Index (TarIndex, IndexBuilder, TarEntryOffset)
 import qualified Codec.Archive.Tar       as Tar
 import qualified Codec.Archive.Tar.Index as TarIndex
 import qualified Codec.Compression.GZip  as GZip
@@ -69,18 +71,29 @@ cacheRemoteFile cache tempPath f isCached = do
 
 -- | Rebuild the tarball index
 --
--- TODO: Should we attempt to rebuild this incrementally?
+-- Attempts to add to the existing index, if one exists.
+--
 -- TODO: Use throwChecked rather than throwUnchecked, and deal with the fallout.
 -- See <https://github.com/well-typed/hackage-security/issues/84>.
 rebuildTarIndex :: Cache -> IO ()
 rebuildTarIndex cache = do
-    entries <- Tar.read <$> readLazyByteString (cachedIndexTarPath cache)
-    case TarIndex.build entries of
-      Left  ex    -> throwUnchecked ex
-      Right index ->
-        atomicWithFile (cachedIndexIdxPath cache) $ \h -> do
-          hSetBuffering h (BlockBuffering Nothing)
-          BS.Builder.hPutBuilder h $ TarIndex.serialise index
+    (builder, offset) <- initBuilder <$> tryReadIndex (cachedIndexIdxPath cache)
+    withFileInReadMode (cachedIndexTarPath cache) $ \hTar -> do
+      TarIndex.hSeekEntryOffset hTar offset
+      newEntries <- Tar.read <$> BS.L.hGetContents hTar
+      case addEntries builder newEntries of
+        Left  ex  -> throwUnchecked ex
+        Right idx -> atomicWithFile (cachedIndexIdxPath cache) $ \hIdx -> do
+                       hSetBuffering hIdx (BlockBuffering Nothing)
+                       BS.Builder.hPutBuilder hIdx $ TarIndex.serialise idx
+  where
+    -- The initial index builder
+    -- If we don't have an index (or it's broken), we start from scratch
+    initBuilder :: Either e TarIndex -> (IndexBuilder, TarEntryOffset)
+    initBuilder (Left  _)   = ( TarIndex.emptyIndex, 0 )
+    initBuilder (Right idx) = ( TarIndex.resumeIndexBuilder  idx
+                              , TarIndex.indexEndEntryOffset idx
+                              )
 
 -- | Get a cached file (if available)
 getCached :: Cache -> CachedFile -> IO (Maybe AbsolutePath)
@@ -138,21 +151,33 @@ getFromIndex cache indexLayout indexFile = do
     tarPath :: IndexPath -> TarballPath
     tarPath = castRoot
 
-    -- TODO: How come 'deserialise' uses _strict_ ByteStrings?
-    tryReadIndex :: AbsolutePath -> IO (Either (Maybe IOException) TarIndex)
-    tryReadIndex fp =
-        aux <$> try (TarIndex.deserialise <$> readStrictByteString fp)
-      where
-        aux :: Either e (Maybe (a, leftover)) -> Either (Maybe e) a
-        aux (Left e)              = Left (Just e)
-        aux (Right Nothing)       = Left Nothing
-        aux (Right (Just (a, _))) = Right a
-
 -- | Delete a previously downloaded remote file
 clearCache :: Cache -> IO ()
 clearCache cache = void . handleDoesNotExist $ do
     removeFile $ cachedFilePath cache CachedTimestamp
     removeFile $ cachedFilePath cache CachedSnapshot
+
+{-------------------------------------------------------------------------------
+  Auxiliary: tar
+-------------------------------------------------------------------------------}
+
+-- | Variation on 'TarIndex.build' that takes in the initial 'IndexBuilder'
+addEntries :: IndexBuilder -> Entries e -> Either e TarIndex
+addEntries = go
+  where
+    go !builder (Next e es) = go (TarIndex.addNextEntry e builder) es
+    go !builder  Done       = Right $! TarIndex.finaliseIndex builder
+    go !_       (Fail err)  = Left err
+
+-- TODO: How come 'deserialise' uses _strict_ ByteStrings?
+tryReadIndex :: AbsolutePath -> IO (Either (Maybe IOException) TarIndex)
+tryReadIndex fp =
+    aux <$> try (TarIndex.deserialise <$> readStrictByteString fp)
+  where
+    aux :: Either e (Maybe (a, leftover)) -> Either (Maybe e) a
+    aux (Left e)              = Left (Just e)
+    aux (Right Nothing)       = Left Nothing
+    aux (Right (Just (a, _))) = Right a
 
 {-------------------------------------------------------------------------------
   Auxiliary: paths
