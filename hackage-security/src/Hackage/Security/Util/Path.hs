@@ -53,7 +53,7 @@ module Hackage.Security.Util.Path (
   , fromAbsoluteFilePath
   -- ** Wrappers around System.IO
   , openTempFile
-  , withFileInReadMode
+  , withFile
   -- ** Wrappers around Data.ByteString.*
   , readLazyByteString
   , readStrictByteString
@@ -81,9 +81,11 @@ module Hackage.Security.Util.Path (
   , IO.IOMode(..)
   , IO.BufferMode(..)
   , IO.Handle
+  , IO.SeekMode(..)
   , IO.hSetBuffering
   , IO.hClose
   , IO.hFileSize
+  , IO.hSeek
   ) where
 
 import Control.Monad
@@ -332,14 +334,12 @@ fromAbsoluteFilePath _ = error "fromAbsoluteFilePath: not an absolute path"
   Wrappers around System.IO
 -------------------------------------------------------------------------------}
 
--- | Open a file in read mode
---
--- We don't wrap the general 'withFile' to encourage using atomic file ops.
-withFileInReadMode :: IsFileSystemRoot root
-                   => Path (Rooted root) -> (IO.Handle -> IO r) -> IO r
-withFileInReadMode path callback = do
+-- | Wrapper around 'withFile'
+withFile :: IsFileSystemRoot root
+         => Path (Rooted root) -> IO.IOMode -> (IO.Handle -> IO r) -> IO r
+withFile path mode callback = do
     filePath <- toAbsoluteFilePath path
-    IO.withFile filePath IO.ReadMode callback
+    IO.withFile filePath mode callback
 
 -- | Wrapper around 'openBinaryTempFileWithDefaultPermissions'
 openTempFile :: forall root. IsFileSystemRoot root

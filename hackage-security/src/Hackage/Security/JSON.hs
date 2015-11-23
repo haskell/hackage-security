@@ -261,7 +261,7 @@ readJSON_Keys_Layout :: ( IsFileSystemRoot root
                      -> Path (Rooted root)
                      -> IO (Either DeserializationError a)
 readJSON_Keys_Layout keyEnv repoLayout fp = do
-    withFileInReadMode fp $ \h -> do
+    withFile fp ReadMode $ \h -> do
       bs <- BS.L.hGetContents h
       evaluate $ parseJSON_Keys_Layout keyEnv repoLayout bs
 
@@ -272,7 +272,7 @@ readJSON_Keys_NoLayout :: ( IsFileSystemRoot root
                        -> Path (Rooted root)
                        -> IO (Either DeserializationError a)
 readJSON_Keys_NoLayout keyEnv fp = do
-    withFileInReadMode fp $ \h -> do
+    withFile fp ReadMode $ \h -> do
       bs <- BS.L.hGetContents h
       evaluate $ parseJSON_Keys_NoLayout keyEnv bs
 
@@ -282,7 +282,7 @@ readJSON_NoKeys_NoLayout :: ( IsFileSystemRoot root
                          => Path (Rooted root)
                          -> IO (Either DeserializationError a)
 readJSON_NoKeys_NoLayout fp = do
-    withFileInReadMode fp $ \h -> do
+    withFile fp ReadMode $ \h -> do
       bs <- BS.L.hGetContents h
       evaluate $ parseJSON_NoKeys_NoLayout bs
 

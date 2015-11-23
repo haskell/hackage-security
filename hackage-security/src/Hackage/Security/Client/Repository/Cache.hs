@@ -37,37 +37,47 @@ data Cache = Cache {
     }
 
 -- | Cache a previously downloaded remote file
-cacheRemoteFile :: Cache -> TempPath -> Format f -> IsCached -> IO ()
-cacheRemoteFile cache tempPath f isCached = do
+cacheRemoteFile :: forall down typ f. DownloadedFile down
+                => Cache -> down typ -> Format f -> IsCached typ -> IO ()
+cacheRemoteFile cache downloaded f isCached = do
     go f isCached
     -- TODO: This recreates the tar index ahead of time. Alternatively, we
     -- could delete the index here and then it will be rebuilt on first access.
-    when (isCached == CacheIndex) $ rebuildTarIndex cache
+    case isCached of
+      CacheIndex -> rebuildTarIndex cache
+      _otherwise -> return ()
   where
-    -- TODO: The case for FGz / CacheAs doesn't really occur in practice,
-    -- because we never download any of the TUF datafiles in compressed format.
-    -- It doesn't really harm though, and if we wanted to avoid this case we'd
-    -- have to encode more information in the types.
-    go :: Format f -> IsCached -> IO ()
-    go _   DontCache            = return ()
-    go FUn (CacheAs cachedFile) = do copyTo $ cachedFilePath cache cachedFile
-    go FGz (CacheAs cachedFile) = do ungzTo $ cachedFilePath cache cachedFile
-    go FUn CacheIndex           = do copyTo $ cachedIndexTarPath cache
-    go FGz CacheIndex           = do ungzTo $ cachedIndexTarPath cache
-                                     case cachedIndexTarGzPath cache of
-                                       Nothing        -> return ()
-                                       Just tarGzPath -> copyTo tarGzPath
+    go :: Format f -> IsCached typ -> IO ()
+    go _   DontCache      = return ()
+    go FUn (CacheAs file) = copyTo (cachedFilePath cache file)
+    go FGz CacheIndex     = copyTo (cachedIndexPath cache FGz) >> unzipIndex
+    go _ _ = error "cacheRemoteFile: unexpected case" -- TODO: enforce in types?
 
     copyTo :: AbsolutePath -> IO ()
     copyTo fp = do
       createDirectoryIfMissing True (takeDirectory fp)
-      atomicCopyFile tempPath fp
+      downloadedCopyTo downloaded fp
 
-    ungzTo :: AbsolutePath -> IO ()
-    ungzTo fp = do
-      createDirectoryIfMissing True (takeDirectory fp)
-      compressed <- readLazyByteString tempPath
-      atomicWriteFile fp $ GZip.decompress compressed
+    -- Whether or not we downloaded the compressed index incrementally, we can
+    -- always update the uncompressed index incrementally.
+    -- NOTE: This assumes we already updated the compressed file.
+    unzipIndex :: typ ~ Binary => IO ()
+    unzipIndex = do
+        createDirectoryIfMissing True (takeDirectory indexUn)
+        compressed <- readLazyByteString indexGz
+        let uncompressed = GZip.decompress compressed
+        withFile indexUn ReadWriteMode $ \h -> do
+          currentSize <- hFileSize h
+          let seekTo | currentSize == 0 = 0
+                     | otherwise        = currentSize - tarTrailer
+          hSeek h AbsoluteSeek seekTo
+          BS.L.hPut h $ BS.L.drop (fromInteger seekTo) uncompressed
+      where
+        indexGz = cachedIndexPath cache FGz
+        indexUn = cachedIndexPath cache FUn
+
+    tarTrailer :: Integer
+    tarTrailer = 1024
 
 -- | Rebuild the tarball index
 --
@@ -78,7 +88,7 @@ cacheRemoteFile cache tempPath f isCached = do
 rebuildTarIndex :: Cache -> IO ()
 rebuildTarIndex cache = do
     (builder, offset) <- initBuilder <$> tryReadIndex (cachedIndexIdxPath cache)
-    withFileInReadMode (cachedIndexTarPath cache) $ \hTar -> do
+    withFile (cachedIndexPath cache FUn) ReadMode $ \hTar -> do
       TarIndex.hSeekEntryOffset hTar offset
       newEntries <- Tar.read <$> BS.L.hGetContents hTar
       case addEntries builder newEntries of
@@ -105,13 +115,13 @@ getCached cache cachedFile = do
     localPath = cachedFilePath cache cachedFile
 
 -- | Get the cached index (if available)
-getCachedIndex :: Cache -> IO (Maybe AbsolutePath)
-getCachedIndex cache = do
+getCachedIndex :: Cache -> Format f -> IO (Maybe AbsolutePath)
+getCachedIndex cache format = do
     exists <- doesFileExist localPath
     if exists then return $ Just localPath
               else return $ Nothing
   where
-    localPath = cachedIndexTarPath cache
+    localPath = cachedIndexPath cache format
 
 -- | Get the cached root
 --
@@ -137,7 +147,7 @@ getFromIndex cache indexLayout indexFile = do
         case tarIndexLookup index (tarPath (indexFilePath indexLayout indexFile)) of
           Just (TarIndex.TarFileEntry offset) ->
             -- TODO: We might want to keep this handle open
-            withFileInReadMode (cachedIndexTarPath cache) $ \h -> do
+            withFile (cachedIndexPath cache FUn) ReadMode $ \h -> do
               entry <- TarIndex.hReadEntry h offset
               case Tar.entryContent entry of
                 Tar.NormalFile lbs _size -> do
@@ -193,13 +203,13 @@ cachedFilePath Cache{cacheLayout=CacheLayout{..}, ..} file =
     go CachedSnapshot  = cacheLayoutSnapshot
     go CachedMirrors   = cacheLayoutMirrors
 
-cachedIndexTarPath :: Cache -> AbsolutePath
-cachedIndexTarPath Cache{..} =
-    anchorCachePath cacheRoot $ cacheLayoutIndexTar cacheLayout
-
-cachedIndexTarGzPath :: Cache -> Maybe AbsolutePath
-cachedIndexTarGzPath Cache{..} =
-    fmap (anchorCachePath cacheRoot) $ cacheLayoutIndexTarGz cacheLayout
+cachedIndexPath :: Cache -> Format f -> AbsolutePath
+cachedIndexPath Cache{..} format =
+    anchorCachePath cacheRoot $ go format
+  where
+    go :: Format f -> CachePath
+    go FUn = cacheLayoutIndexTar   cacheLayout
+    go FGz = cacheLayoutIndexTarGz cacheLayout
 
 cachedIndexIdxPath :: Cache -> AbsolutePath
 cachedIndexIdxPath Cache{..} =

@@ -5,18 +5,21 @@
 {-# LANGUAGE CPP #-}
 module Hackage.Security.Client.Repository (
     -- * Files
-    RemoteFile(..)
+    Metadata  -- type index (really a kind)
+  , Binary    -- type index (really a kind)
+  , RemoteFile(..)
   , CachedFile(..)
   , IndexFile(..)
   , remoteFileDefaultFormat
   , remoteFileDefaultInfo
     -- * Repository proper
   , Repository(..)
-  , TempPath
   , IsRetry(..)
   , LogMessage(..)
   , UpdateFailure(..)
   , SomeRemoteError(..)
+    -- ** Downloaded files
+  , DownloadedFile(..)
     -- ** Helpers
   , mirrorsUnsupported
     -- * Paths
@@ -30,7 +33,8 @@ module Hackage.Security.Client.Repository (
 
 import Control.Exception
 import Data.Typeable (Typeable)
-import qualified Data.ByteString as BS
+import qualified Data.ByteString      as BS
+import qualified Data.ByteString.Lazy as BS.L
 
 import Distribution.Package
 import Distribution.Text
@@ -48,17 +52,21 @@ import Hackage.Security.Util.Stack
   Files
 -------------------------------------------------------------------------------}
 
+data Metadata
+data Binary
+
 -- | Abstract definition of files we might have to download
 --
 -- 'RemoteFile' is parametrized by the type of the formats that we can accept
--- from the remote repository.
+-- from the remote repository, as well as with information on whether this file
+-- is metadata actual binary content.
 --
 -- NOTE: Haddock lacks GADT support so constructors have only regular comments.
-data RemoteFile :: * -> * where
+data RemoteFile :: * -> * -> * where
     -- Timestamp metadata (@timestamp.json@)
     --
     -- We never have (explicit) file length available for timestamps.
-    RemoteTimestamp :: RemoteFile (FormatUn :- ())
+    RemoteTimestamp :: RemoteFile (FormatUn :- ()) Metadata
 
     -- Root metadata (@root.json@)
     --
@@ -69,17 +77,17 @@ data RemoteFile :: * -> * where
     -- - If however we need to update the root metadata due to a verification
     --   exception we do not know the file info.
     -- - We also do not know the file info during bootstrapping.
-    RemoteRoot :: Maybe (Trusted FileInfo) -> RemoteFile (FormatUn :- ())
+    RemoteRoot :: Maybe (Trusted FileInfo) -> RemoteFile (FormatUn :- ()) Metadata
 
     -- Snapshot metadata (@snapshot.json@)
     --
     -- We get file info of the snapshot from the timestamp.
-    RemoteSnapshot :: Trusted FileInfo -> RemoteFile (FormatUn :- ())
+    RemoteSnapshot :: Trusted FileInfo -> RemoteFile (FormatUn :- ()) Metadata
 
     -- Mirrors metadata (@mirrors.json@)
     --
     -- We get the file info from the snapshot.
-    RemoteMirrors :: Trusted FileInfo -> RemoteFile (FormatUn :- ())
+    RemoteMirrors :: Trusted FileInfo -> RemoteFile (FormatUn :- ()) Metadata
 
     -- Index
     --
@@ -93,19 +101,18 @@ data RemoteFile :: * -> * where
     -- (the snapshot should make it clear which files are available).
     RemoteIndex :: HasFormat fs FormatGz
                 -> Formats fs (Trusted FileInfo)
-                -> RemoteFile fs
+                -> RemoteFile fs Binary
 
     -- Actual package
     --
     -- Package file length comes from the corresponding @targets.json@.
     RemotePkgTarGz :: PackageIdentifier
                    -> Trusted FileInfo
-                   -> RemoteFile (FormatGz :- ())
+                   -> RemoteFile (FormatGz :- ()) Binary
 
--- deriving instance Eq   (RemoteFile fs)
-deriving instance Show (RemoteFile fs)
+deriving instance Show (RemoteFile fs typ)
 
-instance Pretty (RemoteFile fs) where
+instance Pretty (RemoteFile fs typ) where
   pretty RemoteTimestamp          = "timestamp"
   pretty (RemoteRoot _)           = "root"
   pretty (RemoteSnapshot _)       = "snapshot"
@@ -153,14 +160,11 @@ instance Pretty IndexFile where
   pretty (IndexPkgMetadata pkgId) = "metadata for " ++ display pkgId
   pretty (IndexPkgCabal    pkgId) = ".cabal for " ++ display pkgId
 
--- | Path to temporary file
-type TempPath = AbsolutePath
-
 -- | Default format for each file type
 --
 -- For most file types we don't have a choice; for the index the repository
 -- is only required to offer the GZip-compressed format so that is the default.
-remoteFileDefaultFormat :: RemoteFile fs -> Some (HasFormat fs)
+remoteFileDefaultFormat :: RemoteFile fs typ -> Some (HasFormat fs)
 remoteFileDefaultFormat RemoteTimestamp      = Some $ HFZ FUn
 remoteFileDefaultFormat (RemoteRoot _)       = Some $ HFZ FUn
 remoteFileDefaultFormat (RemoteSnapshot _)   = Some $ HFZ FUn
@@ -169,7 +173,7 @@ remoteFileDefaultFormat (RemotePkgTarGz _ _) = Some $ HFZ FGz
 remoteFileDefaultFormat (RemoteIndex pf _)   = Some pf
 
 -- | Default file info (see also 'remoteFileDefaultFormat')
-remoteFileDefaultInfo :: RemoteFile fs -> Maybe (Trusted FileInfo)
+remoteFileDefaultInfo :: RemoteFile fs typ -> Maybe (Trusted FileInfo)
 remoteFileDefaultInfo RemoteTimestamp         = Nothing
 remoteFileDefaultInfo (RemoteRoot info)       = info
 remoteFileDefaultInfo (RemoteSnapshot info)   = Just info
@@ -187,7 +191,7 @@ remoteFileDefaultInfo (RemoteIndex pf info)   = Just $ formatsLookup pf info
 -- to download metafiles and target files, without specifying how this is done.
 -- For instance, for a local repository this could just be doing a file read,
 -- whereas for remote repositories this could be using any kind of HTTP client.
-data Repository = Repository {
+data Repository down = DownloadedFile down => Repository {
     -- | Get a file from the server
     --
     -- Responsibilies of 'repWithRemote':
@@ -200,20 +204,16 @@ data Repository = Repository {
     -- * Move the file from its temporary location to its permanent location
     --   if the callback returns successfully (where appropriate).
     --
-    -- Responsibilities of the callback:
-    --
-    -- * Verify the file and throw an exception if verification fails.
-    -- * Not modify or move the temporary file.
-    --   (Thus it is safe for local repositories to directly pass the path
-    --   into the local repository.)
+    -- It is the responsibilities of the callback to verify the file and throw
+    -- an exception if verification fails.
     --
     -- NOTE: Calls to 'repWithRemote' should _always_ be in the scope of
     -- 'repWithMirror'.
-    repWithRemote :: forall a fs.
+    repWithRemote :: forall a fs typ.
                      (Throws VerificationError, Throws SomeRemoteError)
                   => IsRetry
-                  -> RemoteFile fs
-                  -> (forall f. HasFormat fs f -> TempPath -> IO a)
+                  -> RemoteFile fs typ
+                  -> (forall f. HasFormat fs f -> down typ -> IO a)
                   -> IO a
 
     -- | Get a cached file (if available)
@@ -275,7 +275,7 @@ data Repository = Repository {
   , repDescription :: String
   }
 
-instance Show Repository where
+instance Show (Repository down) where
   show = repDescription
 
 -- | Helper function to implement 'repWithMirrors'.
@@ -310,17 +310,17 @@ data LogMessage =
   | LogVerificationError VerificationError
 
     -- | Download a file from a repository
-  | LogDownloading (Some RemoteFile)
+  | forall fs typ. LogDownloading (RemoteFile fs typ)
 
     -- | Incrementally updating a file from a repository
-  | LogUpdating (Some RemoteFile)
+  | forall fs. LogUpdating (RemoteFile fs Binary)
 
     -- | Selected a particular mirror
   | LogSelectedMirror MirrorDescription
 
     -- | Updating a file failed
     -- (we will instead download it whole)
-  | LogCannotUpdate (Some RemoteFile) UpdateFailure
+  | forall fs. LogCannotUpdate (RemoteFile fs Binary) UpdateFailure
 
     -- | We got an exception with a particular mirror
     -- (we will try with a different mirror if any are available)
@@ -328,25 +328,30 @@ data LogMessage =
 
 -- | Records why we are downloading a file rather than updating it.
 data UpdateFailure =
-    -- | Server only provides compressed form of the file
-    UpdateImpossibleOnlyCompressed
-
-    -- | Likewise, it's possible that client _wants_ the compressed form of
-    -- the file, in which case downloading the uncompressed form is not useful.
-  | UpdateNotUsefulWantsCompressed
-
     -- | Server does not support incremental downloads
-  | UpdateImpossibleUnsupported
+    UpdateImpossibleUnsupported
 
     -- | We don't have a local copy of the file to update
   | UpdateImpossibleNoLocalCopy
 
-    -- | Updating the local file would actually mean downloading
-    -- MORE data then doing a regular download.
-  | UpdateTooLarge
-
-    -- | Update failed
+    -- | Update failed (for example: perhaps the local file got corrupted)
   | UpdateFailed SomeException
+
+{-------------------------------------------------------------------------------
+  Downloaded files
+-------------------------------------------------------------------------------}
+
+class DownloadedFile (down :: * -> *) where
+  -- | Verify a download file
+  downloadedVerify :: down a -> Trusted FileInfo -> IO Bool
+
+  -- | Read the file we just downloaded into memory
+  --
+  -- We never read binary data, only metadata.
+  downloadedRead :: down Metadata -> IO BS.L.ByteString
+
+  -- | Copy a downloaded file to its destination
+  downloadedCopyTo :: down a -> AbsolutePath -> IO ()
 
 {-------------------------------------------------------------------------------
   Exceptions thrown by specific Repository implementations
@@ -375,10 +380,10 @@ instance Pretty SomeRemoteError where
   Paths
 -------------------------------------------------------------------------------}
 
-remoteRepoPath :: RepoLayout -> RemoteFile fs -> Formats fs RepoPath
+remoteRepoPath :: RepoLayout -> RemoteFile fs typ -> Formats fs RepoPath
 remoteRepoPath RepoLayout{..} = go
   where
-    go :: RemoteFile fs -> Formats fs RepoPath
+    go :: RemoteFile fs typ -> Formats fs RepoPath
     go RemoteTimestamp        = FsUn $ repoLayoutTimestamp
     go (RemoteRoot _)         = FsUn $ repoLayoutRoot
     go (RemoteSnapshot _)     = FsUn $ repoLayoutSnapshot
@@ -390,7 +395,7 @@ remoteRepoPath RepoLayout{..} = go
     goIndex FUn _ = repoLayoutIndexTar
     goIndex FGz _ = repoLayoutIndexTarGz
 
-remoteRepoPath' :: RepoLayout -> RemoteFile fs -> HasFormat fs f -> RepoPath
+remoteRepoPath' :: RepoLayout -> RemoteFile fs typ -> HasFormat fs f -> RepoPath
 remoteRepoPath' repoLayout file format =
     formatsLookup format $ remoteRepoPath repoLayout file
 
@@ -406,16 +411,16 @@ indexFilePath IndexLayout{..} = go
 -------------------------------------------------------------------------------}
 
 -- | Is a particular remote file cached?
-data IsCached =
+data IsCached :: * -> * where
     -- | This remote file should be cached, and we ask for it by name
-    CacheAs CachedFile
+    CacheAs :: CachedFile -> IsCached Metadata
 
     -- | We don't cache this remote file
     --
     -- This doesn't mean a Repository should not feel free to cache the file
     -- if desired, but it does mean the generic algorithms will never ask for
     -- this file from the cache.
-  | DontCache
+    DontCache :: IsCached Binary
 
     -- | The index is somewhat special: it should be cached, but we never
     -- ask for it directly.
@@ -425,11 +430,13 @@ data IsCached =
     -- the index in uncompressed form, others in compressed form; some might
     -- keep an index tarball index for quick access, others may scan the tarball
     -- linearly, etc.
-  | CacheIndex
-  deriving (Eq, Ord, Show)
+    CacheIndex :: IsCached Binary
+
+deriving instance Eq   (IsCached typ)
+deriving instance Show (IsCached typ)
 
 -- | Which remote files should we cache locally?
-mustCache :: RemoteFile fs -> IsCached
+mustCache :: RemoteFile fs typ -> IsCached typ
 mustCache RemoteTimestamp      = CacheAs CachedTimestamp
 mustCache (RemoteRoot _)       = CacheAs CachedRoot
 mustCache (RemoteSnapshot _)   = CacheAs CachedSnapshot
@@ -442,27 +449,21 @@ instance Pretty LogMessage where
       "Root info updated"
   pretty (LogVerificationError err) =
       "Verification error: " ++ pretty err
-  pretty (LogDownloading (Some file)) =
+  pretty (LogDownloading file) =
       "Downloading " ++ pretty file
-  pretty (LogUpdating (Some file)) =
+  pretty (LogUpdating file) =
       "Updating " ++ pretty file
   pretty (LogSelectedMirror mirror) =
       "Selected mirror " ++ mirror
-  pretty (LogCannotUpdate (Some file) ex) =
+  pretty (LogCannotUpdate file ex) =
       "Cannot update " ++ pretty file ++ " (" ++ pretty ex ++ ")"
   pretty (LogMirrorFailed mirror ex) =
       "Exception " ++ displayException ex ++ " when using mirror " ++ mirror
 
 instance Pretty UpdateFailure where
-  pretty UpdateImpossibleOnlyCompressed =
-      "server only provides file in compressed format"
-  pretty UpdateNotUsefulWantsCompressed =
-      "clients wants file in compressed format"
   pretty UpdateImpossibleUnsupported =
       "server does not provide incremental downloads"
   pretty UpdateImpossibleNoLocalCopy =
       "no local copy"
-  pretty UpdateTooLarge =
-      "update too large"
   pretty (UpdateFailed ex) =
       displayException ex

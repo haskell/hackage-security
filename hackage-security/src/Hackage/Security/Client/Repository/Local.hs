@@ -1,13 +1,16 @@
 -- | Local repository
 module Hackage.Security.Client.Repository.Local (
     LocalRepo
+  , LocalFile -- opaque
   , withRepository
   ) where
 
+import Hackage.Security.Client.Formats
 import Hackage.Security.Client.Repository
 import Hackage.Security.Client.Repository.Cache
-import Hackage.Security.Client.Formats
 import Hackage.Security.TUF
+import Hackage.Security.Trusted
+import Hackage.Security.Util.IO
 import Hackage.Security.Util.Path
 import Hackage.Security.Util.Pretty
 import Hackage.Security.Util.Some
@@ -26,11 +29,11 @@ type LocalRepo = Path (Rooted Absolute)
 --
 -- It uses the same cache as the remote repository.
 withRepository
-  :: LocalRepo             -- ^ Location of local repository
-  -> Cache                 -- ^ Location of local cache
-  -> RepoLayout            -- ^ Repository layout
-  -> (LogMessage -> IO ()) -- ^ Logger
-  -> (Repository -> IO a)  -- ^ Callback
+  :: LocalRepo                       -- ^ Location of local repository
+  -> Cache                           -- ^ Location of local cache
+  -> RepoLayout                      -- ^ Repository layout
+  -> (LogMessage -> IO ())           -- ^ Logger
+  -> (Repository LocalFile -> IO a)  -- ^ Callback
   -> IO a
 withRepository repo cache repLayout logger callback = callback Repository {
       repWithRemote    = withRemote repLayout repo cache
@@ -47,17 +50,39 @@ withRepository repo cache repLayout logger callback = callback Repository {
 -- | Get a file from the server
 withRemote :: RepoLayout -> LocalRepo -> Cache
            -> IsRetry
-           -> RemoteFile fs
-           -> (forall f. HasFormat fs f -> TempPath -> IO a)
+           -> RemoteFile fs typ
+           -> (forall f. HasFormat fs f -> LocalFile typ -> IO a)
            -> IO a
 withRemote repoLayout repo cache _isRetry remoteFile callback = do
     case remoteFileDefaultFormat remoteFile of
       Some format -> do
         let remotePath' = remoteRepoPath' repoLayout remoteFile format
             remotePath  = anchorRepoPathLocally repo remotePath'
-        result <- callback format remotePath
+            localFile   = LocalFile remotePath
+        result <- callback format localFile
         cacheRemoteFile cache
-                        remotePath
+                        localFile
                         (hasFormatGet format)
                         (mustCache remoteFile)
         return result
+
+{-------------------------------------------------------------------------------
+  Files in the local repository
+-------------------------------------------------------------------------------}
+
+newtype LocalFile a = LocalFile AbsolutePath
+
+instance DownloadedFile LocalFile where
+  downloadedVerify = verifyLocalFile
+  downloadedRead   = \(LocalFile local)      -> readLazyByteString local
+  downloadedCopyTo = \(LocalFile local) dest -> atomicCopyFile     local dest
+
+verifyLocalFile :: LocalFile typ -> Trusted FileInfo -> IO Bool
+verifyLocalFile (LocalFile fp) trustedInfo = do
+    -- Verify the file size before comparing the entire file info
+    sz <- FileLength <$> getFileSize fp
+    if sz /= fileInfoLength
+      then return False
+      else knownFileInfoEqual info <$> computeFileInfo fp
+  where
+    info@FileInfo{..} = trusted trustedInfo

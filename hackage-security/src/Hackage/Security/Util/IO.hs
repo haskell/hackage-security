@@ -14,7 +14,7 @@ module Hackage.Security.Util.IO (
 import Control.Exception
 import Control.Monad
 import Data.Time
-import System.IO hiding (openTempFile)
+import System.IO hiding (openTempFile, withFile)
 import System.IO.Error
 import qualified Data.ByteString.Lazy as BS.L
 
@@ -41,8 +41,8 @@ withTempFile tmpDir template callback = do
       hClose h
       void $ handleDoesNotExist $ removeFile fp
 
-getFileSize :: IsFileSystemRoot root => Path (Rooted root) -> IO Integer
-getFileSize fp = withFileInReadMode fp hFileSize
+getFileSize :: IsFileSystemRoot root => Path (Rooted root) -> IO Int
+getFileSize fp = fromInteger <$> withFile fp ReadMode hFileSize
 
 handleDoesNotExist :: IO a -> IO (Maybe a)
 handleDoesNotExist act =

@@ -20,6 +20,7 @@ module Hackage.Security.Client.Repository.Remote (
     withRepository
   , RepoOpts(..)
   , defaultRepoOpts
+  , RemoteTemp
      -- * File sizes
   , FileSize(..)
   , fileSizeWithinBounds
@@ -29,9 +30,9 @@ import Control.Concurrent
 import Control.Exception
 import Control.Monad.Cont
 import Control.Monad.Except
-import Data.List (nub)
+import Data.List (nub, intercalate)
 import Network.URI hiding (uriPath, path)
-import System.IO
+import System.IO ()
 import qualified Data.ByteString      as BS
 import qualified Data.ByteString.Lazy as BS.L
 
@@ -44,7 +45,7 @@ import Hackage.Security.TUF
 import Hackage.Security.Util.Checked
 import Hackage.Security.Util.IO
 import Hackage.Security.Util.Path
-import Hackage.Security.Util.Some
+import Hackage.Security.Util.Pretty
 import qualified Hackage.Security.Client.Repository.Cache as Cache
 
 {-------------------------------------------------------------------------------
@@ -150,13 +151,13 @@ defaultRepoOpts = RepoOpts {
 -- here and the mirrors that we get from @mirrors.json@) as well as indicating
 -- mirror preferences.
 withRepository
-  :: HttpLib                 -- ^ Implementation of the HTTP protocol
-  -> [URI]                   -- ^ "Out of band" list of mirrors
-  -> RepoOpts                -- ^ Repository options
-  -> Cache                   -- ^ Location of local cache
-  -> RepoLayout              -- ^ Repository layout
-  -> (LogMessage -> IO ())   -- ^ Logger
-  -> (Repository -> IO a)    -- ^ Callback
+  :: HttpLib                          -- ^ Implementation of the HTTP protocol
+  -> [URI]                            -- ^ "Out of band" list of mirrors
+  -> RepoOpts                         -- ^ Repository options
+  -> Cache                            -- ^ Location of local cache
+  -> RepoLayout                       -- ^ Repository layout
+  -> (LogMessage -> IO ())            -- ^ Logger
+  -> (Repository RemoteTemp -> IO a)  -- ^ Callback
   -> IO a
 withRepository httpLib
                outOfBandMirrors
@@ -224,8 +225,8 @@ withRemote :: (Throws VerificationError, Throws SomeRemoteError)
            => (URI -> RemoteConfig)
            -> SelectedMirror
            -> IsRetry
-           -> RemoteFile fs
-           -> (forall f. HasFormat fs f -> TempPath -> IO a)
+           -> RemoteFile fs typ
+           -> (forall f. HasFormat fs f -> RemoteTemp typ -> IO a)
            -> IO a
 withRemote remoteConfig selectedMirror isRetry remoteFile callback = do
    baseURI <- getSelectedMirror selectedMirror
@@ -235,8 +236,8 @@ withRemote remoteConfig selectedMirror isRetry remoteFile callback = do
 withRemote' :: (Throws VerificationError, Throws SomeRemoteError)
             => RemoteConfig
             -> IsRetry
-            -> RemoteFile fs
-            -> (forall f. HasFormat fs f -> TempPath -> IO a)
+            -> RemoteFile fs typ
+            -> (forall f. HasFormat fs f -> RemoteTemp typ -> IO a)
             -> IO a
 withRemote' cfg isRetry remoteFile callback =
     getFile cfg isRetry remoteFile callback =<< pickDownloadMethod cfg remoteFile
@@ -249,7 +250,7 @@ withRemote' cfg isRetry remoteFile callback =
 -- error was because the cache updated files out of order.
 httpRequestHeaders :: RemoteConfig
                    -> IsRetry
-                   -> DownloadMethod fs
+                   -> DownloadMethod fs typ
                    -> [HttpRequestHeader]
 httpRequestHeaders RemoteConfig{..} isRetry method =
     case isRetry of
@@ -268,7 +269,7 @@ httpRequestHeaders RemoteConfig{..} isRetry method =
     -- If we are doing a range request, we must not request content compression:
     -- servers such as Apache interpret this range against the _compressed_
     -- stream, making it near useless for our purposes here.
-    isRangeRequest :: DownloadMethod fs -> Bool
+    isRangeRequest :: DownloadMethod fs typ -> Bool
     isRangeRequest NeverUpdated{} = False
     isRangeRequest CannotUpdate{} = False
     isRangeRequest Update{}       = True
@@ -327,114 +328,80 @@ withMirror HttpLib{..}
 -------------------------------------------------------------------------------}
 
 -- | Download method (downloading or updating)
-data DownloadMethod fs =
+data DownloadMethod :: * -> * -> * where
     -- | Download this file (we never attempt to update this type of file)
-    forall f. NeverUpdated {
-        downloadFormat :: HasFormat fs f
-      }
+    NeverUpdated :: {
+        neverUpdatedFormat :: HasFormat fs f
+      } -> DownloadMethod fs typ
 
     -- | Download this file (we cannot update this file right now)
-  | forall f. CannotUpdate {
-        downloadFormat :: HasFormat fs f
-      , downloadReason :: UpdateFailure
-      }
+    CannotUpdate :: {
+        cannotUpdateFormat :: HasFormat fs f
+      , cannotUpdateReason :: UpdateFailure
+      } -> DownloadMethod fs Binary
 
     -- | Attempt an (incremental) update of this file
-    --
-    -- We record the trailer for the file; that is, the number of bytes
-    -- (counted from the end of the file) that we should overwrite with
-    -- the remote file.
-  | forall f f'. Update {
-        updateFormat   :: HasFormat fs f
-      , updateInfo     :: Trusted FileInfo
-      , updateLocal    :: AbsolutePath
-      , updateTrailer  :: Integer
-      , downloadFormat :: HasFormat fs f'    -- ^ In case an update fails
-      }
+    Update :: {
+        updateFormat :: HasFormat fs f
+      , updateInfo   :: Trusted FileInfo
+      , updateLocal  :: AbsolutePath
+      , updateTail   :: Int
+      } -> DownloadMethod fs Binary
 
-pickDownloadMethod :: RemoteConfig
-                   -> RemoteFile fs
-                   -> IO (DownloadMethod fs)
-pickDownloadMethod RemoteConfig{..} remoteFile = multipleExitPoints $ do
-    -- We only have a choice for the index; everywhere else the repository only
-    -- gives a single option. For the index we return a proof that the
-    -- repository must at least have the compressed form available.
-    (hasGz, formats) <- case remoteFile of
-      RemoteTimestamp      -> exit $ NeverUpdated (HFZ FUn)
-      (RemoteRoot _)       -> exit $ NeverUpdated (HFZ FUn)
-      (RemoteSnapshot _)   -> exit $ NeverUpdated (HFZ FUn)
-      (RemoteMirrors _)    -> exit $ NeverUpdated (HFZ FUn)
-      (RemotePkgTarGz _ _) -> exit $ NeverUpdated (HFZ FGz)
-      (RemoteIndex pf fs)  -> return (pf, fs)
+pickDownloadMethod :: forall fs typ. RemoteConfig
+                   -> RemoteFile fs typ
+                   -> IO (DownloadMethod fs typ)
+pickDownloadMethod RemoteConfig{..} remoteFile =
+    case remoteFile of
+      RemoteTimestamp        -> return $ NeverUpdated (HFZ FUn)
+      (RemoteRoot _)         -> return $ NeverUpdated (HFZ FUn)
+      (RemoteSnapshot _)     -> return $ NeverUpdated (HFZ FUn)
+      (RemoteMirrors _)      -> return $ NeverUpdated (HFZ FUn)
+      (RemotePkgTarGz _ _)   -> return $ NeverUpdated (HFZ FGz)
+      (RemoteIndex hasGz formats) -> multipleExitPoints $ do
+        -- Server must support @Range@ with a byte-range
+        rangeSupport <- checkServerCapability cfgCaps serverAcceptRangesBytes
+        unless rangeSupport $ exit $ CannotUpdate hasGz UpdateImpossibleUnsupported
 
-    -- If the client wants the compressed index, we have no choice
-    when (repoWantCompressedIndex cfgOpts) $
-      exit $ CannotUpdate hasGz UpdateNotUsefulWantsCompressed
+        -- We must already have a local file to be updated
+        mCachedIndex <- lift $ Cache.getCachedIndex cfgCache (hasFormatGet hasGz)
+        cachedIndex  <- case mCachedIndex of
+          Nothing -> exit $ CannotUpdate hasGz UpdateImpossibleNoLocalCopy
+          Just fp -> return fp
 
-    -- Server must have uncompressed index available
-    hasUn <- case formatsMember FUn formats of
-      Nothing    -> exit $ CannotUpdate hasGz UpdateImpossibleOnlyCompressed
-      Just hasUn -> return hasUn
-
-    -- Server must support @Range@ with a byte-range
-    rangeSupport <- checkServerCapability cfgCaps serverAcceptRangesBytes
-    unless rangeSupport $ exit $ CannotUpdate hasGz UpdateImpossibleUnsupported
-
-    -- We must already have a local file to be updated
-    -- (if not we should try to download the initial file in compressed form)
-    mCachedIndex <- lift $ Cache.getCachedIndex cfgCache
-    cachedIndex  <- case mCachedIndex of
-      Nothing -> exit $ CannotUpdate hasGz UpdateImpossibleNoLocalCopy
-      Just fp -> return fp
-
-    -- Index trailer
-    --
-    -- TODO: This hardcodes the trailer length as 1024. We should instead take
-    -- advantage of the tarball index to find out where the trailer starts.
-    let trailerLength = 1024
-
-    -- File sizes
-    localSize <- liftIO $ getFileSize cachedIndex
-    let infoGz     = formatsLookup hasGz formats
-        infoUn     = formatsLookup hasUn formats
-        updateSize = fileLength' infoUn - fromIntegral localSize
-    unless (updateSize < fileLength' infoGz) $
-      exit $ CannotUpdate hasGz UpdateTooLarge
-
-    -- If all these checks pass try to do an incremental update.
-    return Update {
-         updateFormat   = hasUn
-       , updateInfo     = infoUn
-       , updateLocal    = cachedIndex
-       , updateTrailer  = trailerLength
-       , downloadFormat = hasGz
-       }
+        -- If all these checks pass try to do an incremental update.
+        return Update {
+             updateFormat = hasGz
+           , updateInfo   = formatsLookup hasGz formats
+           , updateLocal  = cachedIndex
+           , updateTail   = 65536 -- max gzip block size
+           }
 
 -- | Download the specified file using the given download method
-getFile :: forall fs a. (Throws VerificationError, Throws SomeRemoteError)
-        => RemoteConfig         -- ^ Internal configuration
-        -> IsRetry              -- ^ Did a security check previously fail?
-        -> RemoteFile fs        -- ^ File to get
-        -> (forall f. HasFormat fs f -> TempPath -> IO a) -- ^ Callback
-        -> DownloadMethod fs    -- ^ Selected format
+getFile :: forall fs typ a. (Throws VerificationError, Throws SomeRemoteError)
+        => RemoteConfig          -- ^ Internal configuration
+        -> IsRetry               -- ^ Did a security check previously fail?
+        -> RemoteFile fs typ     -- ^ File to get
+        -> (forall f. HasFormat fs f -> RemoteTemp typ -> IO a) -- ^ Callback
+        -> DownloadMethod fs typ -- ^ Selected format
         -> IO a
 getFile cfg@RemoteConfig{..} isRetry remoteFile callback method =
     go method
   where
     go :: (Throws VerificationError, Throws SomeRemoteError)
-       => DownloadMethod fs -> IO a
+       => DownloadMethod fs typ -> IO a
     go NeverUpdated{..} = do
-        cfgLogger $ LogDownloading (Some remoteFile)
-        download downloadFormat
+        cfgLogger $ LogDownloading remoteFile
+        download neverUpdatedFormat
     go CannotUpdate{..} = do
-        cfgLogger $ LogCannotUpdate (Some remoteFile) downloadReason
-        cfgLogger $ LogDownloading (Some remoteFile)
-        download downloadFormat
+        cfgLogger $ LogCannotUpdate remoteFile cannotUpdateReason
+        cfgLogger $ LogDownloading remoteFile
+        download cannotUpdateFormat
     go Update{..} = do
-        cfgLogger $ LogUpdating (Some remoteFile)
+        cfgLogger $ LogUpdating remoteFile
         -- Attempt to download the file incrementally.
         let updateFailed :: SomeException -> IO a
-            updateFailed = go . CannotUpdate downloadFormat . UpdateFailed
+            updateFailed = go . CannotUpdate updateFormat . UpdateFailed
 
             -- If verification of the file fails, and this is the first attempt,
             -- we let the exception be thrown up to the security layer, so that
@@ -453,7 +420,7 @@ getFile cfg@RemoteConfig{..} isRetry remoteFile callback method =
 
         handleChecked handleVerificationError $
           handleChecked handleHttpException $
-            update updateFormat updateInfo updateLocal updateTrailer
+            update updateFormat updateInfo updateLocal updateTail
 
     headers :: [HttpRequestHeader]
     headers = httpRequestHeaders cfg isRetry method
@@ -468,48 +435,49 @@ getFile cfg@RemoteConfig{..} isRetry remoteFile callback method =
             updateServerCapabilities cfgCaps responseHeaders
             execBodyReader targetPath sz h bodyReader
           hClose h
-          verifyAndCache format tempPath
+          verifyAndCache format $ DownloadedWhole tempPath
       where
         targetPath = TargetPathRepo $ remoteRepoPath' cfgLayout remoteFile format
         uri = formatsLookup format $ remoteFileURI cfgLayout cfgBase remoteFile
         sz  = formatsLookup format $ remoteFileSize remoteFile
 
     -- Get a file incrementally
-    --
-    -- Sadly, this has some tar-specific functionality
-    update :: HasFormat fs f      -- ^ Selected format
-           -> Trusted FileInfo    -- ^ Expected info
-           -> AbsolutePath        -- ^ Location of cached tar (after callback)
-           -> Integer             -- ^ Trailer length
+    update :: (typ ~ Binary)
+           => HasFormat fs f    -- ^ Selected format
+           -> Trusted FileInfo  -- ^ Expected info
+           -> AbsolutePath      -- ^ Location of cached file (after callback)
+           -> Int               -- ^ How much of the tail to overwrite
            -> IO a
-    update format info cachedFile trailer = do
-        currentSize <- getFileSize cachedFile
-        let currentMinusTrailer = currentSize - trailer
-            fileSz  = fileLength' info
-            range   = (fromInteger currentMinusTrailer, fileSz)
-            rangeSz = FileSizeExact (snd range - fst range)
-        withTempFile (Cache.cacheRoot cfgCache) (uriTemplate uri) $ \tempPath h -> do
-          BS.L.hPut h =<< readLazyByteString cachedFile
-          hSeek h AbsoluteSeek currentMinusTrailer
+    update format info cachedFile fileTail = do
+        currentSz <- getFileSize cachedFile
+        let fileSz    = fileLength' info
+            range     = (currentSz - fileTail, fileSz)
+            rangeSz   = FileSizeExact (snd range - fst range)
+            cacheRoot = Cache.cacheRoot cfgCache
+        withTempFile cacheRoot (uriTemplate uri) $ \tempPath h -> do
           -- As in 'getFile', make sure we don't scope the remainder of the
           -- computation underneath the httpClientGetRange
           httpGetRange headers uri range $ \responseHeaders bodyReader -> do
             updateServerCapabilities cfgCaps responseHeaders
             execBodyReader targetPath rangeSz h bodyReader
           hClose h
-          verifyAndCache format tempPath
+          verifyAndCache format $ DownloadedDelta {
+              deltaTemp     = tempPath
+            , deltaExisting = cachedFile
+            , deltaSeek     = fst range
+            }
       where
-        targetPath = TargetPathRepo repoLayoutIndexTar
-        uri = modifyUriPath cfgBase (`anchorRepoPathRemotely` repoLayoutIndexTar)
-        RepoLayout{repoLayoutIndexTar} = cfgLayout
+        targetPath = TargetPathRepo repoPath
+        uri        = modifyUriPath cfgBase (`anchorRepoPathRemotely` repoPath)
+        repoPath   = remoteRepoPath' cfgLayout remoteFile format
 
     -- | Verify the downloaded/updated file (by calling the callback) and
     -- cache it if the callback does not throw any exceptions
-    verifyAndCache :: HasFormat fs f -> AbsolutePath -> IO a
-    verifyAndCache format tempPath = do
-        result <- callback format tempPath
+    verifyAndCache :: HasFormat fs f -> RemoteTemp typ -> IO a
+    verifyAndCache format remoteTemp = do
+        result <- callback format remoteTemp
         Cache.cacheRemoteFile cfgCache
-                              tempPath
+                              remoteTemp
                               (hasFormatGet format)
                               (mustCache remoteFile)
         return result
@@ -545,14 +513,14 @@ execBodyReader file mlen h br = go 0
   Information about remote files
 -------------------------------------------------------------------------------}
 
-remoteFileURI :: RepoLayout -> URI -> RemoteFile fs -> Formats fs URI
+remoteFileURI :: RepoLayout -> URI -> RemoteFile fs typ -> Formats fs URI
 remoteFileURI repoLayout baseURI = fmap aux . remoteRepoPath repoLayout
   where
     aux :: RepoPath -> URI
     aux repoPath = modifyUriPath baseURI (`anchorRepoPathRemotely` repoPath)
 
 -- | Extracting or estimating file sizes
-remoteFileSize :: RemoteFile fs -> Formats fs FileSize
+remoteFileSize :: RemoteFile fs typ -> Formats fs FileSize
 remoteFileSize (RemoteTimestamp) =
     FsUn $ FileSizeBound fileSizeBoundTimestamp
 remoteFileSize (RemoteRoot mLen) =
@@ -632,6 +600,96 @@ fileLength' :: Trusted FileInfo -> Int
 fileLength' = fileLength . fileInfoLength . trusted
 
 {-------------------------------------------------------------------------------
+  Files downloaded from the remote repository
+-------------------------------------------------------------------------------}
+
+data RemoteTemp :: * -> * where
+    DownloadedWhole :: {
+        wholeTemp :: AbsolutePath
+      } -> RemoteTemp a
+
+    -- | If we download only the delta, we record both the path to where the
+    -- "old" file is stored and the path to the temp file containing the delta.
+    -- Then:
+    --
+    -- * When we verify the file, we need both of these paths if we compute
+    --   the hash from scratch, or only the path to the delta if we attempt
+    --   to compute the hash incrementally (TODO: incremental verification
+    --   not currently implemented).
+    -- * When we copy a file over, we are additionally given a destination
+    --   path. In this case, we expect that destination path to be equal to
+    --   the path to the old file (and assert this to be the case).
+    DownloadedDelta :: {
+        deltaTemp     :: AbsolutePath
+      , deltaExisting :: AbsolutePath
+      , deltaSeek     :: Int          -- ^ How much of the existing file to keep
+      } -> RemoteTemp Binary
+
+instance Pretty (RemoteTemp typ) where
+    pretty DownloadedWhole{..} = intercalate " " $ [
+        "DownloadedWhole"
+      , pretty wholeTemp
+      ]
+    pretty DownloadedDelta{..} = intercalate " " $ [
+        "DownloadedDelta"
+      , pretty deltaTemp
+      , pretty deltaExisting
+      , show deltaSeek
+      ]
+
+instance DownloadedFile RemoteTemp where
+  downloadedVerify = verifyRemoteFile
+  downloadedRead   = readLazyByteString . wholeTemp
+  downloadedCopyTo = \f dest ->
+    case f of
+      DownloadedWhole{..} ->
+        atomicCopyFile wholeTemp dest
+      DownloadedDelta{..} -> do
+        unless (deltaExisting == dest) $
+          throwIO $ userError "Assertion failure: deltaExisting /= dest"
+        -- We need ReadWriteMode in order to be able to seek
+        withFile deltaExisting ReadWriteMode $ \h -> do
+          hSeek h AbsoluteSeek (fromIntegral deltaSeek)
+          BS.L.hPut h =<< readLazyByteString deltaTemp
+
+-- | Verify a file downloaded from the remote repository
+--
+-- TODO: This currently still computes the hash for the whole file. If we cached
+-- the state of the hash generator we could compute the hash incrementally.
+-- However, profiling suggests that this would only be a minor improvement.
+verifyRemoteFile :: RemoteTemp typ -> Trusted FileInfo -> IO Bool
+verifyRemoteFile remoteTemp trustedInfo = do
+    sz <- FileLength <$> remoteSize remoteTemp
+    if sz /= fileInfoLength
+      then return False
+      else withRemoteBS remoteTemp $ knownFileInfoEqual info . fileInfo
+  where
+    remoteSize :: RemoteTemp typ -> IO Int
+    remoteSize DownloadedWhole{..} = getFileSize wholeTemp
+    remoteSize DownloadedDelta{..} = do
+        deltaSize <- getFileSize deltaTemp
+        return $ deltaSeek + deltaSize
+
+    -- It is important that we close the file handles when we're done
+    -- (esp. since we may not read the whole file)
+    withRemoteBS :: RemoteTemp typ -> (BS.L.ByteString -> Bool) -> IO Bool
+    withRemoteBS DownloadedWhole{..} callback = do
+        withFile wholeTemp ReadMode $ \h -> do
+          bs <- BS.L.hGetContents h
+          evaluate $ callback bs
+    withRemoteBS DownloadedDelta{..} callback =
+        withFile deltaExisting ReadMode $ \hExisting ->
+          withFile deltaTemp ReadMode $ \hTemp -> do
+            existing <- BS.L.hGetContents hExisting
+            temp     <- BS.L.hGetContents hTemp
+            evaluate $ callback $ BS.L.concat [
+                BS.L.take (fromIntegral deltaSeek) existing
+              , temp
+              ]
+
+    info@FileInfo{..} = trusted trustedInfo
+
+{-------------------------------------------------------------------------------
   Auxiliary: multiple exit points
 -------------------------------------------------------------------------------}
 
@@ -649,7 +707,7 @@ fileLength' = fileLength . fileInfoLength . trusted
 --
 -- as
 --
--- > choose $ do
+-- > multipleExitPoints $ do
 -- >   when (cond1) $
 -- >     exit exp1
 -- >   when (cond) $

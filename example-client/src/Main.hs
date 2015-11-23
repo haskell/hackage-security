@@ -9,7 +9,6 @@ import Distribution.Package
 
 -- hackage-security
 import Hackage.Security.Client
-import Hackage.Security.Util.IO
 import Hackage.Security.Util.Path
 import Hackage.Security.Util.Pretty
 import Hackage.Security.Client.Repository.HttpLib
@@ -58,7 +57,7 @@ cmdGet opts pkgId = do
     let localFile = cwd </> fragment tarGzName
     withRepo opts $ \rep -> uncheckClientErrors $
       downloadPackage rep pkgId $ \tempPath ->
-        atomicCopyFile tempPath localFile
+        downloadedCopyTo tempPath localFile
   where
     tarGzName :: Fragment
     tarGzName = takeFileName $ repoLayoutPkgTarGz hackageRepoLayout pkgId
@@ -67,20 +66,22 @@ cmdGet opts pkgId = do
   Common functionality
 -------------------------------------------------------------------------------}
 
-withRepo :: GlobalOpts -> (Repository -> IO a) -> IO a
+withRepo :: GlobalOpts
+         -> (forall down. DownloadedFile down => Repository down -> IO a)
+         -> IO a
 withRepo GlobalOpts{..} = \callback ->
     case globalRepo of
       Left  local  -> withLocalRepo  local  callback
       Right remote -> withRemoteRepo remote callback
   where
-    withLocalRepo :: AbsolutePath -> (Repository -> IO a) -> IO a
+    withLocalRepo :: AbsolutePath -> (Repository Local.LocalFile -> IO a) -> IO a
     withLocalRepo repo =
         Local.withRepository repo
                              cache
                              hackageRepoLayout
                              logTUF
 
-    withRemoteRepo :: URI -> (Repository -> IO a) -> IO a
+    withRemoteRepo :: URI -> (Repository Remote.RemoteTemp -> IO a) -> IO a
     withRemoteRepo baseURI callback = withClient $ \httpClient ->
         Remote.withRepository httpClient
                               [baseURI]

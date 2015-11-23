@@ -199,8 +199,12 @@ data CacheLayout = CacheLayout {
     -- | Index to the uncompressed index tarball
   , cacheLayoutIndexIdx :: CachePath
 
-    -- | Compressed index tarball (if cached)
-  , cacheLayoutIndexTarGz :: Maybe CachePath
+    -- | Compressed index tarball
+    --
+    -- We cache both the compressed and the uncompressed tarballs, because
+    -- incremental updates happen through the compressed tarball, but reads
+    -- happen through the uncompressed one (with the help of the tarball index).
+  , cacheLayoutIndexTarGz :: CachePath
   }
 
 -- | The cache layout cabal-install uses
@@ -216,7 +220,7 @@ cabalCacheLayout = CacheLayout {
     , cacheLayoutMirrors    = rp $ fragment' "mirrors.json"
     , cacheLayoutIndexTar   = rp $ fragment' "00-index.tar"
     , cacheLayoutIndexIdx   = rp $ fragment' "00-index.tar.idx"
-    , cacheLayoutIndexTarGz = Nothing
+    , cacheLayoutIndexTarGz = rp $ fragment' "00-index.tar.gz"
     }
   where
     rp :: UnrootedPath -> CachePath

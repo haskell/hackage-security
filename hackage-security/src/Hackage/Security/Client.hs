@@ -19,6 +19,7 @@ module Hackage.Security.Client (
     -- ** We only a few bits from .Repository
     -- TODO: Maybe this is a sign that these should be in a different module?
   , Repository -- opaque
+  , DownloadedFile(..)
   , SomeRemoteError(..)
   , LogMessage(..)
     -- * Exceptions
@@ -55,6 +56,7 @@ import Hackage.Security.Trusted
 import Hackage.Security.Trusted.TCB
 import Hackage.Security.TUF
 import Hackage.Security.Util.Checked
+import Hackage.Security.Util.Path
 import Hackage.Security.Util.Pretty
 import Hackage.Security.Util.Stack
 import Hackage.Security.Util.Some
@@ -78,10 +80,10 @@ data HasUpdates = HasUpdates | NoUpdates
 -- circumstances (such as when the main server is down for longer than the
 -- expiry dates used in the timestamp files on mirrors).
 checkForUpdates :: (Throws VerificationError, Throws SomeRemoteError)
-                => Repository
+                => Repository down
                 -> Maybe UTCTime -- ^ To check expiry times against (if using)
                 -> IO HasUpdates
-checkForUpdates rep mNow =
+checkForUpdates rep@Repository{..} mNow =
     withMirror rep $ limitIterations []
   where
     -- More or less randomly chosen maximum iterations
@@ -172,7 +174,7 @@ checkForUpdates rep mNow =
         getRemoteFile' :: ( VerifyRole a
                           , FromJSON ReadJSON_Keys_Layout (Signed a)
                           )
-                       => RemoteFile (f :- ()) -> ContT r IO (Trusted a)
+                       => RemoteFile (f :- ()) Metadata -> ContT r IO (Trusted a)
         getRemoteFile' = liftM fst . getRemoteFile rep cachedInfo isRetry mNow
 
         -- Update the index and check against the appropriate hash
@@ -252,13 +254,13 @@ checkForUpdates rep mNow =
 -- thereby rendering the file version on the timestamp and the snapshot useless.
 -- See <https://github.com/theupdateframework/tuf/issues/283#issuecomment-115739521>
 updateRoot :: (Throws VerificationError, Throws SomeRemoteError)
-           => Repository
+           => Repository down
            -> Maybe UTCTime
            -> IsRetry
            -> CachedInfo
            -> Either VerificationError (Trusted FileInfo)
            -> IO ()
-updateRoot rep mNow isRetry cachedInfo eFileInfo = do
+updateRoot rep@Repository{..} mNow isRetry cachedInfo eFileInfo = do
     rootReallyChanged <- evalContT $ do
       (_newRoot :: Trusted Root, rootTempFile) <- getRemoteFile
         rep
@@ -282,9 +284,9 @@ updateRoot rep mNow isRetry cachedInfo eFileInfo = do
           -- the file version has not, this would result in the same infinite
           -- loop described above. Hence, we must compare file hashes, and they
           -- must be computed on the raw file, not the parsed file.
-          oldRootFile <- repGetCachedRoot rep
+          oldRootFile <- repGetCachedRoot
           oldRootInfo <- DeclareTrusted <$> computeFileInfo oldRootFile
-          not <$> verifyFileInfo rootTempFile oldRootInfo
+          not <$> downloadedVerify rootTempFile oldRootInfo
 
     when rootReallyChanged $ clearCache rep
 
@@ -304,7 +306,7 @@ data CachedInfo = CachedInfo {
   , cachedInfoTarGz    :: Maybe (Trusted FileInfo)
   }
 
-cachedVersion :: CachedInfo -> RemoteFile fs -> Maybe FileVersion
+cachedVersion :: CachedInfo -> RemoteFile fs typ -> Maybe FileVersion
 cachedVersion CachedInfo{..} remoteFile =
     case mustCache remoteFile of
       CacheAs CachedTimestamp -> timestampVersion . trusted <$> cachedTimestamp
@@ -315,7 +317,7 @@ cachedVersion CachedInfo{..} remoteFile =
       DontCache  -> Nothing
 
 -- | Get all cached info (if any)
-getCachedInfo :: (Applicative m, MonadIO m) => Repository -> m CachedInfo
+getCachedInfo :: (Applicative m, MonadIO m) => Repository down -> m CachedInfo
 getCachedInfo rep = do
     (cachedRoot, cachedKeyEnv) <- readLocalRoot rep
     cachedTimestamp <- readLocalFile rep cachedKeyEnv CachedTimestamp
@@ -329,22 +331,22 @@ getCachedInfo rep = do
 
     return CachedInfo{..}
 
-readLocalRoot :: MonadIO m => Repository -> m (Trusted Root, KeyEnv)
+readLocalRoot :: MonadIO m => Repository down -> m (Trusted Root, KeyEnv)
 readLocalRoot rep = do
     cachedPath <- liftIO $ repGetCachedRoot rep
     signedRoot <- throwErrorsUnchecked LocalFileCorrupted =<<
-                    readJSON (repLayout rep) KeyEnv.empty cachedPath
+                    readCachedJSON rep KeyEnv.empty cachedPath
     return (trustLocalFile signedRoot, rootKeys (signed signedRoot))
 
 readLocalFile :: ( FromJSON ReadJSON_Keys_Layout (Signed a)
                  , MonadIO m, Applicative m
                  )
-              => Repository -> KeyEnv -> CachedFile -> m (Maybe (Trusted a))
+              => Repository down -> KeyEnv -> CachedFile -> m (Maybe (Trusted a))
 readLocalFile rep cachedKeyEnv file = do
     mCachedPath <- liftIO $ repGetCached rep file
     for mCachedPath $ \cachedPath -> do
       signed <- throwErrorsUnchecked LocalFileCorrupted =<<
-                  readJSON (repLayout rep) cachedKeyEnv cachedPath
+                  readCachedJSON rep cachedKeyEnv cachedPath
       return $ trustLocalFile signed
 
 getRemoteFile :: ( Throws VerificationError
@@ -352,17 +354,17 @@ getRemoteFile :: ( Throws VerificationError
                  , VerifyRole a
                  , FromJSON ReadJSON_Keys_Layout (Signed a)
                  )
-              => Repository
+              => Repository down
               -> CachedInfo
               -> IsRetry
               -> Maybe UTCTime
-              -> RemoteFile (f :- ())
-              -> ContT r IO (Trusted a, TempPath)
-getRemoteFile rep cachedInfo@CachedInfo{..} isRetry mNow file = do
+              -> RemoteFile (f :- ()) Metadata
+              -> ContT r IO (Trusted a, down Metadata)
+getRemoteFile rep@Repository{..} cachedInfo@CachedInfo{..} isRetry mNow file = do
     (targetPath, tempPath) <- getRemote' rep isRetry file
     verifyFileInfo' (remoteFileDefaultInfo file) targetPath tempPath
     signed   <- throwErrorsChecked (VerificationErrorDeserialization targetPath) =<<
-                  readJSON (repLayout rep) cachedKeyEnv tempPath
+                  readDownloadedJSON rep cachedKeyEnv tempPath
     verified <- throwErrorsChecked id $ verifyRole
                   cachedRoot
                   targetPath
@@ -387,8 +389,8 @@ downloadPackage :: ( Throws SomeRemoteError
                    , Throws VerificationError
                    , Throws InvalidPackageException
                    )
-                => Repository -> PackageIdentifier -> (TempPath -> IO a) -> IO a
-downloadPackage rep pkgId callback = withMirror rep $ evalContT $ do
+                => Repository down -> PackageIdentifier -> (down Binary -> IO a) -> IO a
+downloadPackage rep@Repository{..} pkgId callback = withMirror rep $ evalContT $ do
     -- We need the cached root information in order to resolve key IDs and
     -- verify signatures. Note that whenever we read a JSON file, we verify
     -- signatures (even if we don't verify the keys); if this is a problem
@@ -440,7 +442,7 @@ downloadPackage rep pkgId callback = withMirror rep $ evalContT $ do
 
     -- The path of the package, relative to the targets.json file
     let filePath :: TargetPath
-        filePath = TargetPathRepo $ repoLayoutPkgTarGz (repLayout rep) pkgId
+        filePath = TargetPathRepo $ repoLayoutPkgTarGz repLayout pkgId
 
     let mTargetMetaData :: Maybe (Trusted FileInfo)
         mTargetMetaData = trustElems
@@ -474,7 +476,7 @@ downloadPackage rep pkgId callback = withMirror rep $ evalContT $ do
 -- Throws an 'InvalidPackageException' if there is no cabal file for the
 -- specified package in the index.
 getCabalFile :: Throws InvalidPackageException
-             => Repository -> PackageIdentifier -> IO BS.ByteString
+             => Repository down -> PackageIdentifier -> IO BS.ByteString
 getCabalFile rep pkgId = do
     mCabalFile <- repGetFromIndex rep (IndexPkgCabal pkgId)
     case mCabalFile of
@@ -486,7 +488,7 @@ getCabalFile rep pkgId = do
 -------------------------------------------------------------------------------}
 
 -- | Check if we need to bootstrap (i.e., if we have root info)
-requiresBootstrap :: Repository -> IO Bool
+requiresBootstrap :: Repository down -> IO Bool
 requiresBootstrap rep = isNothing <$> repGetCached rep CachedRoot
 
 -- | Bootstrap the chain of trust
@@ -504,12 +506,12 @@ requiresBootstrap rep = isNothing <$> repGetCached rep CachedRoot
 -- It is the responsibility of the client to call `bootstrap` only when this
 -- is the desired behaviour.
 bootstrap :: (Throws SomeRemoteError, Throws VerificationError)
-          => Repository -> [KeyId] -> KeyThreshold -> IO ()
+          => Repository down -> [KeyId] -> KeyThreshold -> IO ()
 bootstrap rep trustedRootKeys keyThreshold = withMirror rep $ evalContT $ do
     _newRoot :: Trusted Root <- do
       (targetPath, tempPath) <- getRemote' rep FirstAttempt (RemoteRoot Nothing)
       signed   <- throwErrorsChecked (VerificationErrorDeserialization targetPath) =<<
-                    readJSON (repLayout rep) KeyEnv.empty tempPath
+                    readDownloadedJSON rep KeyEnv.empty tempPath
       verified <- throwErrorsChecked id $ verifyFingerprints
                     trustedRootKeys
                     keyThreshold
@@ -523,18 +525,18 @@ bootstrap rep trustedRootKeys keyThreshold = withMirror rep $ evalContT $ do
   Wrapper around the Repository functions (to avoid callback hell)
 -------------------------------------------------------------------------------}
 
-getRemote :: forall fs r. (Throws SomeRemoteError, Throws VerificationError)
-          => Repository
+getRemote :: forall fs r down typ. (Throws SomeRemoteError, Throws VerificationError)
+          => Repository down
           -> IsRetry
-          -> RemoteFile fs
-          -> ContT r IO (Some Format, TargetPath, TempPath)
+          -> RemoteFile fs typ
+          -> ContT r IO (Some Format, TargetPath, down typ)
 getRemote r isRetry file = ContT aux
   where
-    aux :: ((Some Format, TargetPath, TempPath) -> IO r) -> IO r
+    aux :: ((Some Format, TargetPath, down typ) -> IO r) -> IO r
     aux k = repWithRemote r isRetry file (wrapK k)
 
-    wrapK :: ((Some Format, TargetPath, TempPath) -> IO r)
-          -> (forall f. HasFormat fs f -> TempPath -> IO r)
+    wrapK :: ((Some Format, TargetPath, down typ) -> IO r)
+          -> (forall f. HasFormat fs f -> down typ -> IO r)
     wrapK k format tempPath =
         k (Some (hasFormatGet format), targetPath, tempPath)
       where
@@ -542,24 +544,24 @@ getRemote r isRetry file = ContT aux
         targetPath = TargetPathRepo $ remoteRepoPath' (repLayout r) file format
 
 -- | Variation on getRemote where we only expect one type of result
-getRemote' :: forall f r. (Throws SomeRemoteError, Throws VerificationError)
-           => Repository
+getRemote' :: forall f r down typ. (Throws SomeRemoteError, Throws VerificationError)
+           => Repository down
            -> IsRetry
-           -> RemoteFile (f :- ())
-           -> ContT r IO (TargetPath, TempPath)
+           -> RemoteFile (f :- ()) typ
+           -> ContT r IO (TargetPath, down typ)
 getRemote' r isRetry file = ignoreFormat <$> getRemote r isRetry file
   where
     ignoreFormat (_format, targetPath, tempPath) = (targetPath, tempPath)
 
-clearCache :: MonadIO m => Repository -> m ()
+clearCache :: MonadIO m => Repository down -> m ()
 clearCache r = liftIO $ repClearCache r
 
-log :: MonadIO m => Repository -> LogMessage -> m ()
+log :: MonadIO m => Repository down -> LogMessage -> m ()
 log r msg = liftIO $ repLog r msg
 
 -- We translate to a lazy bytestring here for convenience
 getFromIndex :: MonadIO m
-             => Repository
+             => Repository down
              -> IndexFile
              -> m (Maybe BS.L.ByteString)
 getFromIndex r file = liftIO $
@@ -569,7 +571,7 @@ getFromIndex r file = liftIO $
     tr = BS.L.fromChunks . (:[])
 
 -- Tries to load the cached mirrors file
-withMirror :: Repository -> IO a -> IO a
+withMirror :: Repository down -> IO a -> IO a
 withMirror rep callback = do
     mMirrors <- repGetCached rep CachedMirrors
     mirrors  <- case mMirrors of
@@ -667,21 +669,29 @@ trustLocalFile Signed{..} = DeclareTrusted signed
 -- | Just a simple wrapper around 'verifyFileInfo'
 --
 -- Throws a VerificationError if verification failed.
-verifyFileInfo' :: MonadIO m
+verifyFileInfo' :: (MonadIO m, DownloadedFile down)
                 => Maybe (Trusted FileInfo)
                 -> TargetPath  -- ^ For error messages
-                -> TempPath    -- ^ File to verify
+                -> down typ    -- ^ File to verify
                 -> m ()
 verifyFileInfo' Nothing     _          _        = return ()
 verifyFileInfo' (Just info) targetPath tempPath = liftIO $ do
-    verified <- verifyFileInfo tempPath info
+    verified <- downloadedVerify tempPath info
     unless verified $ throw $ VerificationErrorFileInfo targetPath
 
-readJSON :: (MonadIO m, FromJSON ReadJSON_Keys_Layout a)
-         => RepoLayout -> KeyEnv -> TempPath
-         -> m (Either DeserializationError a)
-readJSON repoLayout keyEnv fpath = liftIO $
-    readJSON_Keys_Layout keyEnv repoLayout fpath
+readCachedJSON :: (MonadIO m, FromJSON ReadJSON_Keys_Layout a)
+               => Repository down -> KeyEnv -> AbsolutePath
+               -> m (Either DeserializationError a)
+readCachedJSON Repository{..} keyEnv fp = liftIO $ do
+    bs <- readLazyByteString fp
+    evaluate $ parseJSON_Keys_Layout keyEnv repLayout bs
+
+readDownloadedJSON :: (MonadIO m, FromJSON ReadJSON_Keys_Layout a)
+                   => Repository down -> KeyEnv -> down Metadata
+                   -> m (Either DeserializationError a)
+readDownloadedJSON Repository{..} keyEnv fp = liftIO $ do
+    bs <- downloadedRead fp
+    evaluate $ parseJSON_Keys_Layout keyEnv repLayout bs
 
 throwErrorsUnchecked :: ( MonadIO m
                         , Exception e'
