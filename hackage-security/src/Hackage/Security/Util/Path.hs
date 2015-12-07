@@ -57,7 +57,11 @@ module Hackage.Security.Util.Path (
   -- ** Wrappers around Data.ByteString.*
   , readLazyByteString
   , readStrictByteString
+  , writeLazyByteString
+  , writeStrictByteString
   -- ** Wrappers around System.Directory
+  , copyFile
+  , createDirectory
   , createDirectoryIfMissing
   , doesDirectoryExist
   , doesFileExist
@@ -65,6 +69,7 @@ module Hackage.Security.Util.Path (
   , getDirectoryContents
   , getRecursiveContents
   , getTemporaryDirectory
+  , removeDirectory
   , removeFile
   , renameFile
   -- ** Wrappers around Codec.Archive.Tar.*
@@ -365,15 +370,40 @@ readStrictByteString path = do
     filePath <- toAbsoluteFilePath path
     BS.readFile filePath
 
+writeLazyByteString :: IsFileSystemRoot root
+                    => Path (Rooted root) -> BS.L.ByteString -> IO ()
+writeLazyByteString path bs = do
+    filePath <- toAbsoluteFilePath path
+    BS.L.writeFile filePath bs
+
+writeStrictByteString :: IsFileSystemRoot root
+                      => Path (Rooted root) -> BS.ByteString -> IO ()
+writeStrictByteString path bs = do
+    filePath <- toAbsoluteFilePath path
+    BS.writeFile filePath bs
+
 {-------------------------------------------------------------------------------
   Wrappers around System.Directory
 -------------------------------------------------------------------------------}
+
+copyFile :: (IsFileSystemRoot root, IsFileSystemRoot root')
+         => Path (Rooted root) -> Path (Rooted root') -> IO ()
+copyFile src dst = do
+    src' <- toAbsoluteFilePath src
+    dst' <- toAbsoluteFilePath dst
+    Dir.copyFile src' dst'
+
+createDirectory :: IsFileSystemRoot root => Path (Rooted root) -> IO ()
+createDirectory path = Dir.createDirectory =<< toAbsoluteFilePath path
 
 createDirectoryIfMissing :: IsFileSystemRoot root
                          => Bool -> Path (Rooted root) -> IO ()
 createDirectoryIfMissing createParents path = do
     filePath <- toAbsoluteFilePath path
     Dir.createDirectoryIfMissing createParents filePath
+
+removeDirectory :: IsFileSystemRoot root => Path (Rooted root) -> IO ()
+removeDirectory path = Dir.removeDirectory =<< toAbsoluteFilePath path
 
 doesFileExist :: IsFileSystemRoot root => Path (Rooted root) -> IO Bool
 doesFileExist path = do

@@ -93,7 +93,7 @@ rebuildTarIndex cache = do
       newEntries <- Tar.read <$> BS.L.hGetContents hTar
       case addEntries builder newEntries of
         Left  ex  -> throwUnchecked ex
-        Right idx -> atomicWithFile (cachedIndexIdxPath cache) $ \hIdx -> do
+        Right idx -> withFile (cachedIndexIdxPath cache) WriteMode $ \hIdx -> do
                        hSetBuffering hIdx (BlockBuffering Nothing)
                        BS.Builder.hPutBuilder hIdx $ TarIndex.serialise idx
   where

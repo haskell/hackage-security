@@ -49,7 +49,6 @@ import qualified Data.ByteString.Lazy as BS.L
 import Hackage.Security.Key
 import Hackage.Security.Key.Env (KeyEnv)
 import Hackage.Security.TUF.Layout
-import Hackage.Security.Util.IO
 import Hackage.Security.Util.JSON
 import Hackage.Security.Util.Path
 import Hackage.Security.Util.Pretty
@@ -315,14 +314,10 @@ renderJSON_NoLayout :: ToJSON Identity a => a -> BS.L.ByteString
 renderJSON_NoLayout = renderCanonicalJSON . runIdentity . toJSON
 
 writeJSON :: ToJSON WriteJSON a => RepoLayout -> AbsolutePath -> a -> IO ()
-writeJSON repoLayout fp a =
-    atomicWithFile fp $ \h ->
-      BS.L.hPut h $ renderJSON repoLayout a
+writeJSON repoLayout fp = writeLazyByteString fp . renderJSON repoLayout
 
 writeJSON_NoLayout :: ToJSON Identity a => AbsolutePath -> a -> IO ()
-writeJSON_NoLayout fp a =
-    atomicWithFile fp $ \h ->
-      BS.L.hPut h $ renderJSON_NoLayout a
+writeJSON_NoLayout fp = writeLazyByteString fp . renderJSON_NoLayout
 
 writeKeyAsId :: Some PublicKey -> JSValue
 writeKeyAsId = JSString . keyIdString . someKeyId

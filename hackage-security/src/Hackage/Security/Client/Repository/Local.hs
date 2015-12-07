@@ -74,8 +74,8 @@ newtype LocalFile a = LocalFile AbsolutePath
 
 instance DownloadedFile LocalFile where
   downloadedVerify = verifyLocalFile
-  downloadedRead   = \(LocalFile local)      -> readLazyByteString local
-  downloadedCopyTo = \(LocalFile local) dest -> atomicCopyFile     local dest
+  downloadedRead   = \(LocalFile local) -> readLazyByteString local
+  downloadedCopyTo = \(LocalFile local) -> copyFile local 
 
 verifyLocalFile :: LocalFile typ -> Trusted FileInfo -> IO Bool
 verifyLocalFile (LocalFile fp) trustedInfo = do

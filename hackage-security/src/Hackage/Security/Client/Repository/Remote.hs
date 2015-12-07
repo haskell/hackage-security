@@ -643,7 +643,7 @@ instance DownloadedFile RemoteTemp where
   downloadedCopyTo = \f dest ->
     case f of
       DownloadedWhole{..} ->
-        atomicCopyFile wholeTemp dest
+        renameFile wholeTemp dest
       DownloadedDelta{..} -> do
         unless (deltaExisting == dest) $
           throwIO $ userError "Assertion failure: deltaExisting /= dest"
