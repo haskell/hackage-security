@@ -68,10 +68,10 @@ cmdGet opts pkgId = do
 -------------------------------------------------------------------------------}
 
 withRepo :: GlobalOpts -> (Repository -> IO a) -> IO a
-withRepo GlobalOpts{..} =
+withRepo GlobalOpts{..} = \callback ->
     case globalRepo of
-      Left  local  -> withLocalRepo  local
-      Right remote -> withRemoteRepo remote
+      Left  local  -> withLocalRepo  local  callback
+      Right remote -> withRemoteRepo remote callback
   where
     withLocalRepo :: AbsolutePath -> (Repository -> IO a) -> IO a
     withLocalRepo repo =

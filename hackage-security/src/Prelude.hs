@@ -9,7 +9,7 @@ module Prelude (
   , Monoid(..)
   , (<$>)
   , (<$)
-  , traverse
+  , Traversable(traverse)
   , displayException
 #endif
   ) where
@@ -25,7 +25,7 @@ import "base" Prelude as P hiding (catch)
 import Control.Applicative
 import Control.Exception (Exception)
 import Data.Monoid
-import Data.Traversable (traverse)
+import Data.Traversable (Traversable(traverse))
 
 displayException :: Exception e => e -> String
 displayException = show
