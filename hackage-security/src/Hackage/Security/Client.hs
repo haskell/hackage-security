@@ -56,10 +56,11 @@ import Hackage.Security.Trusted
 import Hackage.Security.Trusted.TCB
 import Hackage.Security.TUF
 import Hackage.Security.Util.Checked
+import Hackage.Security.Util.IO
 import Hackage.Security.Util.Path
 import Hackage.Security.Util.Pretty
-import Hackage.Security.Util.Stack
 import Hackage.Security.Util.Some
+import Hackage.Security.Util.Stack
 import qualified Hackage.Security.Key.Env   as KeyEnv
 
 {-------------------------------------------------------------------------------

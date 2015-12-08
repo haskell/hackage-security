@@ -3,6 +3,7 @@ module Hackage.Security.Util.IO (
     withTempFile
   , getFileSize
   , handleDoesNotExist
+  , withDirLock
     -- * Debugging
   , timedIO
   ) where
@@ -12,7 +13,6 @@ import Control.Monad
 import Data.Time
 import System.IO hiding (openTempFile, withFile)
 import System.IO.Error
-import qualified Data.ByteString.Lazy as BS.L
 
 import Hackage.Security.Util.Path
 
@@ -48,6 +48,23 @@ handleDoesNotExist act =
       if isDoesNotExistError e
         then return Nothing
         else throwIO e
+
+-- | Attempt to create a filesystem lock in the specified directory
+--
+-- Given a file @/path/to@, we do this by attempting to create the directory
+-- @//path/to/hackage-security-lock@, and deleting the directory again
+-- afterwards. Creating a directory that already exists will throw an exception
+-- on most OSs (certainly Linux, OSX and Windows) and is a reasonably common way
+-- to implement a lock file.
+withDirLock :: AbsolutePath -> IO a -> IO a
+withDirLock dir = bracket_ takeLock releaseLock
+  where
+    lock :: AbsolutePath
+    lock = dir </> fragment' "hackage-security-lock"
+
+    takeLock, releaseLock :: IO ()
+    takeLock    = createDirectory lock
+    releaseLock = removeDirectory lock
 
 {-------------------------------------------------------------------------------
   Debugging
