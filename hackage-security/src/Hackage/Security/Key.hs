@@ -178,11 +178,23 @@ instance HasKeyId Key where
 -- ed25519
 sign :: PrivateKey typ -> BS.L.ByteString -> BS.ByteString
 sign (PrivateKeyEd25519 pri) =
-    Ed25519.unSignature . Ed25519.sign' pri . BS.concat . BS.L.toChunks
+    Ed25519.unSignature . dsign pri . BS.concat . BS.L.toChunks
+  where
+#if MIN_VERSION_ed25519(0,0,4)
+    dsign = Ed25519.dsign
+#else
+    dsign = Ed25519.sign'
+#endif
 
 verify :: PublicKey typ -> BS.L.ByteString -> BS.ByteString -> Bool
 verify (PublicKeyEd25519 pub) inp sig =
-    Ed25519.verify' pub (BS.concat $ BS.L.toChunks inp) (Ed25519.Signature sig)
+    dverify pub (BS.concat $ BS.L.toChunks inp) (Ed25519.Signature sig)
+  where
+#if MIN_VERSION_ed25519(0,0,4)
+    dverify = Ed25519.dverify
+#else
+    dverify = Ed25519.verify'
+#endif
 
 {-------------------------------------------------------------------------------
   JSON encoding and decoding
