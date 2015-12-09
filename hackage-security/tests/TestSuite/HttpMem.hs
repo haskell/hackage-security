@@ -12,6 +12,7 @@ import Hackage.Security.Client
 import Hackage.Security.Client.Repository.HttpLib
 import Hackage.Security.Util.Checked
 import Hackage.Security.Util.Path
+import Hackage.Security.Util.Some
 
 -- TestSuite
 import TestSuite.InMemRepo
@@ -37,21 +38,20 @@ get :: forall a. Throws SomeRemoteError
     -> ([HttpResponseHeader] -> BodyReader -> IO a)
     -> IO a
 get InMemRepo{..} requestHeaders uri callback = do
-    let repoPath = castRoot $ uriPath uri
-    inMemRepoGetPath repoPath $ \tempPath -> do
-      br <- bodyReaderFromBS =<< readLazyByteString tempPath
+    Some inMemFile <- inMemRepoGetPath $ castRoot (uriPath uri)
+    br <- bodyReaderFromBS $ inMemFileRender inMemFile
 
-      -- We pretend that we used content compression (the HttpLib spec
-      -- explicitly states that it is the responsibility of the HttpLib
-      -- implementation to decode compressed content), and indicate that we can
-      -- use range requests
-      let responseHeaders = concat [
-              [ HttpResponseAcceptRangesBytes ]
-            , [ HttpResponseContentCompression
-              | HttpRequestContentCompression <- requestHeaders
-              ]
+    -- We pretend that we used content compression (the HttpLib spec
+    -- explicitly states that it is the responsibility of the HttpLib
+    -- implementation to decode compressed content), and indicate that we can
+    -- use range requests
+    let responseHeaders = concat [
+            [ HttpResponseAcceptRangesBytes ]
+          , [ HttpResponseContentCompression
+            | HttpRequestContentCompression <- requestHeaders
             ]
-      callback responseHeaders br
+          ]
+    callback responseHeaders br
 
 -- | Download a byte range
 --
@@ -69,14 +69,13 @@ getRange :: forall a. Throws SomeRemoteError
          -> ([HttpResponseHeader] -> BodyReader -> IO a)
          -> IO a
 getRange InMemRepo{..} _requestHeaders uri (fr, to) callback = do
-    let repoPath = castRoot $ uriPath uri
-    inMemRepoGetPath repoPath $ \tempPath -> do
-      br <- bodyReaderFromBS . substr =<< readLazyByteString tempPath
+    Some inMemFile <- inMemRepoGetPath $ castRoot (uriPath uri)
+    br <- bodyReaderFromBS $ substr (inMemFileRender inMemFile)
 
-      let responseHeaders = concat [
-              [ HttpResponseAcceptRangesBytes ]
-            ]
-      callback responseHeaders br
+    let responseHeaders = concat [
+            [ HttpResponseAcceptRangesBytes ]
+          ]
+    callback responseHeaders br
   where
     substr :: BS.L.ByteString -> BS.L.ByteString
     substr = BS.L.take (fromIntegral (to - fr)) . BS.L.drop (fromIntegral fr)

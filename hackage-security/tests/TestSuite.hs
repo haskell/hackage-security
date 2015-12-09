@@ -17,7 +17,6 @@ import Hackage.Security.JSON (DeserializationError(..))
 import Hackage.Security.Util.Checked
 import Hackage.Security.Util.Path
 import Hackage.Security.Util.Pretty
-import Hackage.Security.Util.Some
 import qualified Hackage.Security.Client.Repository.Remote as Remote
 import qualified Hackage.Security.Client.Repository.Cache  as Cache
 
@@ -245,20 +244,20 @@ msgsKeyRollover = [
   Classifying log messages
 -------------------------------------------------------------------------------}
 
-downloading :: (forall fs. RemoteFile fs -> Bool) -> LogMessage -> Bool
-downloading isFile (LogDownloading (Some file)) = isFile file
+downloading :: (forall fs typ. RemoteFile fs typ -> Bool) -> LogMessage -> Bool
+downloading isFile (LogDownloading file) = isFile file
 downloading _ _ = False
 
 noLocalCopy :: LogMessage -> Bool
-noLocalCopy (LogCannotUpdate (Some (RemoteIndex _ _)) UpdateImpossibleNoLocalCopy) = True
+noLocalCopy (LogCannotUpdate (RemoteIndex _ _) UpdateImpossibleNoLocalCopy) = True
 noLocalCopy _ = False
 
 selectedMirror :: URI -> LogMessage -> Bool
 selectedMirror mirror (LogSelectedMirror mirror') = mirror' == show mirror
 selectedMirror _ _ = False
 
-updating :: (forall fs. RemoteFile fs -> Bool) -> LogMessage -> Bool
-updating isFile (LogUpdating (Some file)) = isFile file
+updating :: (forall fs typ. RemoteFile fs typ -> Bool) -> LogMessage -> Bool
+updating isFile (LogUpdating file) = isFile file
 updating _ _ = False
 
 expired :: TargetPath -> VerificationError -> Bool
@@ -302,23 +301,23 @@ catchVerificationLoop history = handleJust isLoop handler
   Classifying files
 -------------------------------------------------------------------------------}
 
-isRoot :: RemoteFile fs -> Bool
+isRoot :: RemoteFile fs typ -> Bool
 isRoot (RemoteRoot _) = True
 isRoot _ = False
 
-isIndex :: RemoteFile fs -> Bool
+isIndex :: RemoteFile fs typ -> Bool
 isIndex (RemoteIndex _ _) = True
 isIndex _ = False
 
-isMirrors :: RemoteFile fs -> Bool
+isMirrors :: RemoteFile fs typ -> Bool
 isMirrors (RemoteMirrors _) = True
 isMirrors _ = False
 
-isSnapshot :: RemoteFile fs -> Bool
+isSnapshot :: RemoteFile fs typ -> Bool
 isSnapshot (RemoteSnapshot _) = True
 isSnapshot _ = False
 
-isTimestamp :: RemoteFile fs -> Bool
+isTimestamp :: RemoteFile fs typ -> Bool
 isTimestamp RemoteTimestamp = True
 isTimestamp _ = False
 
@@ -331,7 +330,7 @@ timestampPath = TargetPathRepo $ repoLayoutTimestamp hackageRepoLayout
 
 -- | Check the contents of the log
 assertLog :: String -> [LogMessage -> Bool] -> [LogMessage] -> Assertion
-assertLog label = go
+assertLog label expected actual = go expected actual
   where
     go :: [LogMessage -> Bool] -> [LogMessage] -> Assertion
     go []     []     = return ()
@@ -343,6 +342,8 @@ assertLog label = go
     unexpected msgs = assertFailure $ label ++ ": "
                                    ++ "unexpected log messages:\n"
                                    ++ unlines (map pretty msgs)
+                                   ++ "\nfull set of log messages was:\n"
+                                   ++ unlines (map pretty actual)
 
 -- | Run the actions and check its log messages
 withAssertLog :: String
@@ -358,7 +359,7 @@ withAssertLog label mv expected action = do
 -- | Unit test using the in-memory repository/cache
 inMemTest :: ( ( Throws SomeRemoteError
                , Throws VerificationError
-               ) => InMemRepo -> MVar [LogMessage] -> Repository -> Assertion
+               ) => InMemRepo -> MVar [LogMessage] -> Repository InMemFile -> Assertion
              )
           -> Assertion
 inMemTest test = uncheckClientErrors $ do
@@ -367,12 +368,12 @@ inMemTest test = uncheckClientErrors $ do
     let root = initRoot now layout keys
     withSystemTempDirectory "hackage-security-test" $ \tempDir' -> do
       tempDir    <- makeAbsolute $ fromFilePath tempDir'
-      inMemRepo  <- newInMemRepo  tempDir layout root now keys
+      inMemRepo  <- newInMemRepo  layout root now keys
       inMemCache <- newInMemCache tempDir layout
       logMsgs    <- newMVar []
 
       let logger msg = modifyMVar_ logMsgs $ \msgs -> return $ msgs ++ [msg]
-          repository = newInMemRepository layout inMemRepo inMemCache logger
+      repository <- newInMemRepository layout inMemRepo inMemCache logger
 
       bootstrap repository (map someKeyId (privateRoot keys)) (KeyThreshold 2)
       test inMemRepo logMsgs repository
@@ -383,7 +384,7 @@ inMemTest test = uncheckClientErrors $ do
 -- | Unit test using the Remote repository but with the in-mem repo
 httpMemTest :: ( ( Throws SomeRemoteError
                  , Throws VerificationError
-                 ) => InMemRepo -> MVar [LogMessage] -> Repository -> Assertion
+                 ) => InMemRepo -> MVar [LogMessage] -> Repository Remote.RemoteTemp -> Assertion
                )
             -> Assertion
 httpMemTest test = uncheckClientErrors $ do
@@ -392,7 +393,7 @@ httpMemTest test = uncheckClientErrors $ do
     let root = initRoot now layout keys
     withSystemTempDirectory "hackage-security-test" $ \tempDir' -> do
       tempDir    <- makeAbsolute $ fromFilePath tempDir'
-      inMemRepo  <- newInMemRepo  tempDir layout root now keys
+      inMemRepo  <- newInMemRepo layout root now keys
       logMsgs    <- newMVar []
 
       let logger msg = modifyMVar_ logMsgs $ \msgs -> return $ msgs ++ [msg]

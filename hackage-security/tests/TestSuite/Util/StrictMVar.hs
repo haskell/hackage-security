@@ -4,6 +4,7 @@ module TestSuite.Util.StrictMVar (
   , CC.withMVar
   , modifyMVar
   , modifyMVar_
+  , CC.readMVar
   ) where
 
 import Control.Concurrent (MVar)

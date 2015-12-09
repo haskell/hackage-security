@@ -54,6 +54,7 @@ library
                        Hackage.Security.JSON
                        Hackage.Security.Key.Env
                        Hackage.Security.Server
+                       Hackage.Security.Trusted
                        Hackage.Security.TUF.FileMap
                        Hackage.Security.Util.Checked
                        Hackage.Security.Util.IO
@@ -63,7 +64,6 @@ library
                        Hackage.Security.Util.Some
                        Text.JSON.Canonical
   other-modules:       Hackage.Security.Key
-                       Hackage.Security.Trusted
                        Hackage.Security.Trusted.TCB
                        Hackage.Security.TUF
                        Hackage.Security.TUF.Common
@@ -215,6 +215,7 @@ test-suite TestSuite
   default-language:    Haskell2010
   default-extensions:  FlexibleContexts
                        GADTs
+                       KindSignatures
                        RankNTypes
                        RecordWildCards
                        ScopedTypeVariables

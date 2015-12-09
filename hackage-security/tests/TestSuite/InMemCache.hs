@@ -17,12 +17,13 @@ import Hackage.Security.Util.Path
 
 -- TestSuite
 import TestSuite.Util.StrictMVar
+import TestSuite.InMemRepo
 
 data InMemCache = InMemCache {
       inMemCacheGet     :: CachedFile -> IO (Maybe AbsolutePath)
     , inMemCacheGetRoot :: IO AbsolutePath
     , inMemCacheClear   :: IO ()
-    , inMemCachePut     :: forall f. TempPath -> Format f -> IsCached -> IO ()
+    , inMemCachePut     :: forall f typ. InMemFile typ -> Format f -> IsCached typ -> IO ()
     }
 
 newInMemCache :: AbsolutePath -> RepoLayout -> IO InMemCache
@@ -95,7 +96,7 @@ get state cacheTempDir cachedFile =
       withMVar state $ \st ->
         case f st of
           Nothing -> return Nothing
-          Just bs -> do (tempFile, h) <- openTempFile cacheTempDir template
+          Just bs -> do (tempFile, h) <- openTempFile' cacheTempDir template
                         BS.L.hPut h bs
                         hClose h
                         return $ Just tempFile
@@ -115,15 +116,13 @@ clear state = modifyMVar_ state $ \st -> return st {
     }
 
 -- | Cache a previously downloaded remote file
-put :: MVar LocalState -> TempPath -> Format f -> IsCached -> IO ()
-put state tempPath format isCached = do
-    bs <- readLazyByteString tempPath
-    put' state bs format isCached
+put :: MVar LocalState -> InMemFile typ -> Format f -> IsCached typ -> IO ()
+put state = put' state . inMemFileRender
 
-put' :: MVar LocalState -> BS.L.ByteString -> Format f -> IsCached -> IO ()
+put' :: MVar LocalState -> BS.L.ByteString -> Format f -> IsCached typ -> IO ()
 put' state bs = go
   where
-    go :: Format f -> IsCached -> IO ()
+    go :: Format f -> IsCached typ -> IO ()
     go _   DontCache   = return ()
     go FUn (CacheAs f) = go' f
     go FGz (CacheAs _) = error "put: the impossible happened"

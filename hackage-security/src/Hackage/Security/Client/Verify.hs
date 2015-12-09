@@ -6,6 +6,8 @@ module Hackage.Security.Client.Verify (
   , ifVerified
     -- * Specific resources
   , openTempFile
+    -- * Re-exports
+  , liftIO
   ) where
 
 import Control.Exception

@@ -3,13 +3,16 @@ module TestSuite.InMemRepository (
   ) where
 
 -- stdlib
+import Control.Concurrent
 import qualified Data.ByteString as BS
 
 -- hackage-security
 import Hackage.Security.Client
 import Hackage.Security.Client.Formats
 import Hackage.Security.Client.Repository
+import Hackage.Security.Client.Verify
 import Hackage.Security.Util.Checked
+import Hackage.Security.Util.Some
 
 -- TestSuite
 import TestSuite.InMemCache
@@ -19,37 +22,37 @@ newInMemRepository :: RepoLayout
                    -> InMemRepo
                    -> InMemCache
                    -> (LogMessage -> IO ())
-                   -> Repository
-newInMemRepository layout repo cache logger = Repository {
-      repWithRemote    = withRemote    repo cache
-    , repGetCached     = inMemCacheGet      cache
-    , repGetCachedRoot = inMemCacheGetRoot  cache
-    , repClearCache    = inMemCacheClear    cache
-    , repGetFromIndex  = getFromIndex
-    , repWithMirror    = withMirror
-    , repLog           = logger
-    , repLayout        = layout
-    , repDescription   = "In memory repository"
-    }
+                   -> IO (Repository InMemFile)
+newInMemRepository layout repo cache logger = do
+    cacheLock <- newMVar ()
+    return $ Repository {
+        repGetRemote     = getRemote     repo cache
+      , repGetCached     = inMemCacheGet      cache
+      , repGetCachedRoot = inMemCacheGetRoot  cache
+      , repClearCache    = inMemCacheClear    cache
+      , repLockCache     = withMVar cacheLock . const
+      , repGetFromIndex  = getFromIndex
+      , repWithMirror    = withMirror
+      , repLog           = logger
+      , repLayout        = layout
+      , repDescription   = "In memory repository"
+      }
 
 {-------------------------------------------------------------------------------
   Repository methods
 -------------------------------------------------------------------------------}
 
 -- | Get a file from the server
-withRemote :: forall a fs.
-              (Throws VerificationError, Throws SomeRemoteError)
-           => InMemRepo
-           -> InMemCache
-           -> IsRetry
-           -> RemoteFile fs
-           -> (forall f. HasFormat fs f -> TempPath -> IO a)
-           -> IO a
-withRemote InMemRepo{..} InMemCache{..} _isRetry remoteFile callback =
-    inMemRepoGet remoteFile $ \format tempPath -> do
-      result <- callback format tempPath
-      inMemCachePut tempPath (hasFormatGet format) (mustCache remoteFile)
-      return result
+getRemote :: forall fs typ. Throws SomeRemoteError
+          => InMemRepo
+          -> InMemCache
+          -> AttemptNr
+          -> RemoteFile fs typ
+          -> Verify (Some (HasFormat fs), InMemFile typ)
+getRemote InMemRepo{..} InMemCache{..} _isRetry remoteFile = do
+    (Some format, inMemFile) <- inMemRepoGet remoteFile
+    ifVerified $ inMemCachePut inMemFile (hasFormatGet format) (mustCache remoteFile)
+    return (Some format, inMemFile)
 
 -- | Get a file from the index
 getFromIndex :: IndexFile -> IO (Maybe BS.ByteString)

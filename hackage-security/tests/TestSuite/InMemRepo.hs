@@ -2,6 +2,8 @@ module TestSuite.InMemRepo (
     InMemRepo(..)
   , newInMemRepo
   , initRoot
+  , InMemFile(..)
+  , inMemFileRender
   ) where
 
 -- stdlib
@@ -18,23 +20,52 @@ import Distribution.Text
 import Hackage.Security.Client
 import Hackage.Security.Client.Formats
 import Hackage.Security.Client.Repository
+import Hackage.Security.Client.Verify
 import Hackage.Security.JSON
+import Hackage.Security.Trusted
 import Hackage.Security.Util.Path
 import Hackage.Security.Util.IO
+import Hackage.Security.Util.Some
 
 -- TestSuite
 import TestSuite.PrivateKeys
 import TestSuite.Util.StrictMVar
 
+{-------------------------------------------------------------------------------
+  "Files" from the in-memory repository
+-------------------------------------------------------------------------------}
+
+data InMemFile :: * -> * where
+    InMemMetadata :: ToJSON WriteJSON a => RepoLayout -> a -> InMemFile Metadata
+    InMemBinary   :: BS.L.ByteString -> InMemFile Binary
+
+inMemFileRender :: InMemFile typ -> BS.L.ByteString
+inMemFileRender (InMemMetadata layout file) = renderJSON layout file
+inMemFileRender (InMemBinary bs)            = bs
+
+instance DownloadedFile InMemFile where
+    downloadedRead file =
+      return $ inMemFileRender file
+
+    downloadedVerify file info =
+      return $ knownFileInfoEqual (fileInfo (inMemFileRender file))
+                                  (trusted info)
+
+    downloadedCopyTo file dest =
+      writeLazyByteString dest (inMemFileRender file)
+
+{-------------------------------------------------------------------------------
+  In-memory repository
+-------------------------------------------------------------------------------}
+
 data InMemRepo = InMemRepo {
     -- | Get a file from the repository
-    inMemRepoGet :: forall a fs.
-                    RemoteFile fs
-                 -> (forall f. HasFormat fs f -> TempPath -> IO a)
-                 -> IO a
+    inMemRepoGet :: forall fs typ.
+                    RemoteFile fs typ
+                 -> Verify (Some (HasFormat fs), InMemFile typ)
 
     -- | Get a file, based on a path (uses hackageRepoLayout)
-  , inMemRepoGetPath :: forall a. RepoPath -> (TempPath -> IO a) -> IO a
+  , inMemRepoGetPath :: RepoPath -> IO (Some InMemFile)
 
     -- | Run the "cron job" on the server
     --
@@ -45,19 +76,18 @@ data InMemRepo = InMemRepo {
   , inMemRepoKeyRollover :: UTCTime -> IO ()
   }
 
-newInMemRepo :: AbsolutePath
-             -> RepoLayout
+newInMemRepo :: RepoLayout
              -> Signed Root
              -> UTCTime
              -> PrivateKeys
              -> IO InMemRepo
-newInMemRepo tempDir layout root now keys = do
+newInMemRepo layout root now keys = do
     state <- newMVar $ initRemoteState now layout keys root
     return InMemRepo {
-        inMemRepoGet         = get     tempDir state
-      , inMemRepoGetPath     = getPath tempDir state
-      , inMemRepoCron        = cron            state
-      , inMemRepoKeyRollover = keyRollover     state
+        inMemRepoGet         = get         state
+      , inMemRepoGetPath     = getPath     state
+      , inMemRepoCron        = cron        state
+      , inMemRepoKeyRollover = keyRollover state
       }
 
 {-------------------------------------------------------------------------------
@@ -138,53 +168,29 @@ initRemoteState now layout keys signedRoot = RemoteState {
 -------------------------------------------------------------------------------}
 
 -- | Get a file from the server
-get :: forall a fs.
-       AbsolutePath
-    -> MVar RemoteState
-    -> RemoteFile fs
-    -> (forall f. HasFormat fs f -> TempPath -> IO a)
-    -> IO a
-get remoteTempDir state remoteFile callback = do
+get :: MVar RemoteState -> RemoteFile fs typ -> Verify (Some (HasFormat fs), InMemFile typ)
+get state remoteFile = do
+    RemoteState{..} <- liftIO $ readMVar state
     case remoteFile of
-      RemoteTimestamp        -> serve "timestamp.json"  (HFZ FUn) $ render remoteTimestamp
-      RemoteSnapshot       _ -> serve "snapshot.json"   (HFZ FUn) $ render remoteSnapshot
-      RemoteMirrors        _ -> serve "mirrors.json"    (HFZ FUn) $ render remoteMirrors
-      RemoteRoot           _ -> serve "root.json"       (HFZ FUn) $ render remoteRoot
-      RemoteIndex    hasGz _ -> serve "01-index.tar.gz" hasGz     $ remoteTarGz
+      RemoteTimestamp        -> return (Some (HFZ FUn), InMemMetadata remoteLayout remoteTimestamp)
+      RemoteSnapshot       _ -> return (Some (HFZ FUn), InMemMetadata remoteLayout remoteSnapshot)
+      RemoteMirrors        _ -> return (Some (HFZ FUn), InMemMetadata remoteLayout remoteMirrors)
+      RemoteRoot           _ -> return (Some (HFZ FUn), InMemMetadata remoteLayout remoteRoot)
+      RemoteIndex    hasGz _ -> return (Some hasGz, InMemBinary remoteTarGz)
       RemotePkgTarGz pkgId _ -> error $ "withRemote: RemotePkgTarGz " ++ display pkgId
-  where
-    serve :: String -> HasFormat fs f -> (RemoteState -> BS.L.ByteString) -> IO a
-    serve template hasFormat f =
-      withTempFile remoteTempDir template $ \tempFile h -> do
-        withMVar state $ BS.L.hPut h . f
-        hClose h
-        callback hasFormat tempFile
 
-getPath :: forall a.
-           AbsolutePath
-        -> MVar RemoteState
-        -> RepoPath
-        -> (TempPath -> IO a)
-        -> IO a
-getPath remoteTempDir state repoPath callback = do
+getPath :: MVar RemoteState -> RepoPath -> IO (Some InMemFile)
+getPath state repoPath = do
+    RemoteState{..} <- readMVar state
     case toFilePath (castRoot repoPath) of
-      "/root.json"       -> serve $ render remoteRoot
-      "/timestamp.json"  -> serve $ render remoteTimestamp
-      "/snapshot.json"   -> serve $ render remoteSnapshot
-      "/mirrors.json"    -> serve $ render remoteMirrors
-      "/01-index.tar.gz" -> serve $ remoteTarGz
-      "/01-index.tar"    -> serve $ remoteTar
+      "/root.json"       -> return $ Some (InMemMetadata remoteLayout remoteRoot)
+      "/timestamp.json"  -> return $ Some (InMemMetadata remoteLayout remoteTimestamp)
+      "/snapshot.json"   -> return $ Some (InMemMetadata remoteLayout remoteSnapshot)
+      "/mirrors.json"    -> return $ Some (InMemMetadata remoteLayout remoteMirrors)
+      "/01-index.tar.gz" -> return $ Some (InMemBinary remoteTarGz)
+      "/01-index.tar"    -> return $ Some (InMemBinary remoteTar)
       otherPath -> throwIO . userError $ "getPath: Unknown path " ++ otherPath
   where
-    template :: String
-    template = unFragment (takeFileName repoPath)
-
-    serve :: (RemoteState -> BS.L.ByteString) -> IO a
-    serve f =
-      withTempFile remoteTempDir template $ \tempFile h -> do
-        withMVar state $ BS.L.hPut h . f
-        hClose h
-        callback tempFile
 
 cron :: MVar RemoteState -> UTCTime -> IO ()
 cron state now = modifyMVar_ state $ \st@RemoteState{..} -> do
