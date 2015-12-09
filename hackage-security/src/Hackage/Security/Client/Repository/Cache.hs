@@ -10,6 +10,7 @@ module Hackage.Security.Client.Repository.Cache (
   , clearCache
   , getFromIndex
   , cacheRemoteFile
+  , lockCache
   ) where
 
 import Control.Exception
@@ -166,6 +167,13 @@ clearCache :: Cache -> IO ()
 clearCache cache = void . handleDoesNotExist $ do
     removeFile $ cachedFilePath cache CachedTimestamp
     removeFile $ cachedFilePath cache CachedSnapshot
+
+-- | Lock the cache
+--
+-- This avoids two concurrent processes updating the cache at the same time,
+-- provided they both take the lock.
+lockCache :: Cache -> IO () -> IO ()
+lockCache Cache{..} = withDirLock cacheRoot
 
 {-------------------------------------------------------------------------------
   Auxiliary: tar

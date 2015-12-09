@@ -8,6 +8,7 @@ module Hackage.Security.Client.Repository.Local (
 import Hackage.Security.Client.Formats
 import Hackage.Security.Client.Repository
 import Hackage.Security.Client.Repository.Cache
+import Hackage.Security.Client.Verify
 import Hackage.Security.TUF
 import Hackage.Security.Trusted
 import Hackage.Security.Util.IO
@@ -36,11 +37,12 @@ withRepository
   -> (Repository LocalFile -> IO a)  -- ^ Callback
   -> IO a
 withRepository repo cache repLayout logger callback = callback Repository {
-      repWithRemote    = withRemote repLayout repo cache
+      repGetRemote     = getRemote repLayout repo cache
     , repGetCached     = getCached     cache
     , repGetCachedRoot = getCachedRoot cache
     , repClearCache    = clearCache    cache
     , repGetFromIndex  = getFromIndex  cache (repoIndexLayout repLayout)
+    , repLockCache     = lockCache     cache
     , repWithMirror    = mirrorsUnsupported
     , repLog           = logger
     , repLayout        = repLayout
@@ -48,23 +50,22 @@ withRepository repo cache repLayout logger callback = callback Repository {
     }
 
 -- | Get a file from the server
-withRemote :: RepoLayout -> LocalRepo -> Cache
-           -> IsRetry
-           -> RemoteFile fs typ
-           -> (forall f. HasFormat fs f -> LocalFile typ -> IO a)
-           -> IO a
-withRemote repoLayout repo cache _isRetry remoteFile callback = do
+getRemote :: RepoLayout -> LocalRepo -> Cache
+          -> AttemptNr
+          -> RemoteFile fs typ
+          -> Verify (Some (HasFormat fs), LocalFile typ)
+getRemote repoLayout repo cache _attemptNr remoteFile = do
     case remoteFileDefaultFormat remoteFile of
       Some format -> do
         let remotePath' = remoteRepoPath' repoLayout remoteFile format
             remotePath  = anchorRepoPathLocally repo remotePath'
             localFile   = LocalFile remotePath
-        result <- callback format localFile
-        cacheRemoteFile cache
-                        localFile
-                        (hasFormatGet format)
-                        (mustCache remoteFile)
-        return result
+        ifVerified $
+          cacheRemoteFile cache
+                          localFile
+                          (hasFormatGet format)
+                          (mustCache remoteFile)
+        return (Some format, localFile)
 
 {-------------------------------------------------------------------------------
   Files in the local repository
@@ -75,7 +76,7 @@ newtype LocalFile a = LocalFile AbsolutePath
 instance DownloadedFile LocalFile where
   downloadedVerify = verifyLocalFile
   downloadedRead   = \(LocalFile local) -> readLazyByteString local
-  downloadedCopyTo = \(LocalFile local) -> copyFile local 
+  downloadedCopyTo = \(LocalFile local) -> copyFile local
 
 verifyLocalFile :: LocalFile typ -> Trusted FileInfo -> IO Bool
 verifyLocalFile (LocalFile fp) trustedInfo = do

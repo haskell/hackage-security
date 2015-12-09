@@ -52,7 +52,7 @@ module Hackage.Security.Util.Path (
   , toAbsoluteFilePath
   , fromAbsoluteFilePath
   -- ** Wrappers around System.IO
-  , openTempFile
+  , openTempFile'
   , withFile
   -- ** Wrappers around Data.ByteString.*
   , readLazyByteString
@@ -347,9 +347,11 @@ withFile path mode callback = do
     IO.withFile filePath mode callback
 
 -- | Wrapper around 'openBinaryTempFileWithDefaultPermissions'
-openTempFile :: forall root. IsFileSystemRoot root
-             => Path (Rooted root) -> String -> IO (AbsolutePath, IO.Handle)
-openTempFile path template = do
+--
+-- NOTE: The caller is responsible for cleaning up the temporary file.
+openTempFile' :: forall root. IsFileSystemRoot root
+              => Path (Rooted root) -> String -> IO (AbsolutePath, IO.Handle)
+openTempFile' path template = do
     filePath <- toAbsoluteFilePath path
     (tempFilePath, h) <- IO.openBinaryTempFileWithDefaultPermissions filePath template
     return (fromAbsoluteFilePath tempFilePath, h)

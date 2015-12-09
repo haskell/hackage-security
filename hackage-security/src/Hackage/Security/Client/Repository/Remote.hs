@@ -1,3 +1,4 @@
+{-# LANGUAGE CPP #-}
 -- | An implementation of Repository that talks to repositories over HTTP.
 --
 -- This implementation is itself parameterized over a 'HttpClient', so that it
@@ -31,6 +32,7 @@ import Control.Exception
 import Control.Monad.Cont
 import Control.Monad.Except
 import Data.List (nub, intercalate)
+import Data.Typeable
 import Network.URI hiding (uriPath, path)
 import System.IO ()
 import qualified Data.ByteString      as BS
@@ -40,12 +42,14 @@ import Hackage.Security.Client.Formats
 import Hackage.Security.Client.Repository
 import Hackage.Security.Client.Repository.Cache (Cache)
 import Hackage.Security.Client.Repository.HttpLib
+import Hackage.Security.Client.Verify
 import Hackage.Security.Trusted
 import Hackage.Security.TUF
 import Hackage.Security.Util.Checked
 import Hackage.Security.Util.IO
 import Hackage.Security.Util.Path
 import Hackage.Security.Util.Pretty
+import Hackage.Security.Util.Some
 import qualified Hackage.Security.Client.Repository.Cache as Cache
 
 {-------------------------------------------------------------------------------
@@ -175,15 +179,16 @@ withRepository httpLib
                                 , cfgBase     = mirror
                                 , cfgCache    = cache
                                 , cfgCaps     = caps
-                                , cfgLogger   = logger
+                                , cfgLogger   = liftIO . logger
                                 , cfgOpts     = repoOpts
                                 }
     callback Repository {
-        repWithRemote    = withRemote remoteConfig selectedMirror
+        repGetRemote     = getRemote remoteConfig selectedMirror
       , repGetCached     = Cache.getCached     cache
       , repGetCachedRoot = Cache.getCachedRoot cache
       , repClearCache    = Cache.clearCache    cache
       , repGetFromIndex  = Cache.getFromIndex  cache (repoIndexLayout repLayout)
+      , repLockCache     = Cache.lockCache     cache
       , repWithMirror    = withMirror httpLib
                                       selectedMirror
                                       logger
@@ -200,8 +205,8 @@ withRepository httpLib
 
 -- | We select a mirror in 'withMirror' (the implementation of 'repWithMirror').
 -- Outside the scope of 'withMirror' no mirror is selected, and a call to
--- 'withRemote' will throw an exception. If this exception is ever thrown its
--- a bug: calls to 'withRemote' ('repWithRemote') should _always_ be in the
+-- 'getRemote' will throw an exception. If this exception is ever thrown its
+-- a bug: calls to 'getRemote' ('repGetRemote') should _always_ be in the
 -- scope of 'repWithMirror'.
 type SelectedMirror = MVar (Maybe URI)
 
@@ -221,26 +226,17 @@ getSelectedMirror selectedMirror = do
        Just baseURI -> return baseURI
 
 -- | Get a file from the server
-withRemote :: (Throws VerificationError, Throws SomeRemoteError)
-           => (URI -> RemoteConfig)
-           -> SelectedMirror
-           -> IsRetry
-           -> RemoteFile fs typ
-           -> (forall f. HasFormat fs f -> RemoteTemp typ -> IO a)
-           -> IO a
-withRemote remoteConfig selectedMirror isRetry remoteFile callback = do
-   baseURI <- getSelectedMirror selectedMirror
-   withRemote' (remoteConfig baseURI) isRetry remoteFile callback
-
--- | Get a file from the server, assuming we have already picked a mirror
-withRemote' :: (Throws VerificationError, Throws SomeRemoteError)
-            => RemoteConfig
-            -> IsRetry
-            -> RemoteFile fs typ
-            -> (forall f. HasFormat fs f -> RemoteTemp typ -> IO a)
-            -> IO a
-withRemote' cfg isRetry remoteFile callback =
-    getFile cfg isRetry remoteFile callback =<< pickDownloadMethod cfg remoteFile
+getRemote :: Throws SomeRemoteError
+          => (URI -> RemoteConfig)
+          -> SelectedMirror
+          -> AttemptNr
+          -> RemoteFile fs typ
+          -> Verify (Some (HasFormat fs), RemoteTemp typ)
+getRemote remoteConfig selectedMirror attemptNr remoteFile = do
+    baseURI <- liftIO $ getSelectedMirror selectedMirror
+    let cfg = remoteConfig baseURI
+    downloadMethod <- liftIO $ pickDownloadMethod cfg attemptNr remoteFile
+    getFile cfg attemptNr remoteFile downloadMethod
 
 -- | HTTP options
 --
@@ -249,13 +245,12 @@ withRemote' cfg isRetry remoteFile callback =
 -- error we want to make sure caches get files upstream in case the validation
 -- error was because the cache updated files out of order.
 httpRequestHeaders :: RemoteConfig
-                   -> IsRetry
+                   -> AttemptNr
                    -> DownloadMethod fs typ
                    -> [HttpRequestHeader]
-httpRequestHeaders RemoteConfig{..} isRetry method =
-    case isRetry of
-      FirstAttempt           -> defaultHeaders
-      AfterVerificationError -> HttpRequestMaxAge0 : defaultHeaders
+httpRequestHeaders RemoteConfig{..} attemptNr method =
+    if attemptNr == 0 then defaultHeaders
+                      else HttpRequestMaxAge0 : defaultHeaders
   where
     -- Headers we provide for _every_ attempt, first or not
     defaultHeaders :: [HttpRequestHeader]
@@ -349,9 +344,10 @@ data DownloadMethod :: * -> * -> * where
       } -> DownloadMethod fs Binary
 
 pickDownloadMethod :: forall fs typ. RemoteConfig
+                   -> AttemptNr
                    -> RemoteFile fs typ
                    -> IO (DownloadMethod fs typ)
-pickDownloadMethod RemoteConfig{..} remoteFile =
+pickDownloadMethod RemoteConfig{..} attemptNr remoteFile =
     case remoteFile of
       RemoteTimestamp        -> return $ NeverUpdated (HFZ FUn)
       (RemoteRoot _)         -> return $ NeverUpdated (HFZ FUn)
@@ -369,6 +365,10 @@ pickDownloadMethod RemoteConfig{..} remoteFile =
           Nothing -> exit $ CannotUpdate hasGz UpdateImpossibleNoLocalCopy
           Just fp -> return fp
 
+        -- We attempt an incremental update a maximum of 2 times
+        -- See 'UpdateFailedTwice' for details.
+        when (attemptNr >= 2) $ exit $ CannotUpdate hasGz UpdateFailedTwice
+
         -- If all these checks pass try to do an incremental update.
         return Update {
              updateFormat = hasGz
@@ -378,18 +378,17 @@ pickDownloadMethod RemoteConfig{..} remoteFile =
            }
 
 -- | Download the specified file using the given download method
-getFile :: forall fs typ a. (Throws VerificationError, Throws SomeRemoteError)
+getFile :: forall fs typ. Throws SomeRemoteError
         => RemoteConfig          -- ^ Internal configuration
-        -> IsRetry               -- ^ Did a security check previously fail?
+        -> AttemptNr             -- ^ Did a security check previously fail?
         -> RemoteFile fs typ     -- ^ File to get
-        -> (forall f. HasFormat fs f -> RemoteTemp typ -> IO a) -- ^ Callback
         -> DownloadMethod fs typ -- ^ Selected format
-        -> IO a
-getFile cfg@RemoteConfig{..} isRetry remoteFile callback method =
+        -> Verify (Some (HasFormat fs), RemoteTemp typ)
+getFile cfg@RemoteConfig{..} attemptNr remoteFile method =
     go method
   where
-    go :: (Throws VerificationError, Throws SomeRemoteError)
-       => DownloadMethod fs typ -> IO a
+    go :: Throws SomeRemoteError
+       => DownloadMethod fs typ -> Verify (Some (HasFormat fs), RemoteTemp typ)
     go NeverUpdated{..} = do
         cfgLogger $ LogDownloading remoteFile
         download neverUpdatedFormat
@@ -399,43 +398,22 @@ getFile cfg@RemoteConfig{..} isRetry remoteFile callback method =
         download cannotUpdateFormat
     go Update{..} = do
         cfgLogger $ LogUpdating remoteFile
-        -- Attempt to download the file incrementally.
-        let updateFailed :: SomeException -> IO a
-            updateFailed = go . CannotUpdate updateFormat . UpdateFailed
-
-            -- If verification of the file fails, and this is the first attempt,
-            -- we let the exception be thrown up to the security layer, so that
-            -- it will try again with instructions to the cache to fetch stuff
-            -- upstream. Hopefully this will resolve the issue. However, if
-            -- an incrementally updated file cannot be verified on the next
-            -- attempt, we then try to download the whole file.
-            handleVerificationError :: VerificationError -> IO a
-            handleVerificationError ex =
-              case isRetry of
-                FirstAttempt -> throwChecked ex
-                _otherwise   -> updateFailed $ SomeException ex
-
-            handleHttpException :: SomeRemoteError -> IO a
-            handleHttpException = updateFailed . SomeException
-
-        handleChecked handleVerificationError $
-          handleChecked handleHttpException $
-            update updateFormat updateInfo updateLocal updateTail
+        update updateFormat updateInfo updateLocal updateTail
 
     headers :: [HttpRequestHeader]
-    headers = httpRequestHeaders cfg isRetry method
+    headers = httpRequestHeaders cfg attemptNr method
 
     -- Get any file from the server, without using incremental updates
-    download :: Throws SomeRemoteError => HasFormat fs f -> IO a
-    download format =
-        withTempFile (Cache.cacheRoot cfgCache) (uriTemplate uri) $ \tempPath h -> do
-          -- We are careful NOT to scope the remainder of the computation underneath
-          -- the httpClientGet
+    download :: Throws SomeRemoteError => HasFormat fs f
+             -> Verify (Some (HasFormat fs), RemoteTemp typ)
+    download format = do
+        (tempPath, h) <- openTempFile (Cache.cacheRoot cfgCache) (uriTemplate uri)
+        liftIO $ do
           httpGet headers uri $ \responseHeaders bodyReader -> do
             updateServerCapabilities cfgCaps responseHeaders
             execBodyReader targetPath sz h bodyReader
           hClose h
-          verifyAndCache format $ DownloadedWhole tempPath
+        cacheIfVerified format $ DownloadedWhole tempPath
       where
         targetPath = TargetPathRepo $ remoteRepoPath' cfgLayout remoteFile format
         uri = formatsLookup format $ remoteFileURI cfgLayout cfgBase remoteFile
@@ -447,52 +425,49 @@ getFile cfg@RemoteConfig{..} isRetry remoteFile callback method =
            -> Trusted FileInfo  -- ^ Expected info
            -> AbsolutePath      -- ^ Location of cached file (after callback)
            -> Int               -- ^ How much of the tail to overwrite
-           -> IO a
+           -> Verify (Some (HasFormat fs), RemoteTemp typ)
     update format info cachedFile fileTail = do
-        currentSz <- getFileSize cachedFile
+        currentSz <- liftIO $ getFileSize cachedFile
         let fileSz    = fileLength' info
             range     = (currentSz - fileTail, fileSz)
             rangeSz   = FileSizeExact (snd range - fst range)
             cacheRoot = Cache.cacheRoot cfgCache
-        withTempFile cacheRoot (uriTemplate uri) $ \tempPath h -> do
-          -- As in 'getFile', make sure we don't scope the remainder of the
-          -- computation underneath the httpClientGetRange
+        (tempPath, h) <- openTempFile cacheRoot (uriTemplate uri)
+        liftIO $ do
           httpGetRange headers uri range $ \responseHeaders bodyReader -> do
             updateServerCapabilities cfgCaps responseHeaders
             execBodyReader targetPath rangeSz h bodyReader
           hClose h
-          verifyAndCache format $ DownloadedDelta {
-              deltaTemp     = tempPath
-            , deltaExisting = cachedFile
-            , deltaSeek     = fst range
-            }
+        cacheIfVerified format $ DownloadedDelta {
+            deltaTemp     = tempPath
+          , deltaExisting = cachedFile
+          , deltaSeek     = fst range
+          }
       where
         targetPath = TargetPathRepo repoPath
         uri        = modifyUriPath cfgBase (`anchorRepoPathRemotely` repoPath)
         repoPath   = remoteRepoPath' cfgLayout remoteFile format
 
-    -- | Verify the downloaded/updated file (by calling the callback) and
-    -- cache it if the callback does not throw any exceptions
-    verifyAndCache :: HasFormat fs f -> RemoteTemp typ -> IO a
-    verifyAndCache format remoteTemp = do
-        result <- callback format remoteTemp
-        Cache.cacheRemoteFile cfgCache
-                              remoteTemp
-                              (hasFormatGet format)
-                              (mustCache remoteFile)
-        return result
+    cacheIfVerified :: HasFormat fs f -> RemoteTemp typ
+                    -> Verify (Some (HasFormat fs), RemoteTemp typ)
+    cacheIfVerified format remoteTemp = do
+        ifVerified $
+          Cache.cacheRemoteFile cfgCache
+                                remoteTemp
+                                (hasFormatGet format)
+                                (mustCache remoteFile)
+        return (Some format, remoteTemp)
 
     HttpLib{..} = cfgHttpLib
 
+{-------------------------------------------------------------------------------
+  Execute body reader
+-------------------------------------------------------------------------------}
+
 -- | Execute a body reader
 --
--- NOTE: This intentially does NOT use the @with..@ pattern: we want to execute
--- the entire body reader (or cancel it) and write the results to a file and
--- then continue. We do NOT want to scope the remainder of the computation
--- as part of the same HTTP request.
---
 -- TODO: Deal with minimum download rate.
-execBodyReader :: Throws VerificationError
+execBodyReader :: Throws SomeRemoteError
                => TargetPath  -- ^ File source (for error msgs only)
                -> FileSize    -- ^ Maximum file size
                -> Handle      -- ^ Handle to write data too
@@ -503,11 +478,27 @@ execBodyReader file mlen h br = go 0
     go :: Int -> IO ()
     go sz = do
       unless (sz `fileSizeWithinBounds` mlen) $
-        throwChecked $ VerificationErrorFileTooLarge file
+        throwChecked $ SomeRemoteError $ FileTooLarge file
       bs <- br
       if BS.null bs
         then return ()
         else BS.hPut h bs >> go (sz + BS.length bs)
+
+-- | The file we requested from the server was larger than expected
+-- (potential endless data attack)
+data FileTooLarge = FileTooLarge TargetPath
+  deriving (Typeable)
+
+instance Pretty FileTooLarge where
+  pretty (FileTooLarge file) = "file returned by server too large: " ++ pretty file
+
+#if MIN_VERSION_base(4,8,0)
+deriving instance Show FileTooLarge
+instance Exception FileTooLarge where displayException = pretty
+#else
+instance Exception FileTooLarge
+instance Show FileTooLarge where show = pretty
+#endif
 
 {-------------------------------------------------------------------------------
   Information about remote files
@@ -584,7 +575,7 @@ data RemoteConfig = RemoteConfig {
     , cfgBase     :: URI
     , cfgCache    :: Cache
     , cfgCaps     :: ServerCapabilities
-    , cfgLogger   :: LogMessage -> IO ()
+    , cfgLogger   :: forall m. MonadIO m => LogMessage -> m ()
     , cfgOpts     :: RepoOpts
     }
 

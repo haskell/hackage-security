@@ -14,7 +14,7 @@ module Hackage.Security.Client.Repository (
   , remoteFileDefaultInfo
     -- * Repository proper
   , Repository(..)
-  , IsRetry(..)
+  , AttemptNr(..)
   , LogMessage(..)
   , UpdateFailure(..)
   , SomeRemoteError(..)
@@ -40,6 +40,7 @@ import Distribution.Package
 import Distribution.Text
 
 import Hackage.Security.Client.Formats
+import Hackage.Security.Client.Verify
 import Hackage.Security.Trusted
 import Hackage.Security.TUF
 import Hackage.Security.Util.Checked
@@ -194,7 +195,7 @@ remoteFileDefaultInfo (RemoteIndex pf info)   = Just $ formatsLookup pf info
 data Repository down = DownloadedFile down => Repository {
     -- | Get a file from the server
     --
-    -- Responsibilies of 'repWithRemote':
+    -- Responsibilies of 'repGetRemote':
     --
     -- * Download the file from the repository and make it available at a
     --   temporary location
@@ -202,19 +203,14 @@ data Repository down = DownloadedFile down => Repository {
     --   (Repositories such as local repositories that are not suspectible to
     --   endless data attacks can safely ignore this argument.)
     -- * Move the file from its temporary location to its permanent location
-    --   if the callback returns successfully (where appropriate).
+    --   if verification succeeds.
     --
-    -- It is the responsibilities of the callback to verify the file and throw
-    -- an exception if verification fails.
-    --
-    -- NOTE: Calls to 'repWithRemote' should _always_ be in the scope of
+    -- NOTE: Calls to 'repGetRemote' should _always_ be in the scope of
     -- 'repWithMirror'.
-    repWithRemote :: forall a fs typ.
-                     (Throws VerificationError, Throws SomeRemoteError)
-                  => IsRetry
-                  -> RemoteFile fs typ
-                  -> (forall f. HasFormat fs f -> down typ -> IO a)
-                  -> IO a
+    repGetRemote :: forall fs typ. Throws SomeRemoteError
+                 => AttemptNr
+                 -> RemoteFile fs typ
+                 -> Verify (Some (HasFormat fs), down typ)
 
     -- | Get a cached file (if available)
   , repGetCached :: CachedFile -> IO (Maybe AbsolutePath)
@@ -238,6 +234,9 @@ data Repository down = DownloadedFile down => Repository {
     -- for different files. Since we only extract small files, having the
     -- entire extracted file in memory is not an issue.
   , repGetFromIndex :: IndexFile -> IO (Maybe BS.ByteString)
+
+    -- | Lock the cache (during updates)
+  , repLockCache :: IO () -> IO ()
 
     -- | Mirror selection
     --
@@ -285,7 +284,8 @@ mirrorsUnsupported _ = id
 -- | Are we requesting this information because of a previous validation error?
 --
 -- Clients can take advantage of this to tell caches to revalidate files.
-data IsRetry = FirstAttempt | AfterVerificationError
+newtype AttemptNr = AttemptNr Int
+  deriving (Eq, Ord, Num)
 
 -- | Log messages
 --
@@ -333,6 +333,14 @@ data UpdateFailure =
 
     -- | We don't have a local copy of the file to update
   | UpdateImpossibleNoLocalCopy
+
+    -- | Update failed twice
+    --
+    -- If we attempt an incremental update the first time, and it fails,  we let
+    -- it go round the loop, update local security information, and try again.
+    -- But if an incremental update then fails _again_, we  instead attempt a
+    -- regular download.
+  | UpdateFailedTwice
 
     -- | Update failed (for example: perhaps the local file got corrupted)
   | UpdateFailed SomeException
@@ -465,5 +473,7 @@ instance Pretty UpdateFailure where
       "server does not provide incremental downloads"
   pretty UpdateImpossibleNoLocalCopy =
       "no local copy"
+  pretty UpdateFailedTwice =
+      "update failed twice"
   pretty (UpdateFailed ex) =
       displayException ex
