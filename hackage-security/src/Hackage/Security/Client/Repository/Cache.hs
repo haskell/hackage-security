@@ -69,8 +69,7 @@ cacheRemoteFile cache downloaded f isCached = do
         let uncompressed = GZip.decompress compressed
         withFile indexUn ReadWriteMode $ \h -> do
           currentSize <- hFileSize h
-          let seekTo | currentSize == 0 = 0
-                     | otherwise        = currentSize - tarTrailer
+          let seekTo = 0 `max` (currentSize - tarTrailer)
           hSeek h AbsoluteSeek seekTo
           BS.L.hPut h $ BS.L.drop (fromInteger seekTo) uncompressed
       where

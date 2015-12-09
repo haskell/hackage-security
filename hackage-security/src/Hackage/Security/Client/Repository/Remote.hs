@@ -429,7 +429,7 @@ getFile cfg@RemoteConfig{..} attemptNr remoteFile method =
     update format info cachedFile fileTail = do
         currentSz <- liftIO $ getFileSize cachedFile
         let fileSz    = fileLength' info
-            range     = (currentSz - fileTail, fileSz)
+            range     = (0 `max` (currentSz - fileTail), fileSz)
             rangeSz   = FileSizeExact (snd range - fst range)
             cacheRoot = Cache.cacheRoot cfgCache
         (tempPath, h) <- openTempFile cacheRoot (uriTemplate uri)
