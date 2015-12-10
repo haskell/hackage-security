@@ -24,7 +24,6 @@ import Hackage.Security.Client.Verify
 import Hackage.Security.JSON
 import Hackage.Security.Trusted
 import Hackage.Security.Util.Path
-import Hackage.Security.Util.IO
 import Hackage.Security.Util.Some
 
 -- TestSuite
@@ -262,12 +261,3 @@ keyRollover state now = modifyMVar_ state $ \st@RemoteState{..} -> do
       , remoteTimestamp = signedTimestamp
       , remoteSnapshot  = signedSnapshot
       }
-
-{-------------------------------------------------------------------------------
-  Auxiliary
--------------------------------------------------------------------------------}
-
-render :: forall b. ToJSON WriteJSON b
-       => (RemoteState -> b)
-       -> (RemoteState -> BS.L.ByteString)
-render f st = renderJSON (remoteLayout st) (f st)

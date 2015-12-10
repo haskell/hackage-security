@@ -1,3 +1,17 @@
+0.5.0.0
+-------
+* Treat deserialization errors as verification errors (#108, #75)
+* Avoid `Content-Length: 0` in GET requests (#103)
+* Fix bug in Trusted
+* Build tar-index incrementally (#22)
+* Generalize 'Repository' over the representation of downloaded remote files.
+* Update index incrementally by downloading delta of `.tar.gz` and writing only
+  tail of local `.tar` file (#101)
+* Take a lock on the cache directory before updating it, and no longer use
+  atomic file ops (pointless since we now update some files incrementally)
+* Code refactoring/simplification.
+* Support for ed25519 >= 0.0.4
+
 0.4.0.0
 -------
 * Allow clients to pass in their own time for expiry verification
