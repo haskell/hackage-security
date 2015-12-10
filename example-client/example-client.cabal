@@ -29,7 +29,7 @@ executable example-client
                        filepath             >= 1.2,
                        optparse-applicative >= 0.11,
                        time                 >= 1.2,
-                       hackage-security     >= 0.4,
+                       hackage-security     >= 0.5,
                        hackage-security-HTTP,
                        hackage-security-curl
   hs-source-dirs:      src

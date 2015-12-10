@@ -9,6 +9,7 @@ module Hackage.Security.Client (
   , HasUpdates(..)
     -- * Downloading targets
   , downloadPackage
+  , downloadPackage'
   , getCabalFile
     -- * Bootstrapping
   , requiresBootstrap
@@ -379,19 +380,15 @@ getRemoteFile rep@Repository{..} cachedInfo@CachedInfo{..} isRetry mNow file = d
 -------------------------------------------------------------------------------}
 
 -- | Download a package
---
--- It is the responsibility of the callback to move the package from its
--- temporary location to a permanent location (if desired). The callback will
--- only be invoked once the chain of trust has been verified.
---
--- NOTE: Unlike the check for updates, downloading a package never triggers an
--- update of the root information (even if verification of the package fails).
 downloadPackage :: ( Throws SomeRemoteError
                    , Throws VerificationError
                    , Throws InvalidPackageException
                    )
-                => Repository down -> PackageIdentifier -> (down Binary -> IO a) -> IO a
-downloadPackage rep@Repository{..} pkgId callback = withMirror rep $ runVerify repLockCache $ do
+                => Repository down    -- ^ Repository
+                -> PackageIdentifier  -- ^ Package to download
+                -> AbsolutePath       -- ^ Destination (see also 'downloadPackage'')
+                -> IO ()
+downloadPackage rep@Repository{..} pkgId dest = withMirror rep $ runVerify repLockCache $ do
     -- We need the cached root information in order to resolve key IDs and
     -- verify signatures. Note that whenever we read a JSON file, we verify
     -- signatures (even if we don't verify the keys); if this is a problem
@@ -459,11 +456,25 @@ downloadPackage rep@Repository{..} pkgId callback = withMirror rep $ runVerify r
 
     -- TODO: should we check if cached package available? (spec says no)
     tarGz <- do
-      (targetPath, tempPath) <- getRemote' rep (AttemptNr 0) $
+      (targetPath, downloaded) <- getRemote' rep (AttemptNr 0) $
         RemotePkgTarGz pkgId targetMetaData
-      verifyFileInfo' (Just targetMetaData) targetPath tempPath
-      return tempPath
-    liftIO $ callback tarGz
+      verifyFileInfo' (Just targetMetaData) targetPath downloaded
+      return downloaded
+
+    -- If all checks succeed, copy file to its target location.
+    liftIO $ downloadedCopyTo tarGz dest
+
+-- | Variation on 'downloadPackage' that takes a FilePath instead.
+downloadPackage' :: ( Throws SomeRemoteError
+                   , Throws VerificationError
+                   , Throws InvalidPackageException
+                   )
+                 => Repository down    -- ^ Repository
+                 -> PackageIdentifier  -- ^ Package to download
+                 -> FilePath           -- ^ Destination
+                 -> IO ()
+downloadPackage' rep pkgId dest =
+    downloadPackage rep pkgId =<< makeAbsolute (fromFilePath dest)
 
 -- | Get a cabal file from the index
 --

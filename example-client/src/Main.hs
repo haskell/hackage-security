@@ -56,8 +56,7 @@ cmdGet opts pkgId = do
     cwd <- getCurrentDirectory
     let localFile = cwd </> fragment tarGzName
     withRepo opts $ \rep -> uncheckClientErrors $
-      downloadPackage rep pkgId $ \tempPath ->
-        downloadedCopyTo tempPath localFile
+      downloadPackage rep pkgId localFile
   where
     tarGzName :: Fragment
     tarGzName = takeFileName $ repoLayoutPkgTarGz hackageRepoLayout pkgId

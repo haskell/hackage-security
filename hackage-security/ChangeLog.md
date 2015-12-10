@@ -11,6 +11,7 @@
   atomic file ops (pointless since we now update some files incrementally)
 * Code refactoring/simplification.
 * Support for ed25519 >= 0.0.4
+* `downloadPackage` no longer takes a callback.
 
 0.4.0.0
 -------
