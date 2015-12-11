@@ -33,8 +33,8 @@ module Hackage.Security.Client.Repository (
 
 import Control.Exception
 import Data.Typeable (Typeable)
-import qualified Data.ByteString      as BS
-import qualified Data.ByteString.Lazy as BS.L
+import qualified Codec.Archive.Tar.Index as Tar
+import qualified Data.ByteString.Lazy    as BS.L
 
 import Distribution.Package
 import Distribution.Text
@@ -227,13 +227,17 @@ data Repository down = DownloadedFile down => Repository {
     -- It would also be okay, but not required, to delete the index.
   , repClearCache :: IO ()
 
-    -- | Get a file from the index
+    -- | Open the tarball for reading
     --
-    -- The use of a strict bytestring here is intentional: it means the
-    -- Repository is free to keep the index open and just seek the handle
-    -- for different files. Since we only extract small files, having the
-    -- entire extracted file in memory is not an issue.
-  , repGetFromIndex :: IndexFile -> IO (Maybe BS.ByteString)
+    -- This function has this shape so that:
+    --
+    -- * We can read multiple files from the tarball without having to open
+    --   and close the handle each time
+    -- * We can close the handle immediately when done.
+  , repWithIndex :: forall a. (Handle -> IO a) -> IO a
+
+    -- | Read the index index
+  , repGetIndexIdx :: IO Tar.TarIndex
 
     -- | Lock the cache (during updates)
   , repLockCache :: IO () -> IO ()

@@ -4,7 +4,6 @@ module TestSuite.InMemRepository (
 
 -- stdlib
 import Control.Concurrent
-import qualified Data.ByteString as BS
 
 -- hackage-security
 import Hackage.Security.Client
@@ -31,7 +30,8 @@ newInMemRepository layout repo cache logger = do
       , repGetCachedRoot = inMemCacheGetRoot  cache
       , repClearCache    = inMemCacheClear    cache
       , repLockCache     = withMVar cacheLock . const
-      , repGetFromIndex  = getFromIndex
+      , repWithIndex     = error "newInMemRepository: repWithIndex TODO"
+      , repGetIndexIdx   = error "newInMemRepository: repGetIndexIdx TODO"
       , repWithMirror    = withMirror
       , repLog           = logger
       , repLayout        = layout
@@ -53,10 +53,6 @@ getRemote InMemRepo{..} InMemCache{..} _isRetry remoteFile = do
     (Some format, inMemFile) <- inMemRepoGet remoteFile
     ifVerified $ inMemCachePut inMemFile (hasFormatGet format) (mustCache remoteFile)
     return (Some format, inMemFile)
-
--- | Get a file from the index
-getFromIndex :: IndexFile -> IO (Maybe BS.ByteString)
-getFromIndex = error "repGetFromIndex not implemented"
 
 -- | Mirror selection
 withMirror :: forall a. Maybe [Mirror] -> IO a -> IO a

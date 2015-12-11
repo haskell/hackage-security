@@ -187,7 +187,8 @@ withRepository httpLib
       , repGetCached     = Cache.getCached     cache
       , repGetCachedRoot = Cache.getCachedRoot cache
       , repClearCache    = Cache.clearCache    cache
-      , repGetFromIndex  = Cache.getFromIndex  cache (repoIndexLayout repLayout)
+      , repWithIndex     = Cache.withIndex     cache
+      , repGetIndexIdx   = Cache.getIndexIdx   cache
       , repLockCache     = Cache.lockCache     cache
       , repWithMirror    = withMirror httpLib
                                       selectedMirror

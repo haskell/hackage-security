@@ -8,7 +8,9 @@ module Hackage.Security.Client.Repository.Cache (
   , getCachedRoot
   , getCachedIndex
   , clearCache
-  , getFromIndex
+--  , getFromIndex
+  , withIndex
+  , getIndexIdx
   , cacheRemoteFile
   , lockCache
   ) where
@@ -20,7 +22,6 @@ import Codec.Archive.Tar.Index (TarIndex, IndexBuilder, TarEntryOffset)
 import qualified Codec.Archive.Tar       as Tar
 import qualified Codec.Archive.Tar.Index as TarIndex
 import qualified Codec.Compression.GZip  as GZip
-import qualified Data.ByteString         as BS
 import qualified Data.ByteString.Builder as BS.Builder
 import qualified Data.ByteString.Lazy    as BS.L
 
@@ -42,8 +43,6 @@ cacheRemoteFile :: forall down typ f. DownloadedFile down
                 => Cache -> down typ -> Format f -> IsCached typ -> IO ()
 cacheRemoteFile cache downloaded f isCached = do
     go f isCached
-    -- TODO: This recreates the tar index ahead of time. Alternatively, we
-    -- could delete the index here and then it will be rebuilt on first access.
     case isCached of
       CacheIndex -> rebuildTarIndex cache
       _otherwise -> return ()
@@ -134,32 +133,15 @@ getCachedRoot cache = do
       Just p  -> return p
       Nothing -> internalError "Client missing root info"
 
--- | Get a file from the index
-getFromIndex :: Cache -> IndexLayout -> IndexFile -> IO (Maybe BS.ByteString)
-getFromIndex cache indexLayout indexFile = do
-    mIndex <- tryReadIndex (cachedIndexIdxPath cache)
+getIndexIdx :: Cache -> IO TarIndex
+getIndexIdx cache = do
+    mIndex <- tryReadIndex $ cachedIndexIdxPath cache
     case mIndex of
-      Left _err -> do
-        -- If index is corrupted, rebuild and try again
-        rebuildTarIndex cache
-        getFromIndex cache indexLayout indexFile
-      Right index ->
-        case tarIndexLookup index (tarPath (indexFilePath indexLayout indexFile)) of
-          Just (TarIndex.TarFileEntry offset) ->
-            -- TODO: We might want to keep this handle open
-            withFile (cachedIndexPath cache FUn) ReadMode $ \h -> do
-              entry <- TarIndex.hReadEntry h offset
-              case Tar.entryContent entry of
-                Tar.NormalFile lbs _size -> do
-                  bs <- evaluate $ BS.concat . BS.L.toChunks $ lbs
-                  return $ Just bs
-                _otherwise ->
-                  return Nothing
-          _otherwise ->
-            return Nothing
-  where
-    tarPath :: IndexPath -> TarballPath
-    tarPath = castRoot
+      Left  _   -> throwIO $ userError "Could not read index. Did you call 'checkForUpdates'?"
+      Right idx -> return idx
+
+withIndex :: Cache -> (Handle -> IO a) -> IO a
+withIndex cache = withFile (cachedIndexPath cache FUn) ReadMode
 
 -- | Delete a previously downloaded remote file
 clearCache :: Cache -> IO ()

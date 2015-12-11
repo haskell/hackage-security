@@ -6,7 +6,7 @@ module Hackage.Security.TUF (
   , module Hackage.Security.TUF.Header
   , module Hackage.Security.TUF.Layout
   , module Hackage.Security.TUF.Mirrors
-  , module Hackage.Security.TUF.Patterns
+--  , module Hackage.Security.TUF.Patterns
   , module Hackage.Security.TUF.Root
   , module Hackage.Security.TUF.Signed
   , module Hackage.Security.TUF.Snapshot
@@ -19,7 +19,7 @@ import Hackage.Security.TUF.FileInfo
 import Hackage.Security.TUF.Header
 import Hackage.Security.TUF.Layout
 import Hackage.Security.TUF.Mirrors
-import Hackage.Security.TUF.Patterns
+-- import Hackage.Security.TUF.Patterns
 import Hackage.Security.TUF.Root
 import Hackage.Security.TUF.Signed
 import Hackage.Security.TUF.Snapshot

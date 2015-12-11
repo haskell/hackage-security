@@ -1,4 +1,7 @@
 -- | Patterns and replacements
+--
+-- NOTE: This module was developed to prepare for proper delegation (#39).
+-- It is currently unusued.
 {-# LANGUAGE TemplateHaskell #-}
 module Hackage.Security.TUF.Patterns (
     -- * Patterns and replacements

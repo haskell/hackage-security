@@ -12,6 +12,9 @@
 * Code refactoring/simplification.
 * Support for ed25519 >= 0.0.4
 * `downloadPackage` no longer takes a callback.
+* API for accessing the Hackage index contents changed; it should now be
+  easier for clients to do their own incremental updates should they wish
+  to do so.
 
 0.4.0.0
 -------

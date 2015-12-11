@@ -10,7 +10,14 @@ module Hackage.Security.Client (
     -- * Downloading targets
   , downloadPackage
   , downloadPackage'
-  , getCabalFile
+    -- * Access to the Hackage index
+  , Directory      -- opaque
+  , DirectoryEntry -- opaque
+  , IndexFile(..)
+  , directoryEntries
+  , directoryLookup
+  , getDirectory
+  , withIndex
     -- * Bootstrapping
   , requiresBootstrap
   , bootstrap
@@ -41,8 +48,9 @@ import Data.Maybe (isNothing)
 import Data.Time
 import Data.Traversable (for)
 import Data.Typeable (Typeable)
-import qualified Data.ByteString      as BS
-import qualified Data.ByteString.Lazy as BS.L
+import qualified Codec.Archive.Tar       as Tar
+import qualified Codec.Archive.Tar.Index as Tar
+import qualified Data.ByteString.Lazy    as BS.L
 
 import Distribution.Package (PackageIdentifier)
 import Distribution.Text (display)
@@ -476,24 +484,79 @@ downloadPackage' :: ( Throws SomeRemoteError
 downloadPackage' rep pkgId dest =
     downloadPackage rep pkgId =<< makeAbsolute (fromFilePath dest)
 
--- | Get a cabal file from the index
+{-------------------------------------------------------------------------------
+  Access to the tar index
+-------------------------------------------------------------------------------}
+
+-- | (Abstract) directory into the Hackage index providing efficient lookups.
+newtype Directory = Directory Tar.TarIndex
+
+-- | (Abstract) entry into the Hackage index.
 --
--- This does currently not do any verification (bcause the cabal file comes
--- from the index, and the index itself is verified). Once we introduce author
--- signing this needs to be adapted.
+-- See 'directoryLookup' or 'directoryEntries' to obtain a 'IndexEntry', or
+-- 'indexLookup' to lookup retrieve an entry from the index
+newtype DirectoryEntry = DirectoryEntry Tar.TarEntryOffset
+  deriving (Eq, Ord, Enum)
+
+-- | Do a directory lookup
 --
--- Should be called only once a local index is available
--- (i.e., after 'checkForUpdates').
+-- This is an efficient operation
+directoryLookup :: Repository down
+                -> Directory
+                -> IndexFile
+                -> Maybe DirectoryEntry
+directoryLookup Repository{..} (Directory idx) =
+    liftM mkEntry . Tar.lookup idx . path
+  where
+    path :: IndexFile -> FilePath
+    path = toUnrootedFilePath
+         . unrootPath'
+         . indexFilePath (repoIndexLayout repLayout)
+
+    mkEntry :: Tar.TarIndexEntry -> DirectoryEntry
+    mkEntry (Tar.TarFileEntry offset) = DirectoryEntry offset
+    mkEntry (Tar.TarDir _) = error "directoryLookup: unexpected directory"
+
+-- | Find all directory entries
 --
--- Throws an 'InvalidPackageException' if there is no cabal file for the
--- specified package in the index.
-getCabalFile :: Throws InvalidPackageException
-             => Repository down -> PackageIdentifier -> IO BS.ByteString
-getCabalFile rep pkgId = do
-    mCabalFile <- repGetFromIndex rep (IndexPkgCabal pkgId)
-    case mCabalFile of
-      Just cabalFile -> return cabalFile
-      Nothing        -> throwChecked $ InvalidPackageException pkgId
+-- Note that 'DirectoryEntry' implements 'Enum', so you can find all entries
+-- using
+--
+-- > do dir <- getDirectory rep
+-- >    let (fr, to) = directoryEntries dir
+-- >    forM_ [fr .. to] $ \entry ->
+-- >      doSomethingWith =<< indexLookup rep entry
+directoryEntries :: Directory -> (DirectoryEntry, DirectoryEntry)
+directoryEntries (Directory idx) = (
+     DirectoryEntry $ 0
+   , DirectoryEntry $ Tar.indexEndEntryOffset idx - 1
+   )
+
+-- | Read the Hackage index directory
+--
+-- Should only be called after 'checkForUpdates'.
+getDirectory :: Repository down -> IO Directory
+getDirectory = liftM Directory . repGetIndexIdx
+
+-- | Look up an entry in the Hackage index
+--
+-- In principle this will do verification (once we have implemented author
+-- signing). Right now it doesn't need to do that, because the index as a whole
+-- will have been verified.
+--
+-- Should only be called after 'checkForUpdates'.
+withIndex :: Repository down
+          -> ((DirectoryEntry -> IO (FilePath, BS.L.ByteString)) -> IO a)
+          -> IO a
+withIndex Repository{..} callback =
+    repWithIndex $ \h -> callback (lookupEntry h)
+  where
+    lookupEntry :: Handle -> DirectoryEntry -> IO (FilePath, BS.L.ByteString)
+    lookupEntry h (DirectoryEntry offset) = do
+      entry <- Tar.hReadEntry h offset
+      case Tar.entryContent entry of
+        Tar.NormalFile bs _sz -> return (Tar.entryPath entry, bs)
+        _otherwise -> throwIO $ userError "withIndex: unexpected entry"
 
 {-------------------------------------------------------------------------------
   Bootstrapping
@@ -563,16 +626,16 @@ clearCache r = liftIO $ repClearCache r
 log :: MonadIO m => Repository down -> LogMessage -> m ()
 log r msg = liftIO $ repLog r msg
 
--- We translate to a lazy bytestring here for convenience
+-- | Get a single file from the index
 getFromIndex :: MonadIO m
              => Repository down
              -> IndexFile
              -> m (Maybe BS.L.ByteString)
-getFromIndex r file = liftIO $
-    fmap tr <$> repGetFromIndex r file
-  where
-    tr :: BS.ByteString -> BS.L.ByteString
-    tr = BS.L.fromChunks . (:[])
+getFromIndex r file = liftIO $ do
+    dir <- getDirectory r
+    case directoryLookup r dir file of
+      Nothing    -> return Nothing
+      Just entry -> Just . snd <$> withIndex r ($ entry)
 
 -- Tries to load the cached mirrors file
 withMirror :: Repository down -> IO a -> IO a
