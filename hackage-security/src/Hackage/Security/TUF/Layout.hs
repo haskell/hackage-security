@@ -11,6 +11,7 @@ module Hackage.Security.TUF.Layout (
   , IndexRoot
   , IndexPath
   , IndexLayout(..)
+  , IndexFile(..)
   , hackageIndexLayout
     -- * Cache layout
   , CacheRoot
@@ -20,10 +21,13 @@ module Hackage.Security.TUF.Layout (
   , anchorCachePath
   ) where
 
+import qualified System.FilePath as FP
+
 import Distribution.Package
 import Distribution.Text
 
 import Hackage.Security.Util.Path
+import Hackage.Security.Util.Pretty
 
 {-------------------------------------------------------------------------------
   Repository layout
@@ -135,34 +139,75 @@ instance IsRoot IndexRoot where showRoot _ = "<index>"
 
 -- | Layout of the files within the index tarball
 data IndexLayout = IndexLayout  {
-      -- | TUF metadata for a package
-      indexLayoutPkgMetadata :: PackageIdentifier -> IndexPath
+      -- | Translate an 'IndexFile' to a path
+      indexFileToPath :: IndexFile -> IndexPath
 
-      -- | Package .cabal file
-    , indexLayoutPkgCabal :: PackageIdentifier -> IndexPath
+      -- | Parse an 'FilePath'
+      --
+      -- TODO: This takes a 'FilePath' rather than an 'IndexPath' for now,
+      -- because we need this to be relatively quick and the the indirection
+      -- through 'IndexPath' doesn't really gain us anything here.
+    , indexFileFromPath :: FilePath -> Maybe IndexFile
     }
+
+-- | Files that we might request from the index
+--
+-- TODO: If we wanted to support legacy Hackage, we should also have a case for
+-- the global preferred-versions file. But supporting legacy Hackage will
+-- probably require more work anyway..
+data IndexFile =
+    -- | Package-specific metadata (@targets.json@)
+    IndexPkgMetadata PackageIdentifier
+
+    -- | Cabal file for a package
+  | IndexPkgCabal PackageIdentifier
+
+    -- | Preferred versions a package
+  | IndexPkgPrefs PackageName
+  deriving Show
+
+instance Pretty IndexFile where
+  pretty (IndexPkgMetadata pkgId) = "metadata for " ++ display pkgId
+  pretty (IndexPkgCabal    pkgId) = ".cabal for " ++ display pkgId
+  pretty (IndexPkgPrefs    pkgNm) = "preferred-versions for " ++ display pkgNm
 
 -- | The layout of the index as maintained on Hackage
 hackageIndexLayout :: IndexLayout
 hackageIndexLayout = IndexLayout {
-      indexLayoutPkgMetadata = \pkgId -> rp $ pkgLoc pkgId </> pkgMetadata
-    , indexLayoutPkgCabal    = \pkgId -> rp $ pkgLoc pkgId </> pkgCabal pkgId
+      indexFileToPath   = toPath
+    , indexFileFromPath = fromPath
     }
   where
-    pkgLoc :: PackageIdentifier -> UnrootedPath
-    pkgLoc pkgId = joinFragments [
-          mkFragment $ display (packageName    pkgId)
-        , mkFragment $ display (packageVersion pkgId)
-        ]
+    toPath :: IndexFile -> IndexPath
+    toPath (IndexPkgMetadata pkgId) = fromFragments [
+                                          display (packageName    pkgId)
+                                        , display (packageVersion pkgId)
+                                        , display (packageName pkgId) ++ ".cabal"
+                                        ]
+    toPath (IndexPkgCabal    pkgId) = fromFragments [
+                                          display (packageName    pkgId)
+                                        , display (packageVersion pkgId)
+                                        , "package.json"
+                                        ]
+    toPath (IndexPkgPrefs    pkgNm) = fromFragments [
+                                          display pkgNm
+                                        , "preferred-versions"
+                                        ]
 
-    pkgCabal :: PackageIdentifier -> UnrootedPath
-    pkgCabal pkgId = fragment' (display (packageName pkgId)) <.> "cabal"
+    fromFragments :: [String] -> IndexPath
+    fromFragments = rootPath Rooted . joinFragments . map mkFragment
 
-    pkgMetadata :: UnrootedPath
-    pkgMetadata = fragment' "package" <.> "json"
-
-    rp :: UnrootedPath -> IndexPath
-    rp = rootPath Rooted
+    fromPath :: FilePath -> Maybe IndexFile
+    fromPath fp = case FP.splitPath fp of
+      [pkg, version, file] -> do
+        pkgId <- simpleParse (init pkg ++ "-" ++ init version)
+        case FP.takeExtension file of
+          ".cabal"   -> return $ IndexPkgCabal    pkgId
+          ".json"    -> return $ IndexPkgMetadata pkgId
+          _otherwise -> Nothing
+      [pkg, "preferred-versions"] ->
+        IndexPkgPrefs <$> simpleParse (init pkg)
+      _otherwise -> Nothing
 
 {-------------------------------------------------------------------------------
   Cache layout

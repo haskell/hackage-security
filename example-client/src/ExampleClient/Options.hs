@@ -54,6 +54,9 @@ data Command =
 
     -- | Download a specific package
   | Get PackageIdentifier
+
+    -- | Enumerate all entries in the index
+  | EnumIndex
   deriving Show
 
 {-------------------------------------------------------------------------------
@@ -76,6 +79,9 @@ parseCheck = pure Check
 
 parseGet :: Parser Command
 parseGet = Get <$> argument readPackageIdentifier (metavar "PKG")
+
+parseEnumIndex :: Parser Command
+parseEnumIndex = pure EnumIndex
 
 parseGlobalOptions :: Parser GlobalOpts
 parseGlobalOptions = GlobalOpts
@@ -120,6 +126,8 @@ parseGlobalOptions = GlobalOpts
             progDesc "Check for updates"
         , command "get" $ info (helper <*> parseGet) $
             progDesc "Download a package"
+        , command "enum-index" $ info (helper <*> parseEnumIndex) $
+            progDesc "Enumerate the index"
         ])
 
 readKeyId :: ReadM KeyId

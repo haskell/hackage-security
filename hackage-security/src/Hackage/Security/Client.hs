@@ -496,7 +496,7 @@ newtype Directory = Directory Tar.TarIndex
 -- See 'directoryLookup' or 'directoryEntries' to obtain a 'IndexEntry', or
 -- 'indexLookup' to lookup retrieve an entry from the index
 newtype DirectoryEntry = DirectoryEntry Tar.TarEntryOffset
-  deriving (Eq, Ord, Enum)
+  deriving (Eq, Ord)
 
 -- | Do a directory lookup
 --
@@ -511,26 +511,23 @@ directoryLookup Repository{..} (Directory idx) =
     path :: IndexFile -> FilePath
     path = toUnrootedFilePath
          . unrootPath'
-         . indexFilePath (repoIndexLayout repLayout)
+         . indexFileToPath (repoIndexLayout repLayout)
 
     mkEntry :: Tar.TarIndexEntry -> DirectoryEntry
     mkEntry (Tar.TarFileEntry offset) = DirectoryEntry offset
     mkEntry (Tar.TarDir _) = error "directoryLookup: unexpected directory"
 
--- | Find all directory entries
+-- | The first and next-available 'DirectoryEntry' for the index
 --
--- Note that 'DirectoryEntry' implements 'Enum', so you can find all entries
--- using
---
--- > do dir <- getDirectory rep
--- >    let (fr, to) = directoryEntries dir
--- >    forM_ [fr .. to] $ \entry ->
--- >      doSomethingWith =<< indexLookup rep entry
+-- This is useful for clients who wish to enumerate the entries in the index.
+-- Clients who wish to do their own incremental updates can cache this range;
+-- the cached next-available index can then be used as the starting point for
+-- enumerating the new entries.
 directoryEntries :: Directory -> (DirectoryEntry, DirectoryEntry)
 directoryEntries (Directory idx) = (
-     DirectoryEntry $ 0
-   , DirectoryEntry $ Tar.indexEndEntryOffset idx - 1
-   )
+      DirectoryEntry $ 0
+    , DirectoryEntry $ Tar.indexEndEntryOffset idx
+    )
 
 -- | Read the Hackage index directory
 --
@@ -540,23 +537,48 @@ getDirectory = liftM Directory . repGetIndexIdx
 
 -- | Look up an entry in the Hackage index
 --
+-- This is in 'withFile' style so that clients can efficiently look up multiple
+-- files from the index. The callback is provided with the index path to the
+-- file corresponding to the directory entry as well as the file contents and
+-- the 'DirectoryEntry' of the next file. If the 'DirectoryEntry' points past
+-- the end of the file the callback is given 'Nothing'.
+--
 -- In principle this will do verification (once we have implemented author
 -- signing). Right now it doesn't need to do that, because the index as a whole
 -- will have been verified.
 --
 -- Should only be called after 'checkForUpdates'.
 withIndex :: Repository down
-          -> ((DirectoryEntry -> IO (FilePath, BS.L.ByteString)) -> IO a)
+          -> ((DirectoryEntry -> IO (Maybe (IndexFile, BS.L.ByteString, DirectoryEntry))) -> IO a)
           -> IO a
 withIndex Repository{..} callback =
-    repWithIndex $ \h -> callback (lookupEntry h)
+    repWithIndex $ callback . lookupEntry
   where
-    lookupEntry :: Handle -> DirectoryEntry -> IO (FilePath, BS.L.ByteString)
+    lookupEntry :: Handle
+                -> DirectoryEntry
+                -> IO (Maybe (IndexFile, BS.L.ByteString, DirectoryEntry))
     lookupEntry h (DirectoryEntry offset) = do
-      entry <- Tar.hReadEntry h offset
-      case Tar.entryContent entry of
-        Tar.NormalFile bs _sz -> return (Tar.entryPath entry, bs)
-        _otherwise -> throwIO $ userError "withIndex: unexpected entry"
+      mEntry <- Tar.hReadEntryHeaderOrEof h offset
+      case mEntry of
+        Nothing -> return Nothing
+        Just (entry, next) ->
+          case Tar.entryContent entry of
+            Tar.NormalFile _bs sz -> do
+              -- hReadEntryHeaderOrEof didn't actually read the contents
+              Tar.hSeekEntryContentOffset h offset
+              content <- BS.L.hGet h (fromIntegral sz)
+              return $ Just (
+                  parse (Tar.entryPath entry)
+                , content
+                , DirectoryEntry next
+                )
+            _otherEntryType ->
+              throwIO $ userError "withIndex: unexpected entry"
+
+    parse :: FilePath -> IndexFile
+    parse fp = case indexFileFromPath (repoIndexLayout repLayout) fp of
+                 Nothing -> error $ "Unrecognized path " ++ fp
+                 Just ip -> ip
 
 {-------------------------------------------------------------------------------
   Bootstrapping
@@ -635,7 +657,10 @@ getFromIndex r file = liftIO $ do
     dir <- getDirectory r
     case directoryLookup r dir file of
       Nothing    -> return Nothing
-      Just entry -> Just . snd <$> withIndex r ($ entry)
+      Just entry -> fmap aux <$> withIndex r ($ entry)
+  where
+    aux :: (IndexFile, BS.L.ByteString, DirectoryEntry) -> BS.L.ByteString
+    aux (_file, bs, _next) = bs
 
 -- Tries to load the cached mirrors file
 withMirror :: Repository down -> IO a -> IO a

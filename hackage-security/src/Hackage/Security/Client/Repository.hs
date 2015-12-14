@@ -25,7 +25,6 @@ module Hackage.Security.Client.Repository (
     -- * Paths
   , remoteRepoPath
   , remoteRepoPath'
-  , indexFilePath
     -- * Utility
   , IsCached(..)
   , mustCache
@@ -141,25 +140,6 @@ instance Pretty CachedFile where
   pretty CachedRoot      = "root"
   pretty CachedSnapshot  = "snapshot"
   pretty CachedMirrors   = "mirrors"
-
--- | Files that we might request from the index
---
--- TODO: We should also provide a way to extract preferred versions info from
--- the tarball. After all, this is a security sensitive, as it might be used
--- for rollback/freeze attacks. Until we have author signing however this is
--- not a strict necessity, as the preferred versions comes from the index which
--- is itself signed.
-data IndexFile =
-    -- | Package-specific metadata (@targets.json@)
-    IndexPkgMetadata PackageIdentifier
-
-    -- | Cabal file for a package
-  | IndexPkgCabal PackageIdentifier
-  deriving Show
-
-instance Pretty IndexFile where
-  pretty (IndexPkgMetadata pkgId) = "metadata for " ++ display pkgId
-  pretty (IndexPkgCabal    pkgId) = ".cabal for " ++ display pkgId
 
 -- | Default format for each file type
 --
@@ -410,13 +390,6 @@ remoteRepoPath RepoLayout{..} = go
 remoteRepoPath' :: RepoLayout -> RemoteFile fs typ -> HasFormat fs f -> RepoPath
 remoteRepoPath' repoLayout file format =
     formatsLookup format $ remoteRepoPath repoLayout file
-
-indexFilePath :: IndexLayout -> IndexFile -> IndexPath
-indexFilePath IndexLayout{..} = go
-  where
-    go :: IndexFile -> IndexPath
-    go (IndexPkgMetadata pkgId) = indexLayoutPkgMetadata pkgId
-    go (IndexPkgCabal    pkgId) = indexLayoutPkgCabal    pkgId
 
 {-------------------------------------------------------------------------------
   Utility

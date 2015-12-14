@@ -32,6 +32,7 @@ main = do
       Bootstrap threshold -> cmdBootstrap opts threshold
       Check               -> cmdCheck     opts
       Get       pkgId     -> cmdGet       opts pkgId
+      EnumIndex           -> cmdEnumIndex opts
 
 {-------------------------------------------------------------------------------
   The commands are just thin wrappers around the hackage-security Client API
@@ -60,6 +61,21 @@ cmdGet opts pkgId = do
   where
     tarGzName :: Fragment
     tarGzName = takeFileName $ repoLayoutPkgTarGz hackageRepoLayout pkgId
+
+cmdEnumIndex :: GlobalOpts -> IO ()
+cmdEnumIndex opts =
+    withRepo opts $ \rep -> uncheckClientErrors $ do
+      dir <- getDirectory rep
+      let (first, _nextAvailable) = directoryEntries dir
+      withIndex rep $ go first
+  where
+    go dirEntry getEntry = do
+      mEntry <- getEntry dirEntry
+      case mEntry of
+        Nothing -> return ()
+        Just (path, _, next) -> do
+          putStrLn $ pretty path
+          go next getEntry
 
 {-------------------------------------------------------------------------------
   Common functionality
