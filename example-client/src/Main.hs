@@ -2,6 +2,7 @@
 module Main where
 
 -- stdlib
+import Control.Monad
 import Data.Time
 
 -- Cabal
@@ -66,16 +67,11 @@ cmdEnumIndex :: GlobalOpts -> IO ()
 cmdEnumIndex opts =
     withRepo opts $ \rep -> uncheckClientErrors $ do
       dir <- getDirectory rep
-      let (first, _nextAvailable) = directoryEntries dir
-      withIndex rep $ go first
+      forM_ (directoryEntries rep dir) $ putStrLn . aux
   where
-    go dirEntry getEntry = do
-      mEntry <- getEntry dirEntry
-      case mEntry of
-        Nothing -> return ()
-        Just (path, _, next) -> do
-          putStrLn $ pretty path
-          go next getEntry
+    aux :: (FilePath, Maybe IndexFile, DirectoryEntry) -> String
+    aux (_, Just file, _) = pretty file
+    aux (fp, Nothing, _)  = "unrecognized: " ++ fp
 
 {-------------------------------------------------------------------------------
   Common functionality
