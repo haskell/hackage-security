@@ -53,6 +53,7 @@ import Data.Time
 import Data.Traversable (for)
 import Data.Typeable (Typeable)
 import qualified Codec.Archive.Tar       as Tar
+import qualified Codec.Archive.Tar.Entry as Tar
 import qualified Codec.Archive.Tar.Index as Tar
 import qualified Data.ByteString.Lazy    as BS.L
 
@@ -560,6 +561,7 @@ data IndexEntry = IndexEntry {
     indexEntryPath       :: FilePath
   , indexEntryPathParsed :: Maybe IndexFile
   , indexEntryContent    :: BS.L.ByteString
+  , indexEntryTime       :: Tar.EpochTime
   }
 
 -- | Construct an 'IndexEntry'
@@ -567,12 +569,14 @@ data IndexEntry = IndexEntry {
 -- (Internal function)
 mkIndexEntry :: Repository down -> Tar.Entry -> BS.L.ByteString -> IndexEntry
 mkIndexEntry Repository{..} entry content = IndexEntry{
-     indexEntryPath       = path
-   , indexEntryPathParsed = parsed
-   , indexEntryContent    = content
-   }
+      indexEntryPath       = path
+    , indexEntryPathParsed = parsed
+    , indexEntryContent    = content
+    , indexEntryTime       = time
+    }
   where
     path   = Tar.entryPath entry
+    time   = Tar.entryTime entry
     parsed = indexFileFromPath (repoIndexLayout repLayout) path
 
 -- | Look up an entry in the Hackage index
