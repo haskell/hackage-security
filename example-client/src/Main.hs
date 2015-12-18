@@ -2,6 +2,7 @@
 module Main where
 
 -- stdlib
+import Control.Exception
 import Control.Monad
 import Data.Time
 
@@ -33,7 +34,7 @@ main = do
       Bootstrap threshold -> cmdBootstrap opts threshold
       Check               -> cmdCheck     opts
       Get       pkgId     -> cmdGet       opts pkgId
-      EnumIndex           -> cmdEnumIndex opts
+      EnumIndex newOnly   -> cmdEnumIndex opts newOnly
 
 {-------------------------------------------------------------------------------
   The commands are just thin wrappers around the hackage-security Client API
@@ -63,8 +64,8 @@ cmdGet opts pkgId = do
     tarGzName :: Fragment
     tarGzName = takeFileName $ repoLayoutPkgTarGz hackageRepoLayout pkgId
 
-cmdEnumIndex :: GlobalOpts -> IO ()
-cmdEnumIndex opts =
+cmdEnumIndex :: GlobalOpts -> NewOnly -> IO ()
+cmdEnumIndex opts False =
     withRepo opts $ \rep -> uncheckClientErrors $ do
       dir <- getDirectory rep
       forM_ (directoryEntries rep dir) $ putStrLn . aux
@@ -72,6 +73,28 @@ cmdEnumIndex opts =
     aux :: (FilePath, Maybe IndexFile, DirectoryEntry) -> String
     aux (_, Just file, _) = pretty file
     aux (fp, Nothing, _)  = "unrecognized: " ++ fp
+cmdEnumIndex opts True = do
+    startingPoint <- getStartingPoint
+    withRepo opts $ \rep -> uncheckClientErrors $ do
+      withIndex' rep $ \getEntry -> do
+        let go n = do mEntry <- getEntry n
+                      case mEntry of
+                        Nothing -> return n
+                        Just (entry, next) -> do
+                          putStrLn $ indexEntryPath entry
+                          go next
+        saveStartingPoint =<< go startingPoint
+  where
+    getStartingPoint :: IO DirectoryEntry
+    getStartingPoint =
+      catch (read <$> readFile marker)
+            (\(SomeException _) -> return firstDirectoryEntry)
+
+    saveStartingPoint :: DirectoryEntry -> IO ()
+    saveStartingPoint = writeFile marker . show
+
+    marker :: FilePath
+    marker = toFilePath (globalCache opts </> fragment' "enum.marker")
 
 {-------------------------------------------------------------------------------
   Common functionality

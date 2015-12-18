@@ -14,10 +14,13 @@ module Hackage.Security.Client (
   , Directory      -- opaque
   , DirectoryEntry(..)
   , IndexFile(..)
+  , IndexEntry(..)
+  , firstDirectoryEntry
   , directoryEntries
   , directoryLookup
   , getDirectory
   , withIndex
+  , withIndex'
     -- * Bootstrapping
   , requiresBootstrap
   , bootstrap
@@ -41,6 +44,7 @@ module Hackage.Security.Client (
   ) where
 
 import Prelude hiding (log)
+import Control.Arrow (first)
 import Control.Exception
 import Control.Monad
 import Control.Monad.IO.Class
@@ -69,7 +73,7 @@ import Hackage.Security.Util.Path
 import Hackage.Security.Util.Pretty
 import Hackage.Security.Util.Some
 import Hackage.Security.Util.Stack
-import qualified Hackage.Security.Key.Env   as KeyEnv
+import qualified Hackage.Security.Key.Env as KeyEnv
 
 {-------------------------------------------------------------------------------
   Checking for updates
@@ -496,10 +500,20 @@ newtype Directory = Directory Tar.TarIndex
 -- See 'directoryLookup' or 'directoryEntries' to obtain a 'IndexEntry', or
 -- 'indexLookup' to lookup retrieve an entry from the index
 newtype DirectoryEntry = DirectoryEntry {
-    -- | (Low-level) block number of the tar index
+    -- | (Low-level) block number of the tar index entry
     directoryEntryBlockNo :: Tar.TarEntryOffset
   }
   deriving (Eq, Ord)
+
+instance Show DirectoryEntry where
+  show = show . directoryEntryBlockNo
+
+instance Read DirectoryEntry where
+  readsPrec p = map (first DirectoryEntry) . readsPrec p
+
+-- | First directory entry of the index
+firstDirectoryEntry :: DirectoryEntry
+firstDirectoryEntry = DirectoryEntry 0
 
 -- | Do a directory lookup
 --
@@ -541,6 +555,26 @@ directoryEntries Repository{..} (Directory idx) =
 getDirectory :: Repository down -> IO Directory
 getDirectory = liftM Directory . repGetIndexIdx
 
+-- | Entry from the Hackage index; see 'withIndex'.
+data IndexEntry = IndexEntry {
+    indexEntryPath       :: FilePath
+  , indexEntryPathParsed :: Maybe IndexFile
+  , indexEntryContent    :: BS.L.ByteString
+  }
+
+-- | Construct an 'IndexEntry'
+--
+-- (Internal function)
+mkIndexEntry :: Repository down -> Tar.Entry -> BS.L.ByteString -> IndexEntry
+mkIndexEntry Repository{..} entry content = IndexEntry{
+     indexEntryPath       = path
+   , indexEntryPathParsed = parsed
+   , indexEntryContent    = content
+   }
+  where
+    path   = Tar.entryPath entry
+    parsed = indexFileFromPath (repoIndexLayout repLayout) path
+
 -- | Look up an entry in the Hackage index
 --
 -- This is in 'withFile' style so that clients can efficiently look up multiple
@@ -553,18 +587,50 @@ getDirectory = liftM Directory . repGetIndexIdx
 -- will have been verified.
 --
 -- Should only be called after 'checkForUpdates'.
+--
+-- See also 'withIndex''.
 withIndex :: Repository down
-          -> ((DirectoryEntry -> IO BS.L.ByteString) -> IO a)
+          -> ((DirectoryEntry -> IO IndexEntry) -> IO a)
           -> IO a
-withIndex Repository{..} callback =
+withIndex rep callback =
+    withIndex' rep $ callback . aux
+  where
+    aux getEntry dirEntry = do
+      mEntry <- getEntry dirEntry
+      case mEntry of
+        Nothing -> throwIO $ userError "Invalid DirectoryEntry"
+        Just (entry, _next) -> return entry
+
+-- | Sequentially read entries from the index
+--
+-- Given a 'DirectoryEntry' the callback is provided with the corresponding
+-- 'IndexEntry' and next 'DirectoryEntry' entry, if they exist. Note that this
+-- next 'DirectoryEntry' may or may not itself refer to an existing entry; by
+-- sequentially walking through the index the callback can discover the
+-- 'DirectoryEntry' that will correspond to the first entry to be added to the
+-- index on the next call to 'checkForUpdates'.
+--
+-- See also 'withIndex'.
+withIndex' :: Repository down
+           -> ((DirectoryEntry -> IO (Maybe (IndexEntry, DirectoryEntry))) -> IO a)
+           -> IO a
+withIndex' rep@Repository{..} callback =
     repWithIndex $ callback . lookupEntry
   where
-    lookupEntry :: Handle -> DirectoryEntry -> IO BS.L.ByteString
+    lookupEntry :: Handle -> DirectoryEntry -> IO (Maybe (IndexEntry, DirectoryEntry))
     lookupEntry h (DirectoryEntry offset) = do
-       entry <- Tar.hReadEntry h offset
-       case Tar.entryContent entry of
-         Tar.NormalFile bs _sz -> return bs
-         _otherwise -> throwIO $ userError "withIndex: unexpected entry"
+      mEntry <- Tar.hReadEntryHeaderOrEof h offset
+      case mEntry of
+        Nothing -> return Nothing
+        Just (entry, next) ->
+          case Tar.entryContent entry of
+            Tar.NormalFile _uninitialized sz -> do
+              Tar.hSeekEntryContentOffset h offset
+              content <- BS.L.hGet h (fromIntegral sz)
+              let e = mkIndexEntry rep entry content
+              return $ Just (e, DirectoryEntry next)
+            _otherEntryType ->
+              throwIO $ userError "withIndex: unexpected entry"
 
 {-------------------------------------------------------------------------------
   Bootstrapping
@@ -643,7 +709,7 @@ getFromIndex r file = liftIO $ do
     dir <- getDirectory r
     case directoryLookup r dir file of
       Nothing    -> return Nothing
-      Just entry -> Just <$> withIndex r ($ entry)
+      Just entry -> Just . indexEntryContent <$> withIndex r ($ entry)
 
 -- Tries to load the cached mirrors file
 withMirror :: Repository down -> IO a -> IO a

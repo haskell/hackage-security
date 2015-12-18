@@ -2,6 +2,7 @@
 module ExampleClient.Options (
     GlobalOpts(..)
   , Command(..)
+  , NewOnly
   , getOptions
     -- * Re-exports
   , URI
@@ -55,9 +56,11 @@ data Command =
     -- | Download a specific package
   | Get PackageIdentifier
 
-    -- | Enumerate all entries in the index
-  | EnumIndex
+    -- | Enumerate the entries in the index
+  | EnumIndex NewOnly
   deriving Show
+
+type NewOnly = Bool
 
 {-------------------------------------------------------------------------------
   Parsers
@@ -81,7 +84,11 @@ parseGet :: Parser Command
 parseGet = Get <$> argument readPackageIdentifier (metavar "PKG")
 
 parseEnumIndex :: Parser Command
-parseEnumIndex = pure EnumIndex
+parseEnumIndex = EnumIndex
+  <$> (switch $ mconcat [
+      long "new-only"
+    , help "Only enumerate entries since last call to enum-index"
+    ])
 
 parseGlobalOptions :: Parser GlobalOpts
 parseGlobalOptions = GlobalOpts
