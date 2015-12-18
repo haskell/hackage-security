@@ -24,7 +24,6 @@ import System.Posix.Types (EpochTime)
 import qualified System.Posix.Files as Posix
 
 -- hackage-security
-import Hackage.Security.Util.IO
 import Hackage.Security.Util.Path
 
 -- hackage-security-utility
@@ -48,7 +47,7 @@ getFileModTime GlobalOpts{..} repoLoc targetPath =
 
 compress :: AbsolutePath -> AbsolutePath -> IO ()
 compress src dst =
-    atomicWithFile dst $ \h ->
+    withFile dst WriteMode $ \h ->
       BS.L.hPut h =<< GZip.compress <$> readLazyByteString src
 
 -- | Create a symbolic link (unix only)

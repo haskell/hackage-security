@@ -450,7 +450,7 @@ extractCabalFile opts@GlobalOpts{..} repoLoc whenWrite pkgId = do
                         ++ " (extracted from "
                         ++ prettyTargetPath' globalRepoLayout src
                         ++ ")"
-            atomicWithFile pathCabalInIdx $ \h -> BS.L.hPut h cabalFile
+            withFile pathCabalInIdx WriteMode $ \h -> BS.L.hPut h cabalFile
   where
     pathCabalInTar :: FilePath
     pathCabalInTar = FilePath.joinPath [
