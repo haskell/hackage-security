@@ -48,7 +48,9 @@ import Control.Arrow (first)
 import Control.Exception
 import Control.Monad
 import Control.Monad.IO.Class
+import Data.List (sortBy)
 import Data.Maybe (isNothing)
+import Data.Ord (comparing)
 import Data.Time
 import Data.Traversable (for)
 import Data.Typeable (Typeable)
@@ -536,18 +538,21 @@ directoryLookup Repository{..} (Directory idx) =
     mkEntry (Tar.TarDir _) = error "directoryLookup: unexpected directory"
 
 -- | Enumerate the entries in the index
+--
+-- The result will be ordered by 'DirectoryEntry' so that the entries can
+-- efficiently be read in sequence.
 directoryEntries :: Repository down
                  -> Directory
-                 -> [(FilePath, Maybe IndexFile, DirectoryEntry)]
+                 -> [(DirectoryEntry, FilePath, Maybe IndexFile)]
 directoryEntries Repository{..} (Directory idx) =
-    map aux $ Tar.toList idx
+    map aux . sortBy (comparing snd) $ Tar.toList idx
   where
     aux :: (FilePath, Tar.TarEntryOffset)
-        -> (FilePath, Maybe IndexFile, DirectoryEntry)
+        -> (DirectoryEntry, FilePath, Maybe IndexFile)
     aux (fp, off) = (
-        fp
+        DirectoryEntry off
+      , fp
       , indexFileFromPath (repoIndexLayout repLayout) fp
-      , DirectoryEntry off
       )
 
 -- | Read the Hackage index directory

@@ -70,9 +70,9 @@ cmdEnumIndex opts False =
       dir <- getDirectory rep
       forM_ (directoryEntries rep dir) $ putStrLn . aux
   where
-    aux :: (FilePath, Maybe IndexFile, DirectoryEntry) -> String
-    aux (_, Just file, _) = pretty file
-    aux (fp, Nothing, _)  = "unrecognized: " ++ fp
+    aux :: (DirectoryEntry, FilePath, Maybe IndexFile) -> String
+    aux (_, _,  Just file) = pretty file
+    aux (_, fp, Nothing  ) = "unrecognized: " ++ fp
 cmdEnumIndex opts True = do
     startingPoint <- getStartingPoint
     withRepo opts $ \rep -> uncheckClientErrors $ do
