@@ -180,12 +180,12 @@ hackageIndexLayout = IndexLayout {
     }
   where
     toPath :: IndexFile -> IndexPath
-    toPath (IndexPkgMetadata pkgId) = fromFragments [
+    toPath (IndexPkgCabal    pkgId) = fromFragments [
                                           display (packageName    pkgId)
                                         , display (packageVersion pkgId)
                                         , display (packageName pkgId) ++ ".cabal"
                                         ]
-    toPath (IndexPkgCabal    pkgId) = fromFragments [
+    toPath (IndexPkgMetadata pkgId) = fromFragments [
                                           display (packageName    pkgId)
                                         , display (packageVersion pkgId)
                                         , "package.json"

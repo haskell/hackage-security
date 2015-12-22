@@ -54,10 +54,11 @@ import Data.Ord (comparing)
 import Data.Time
 import Data.Traversable (for)
 import Data.Typeable (Typeable)
-import qualified Codec.Archive.Tar       as Tar
-import qualified Codec.Archive.Tar.Entry as Tar
-import qualified Codec.Archive.Tar.Index as Tar
-import qualified Data.ByteString.Lazy    as BS.L
+import qualified Codec.Archive.Tar          as Tar
+import qualified Codec.Archive.Tar.Entry    as Tar
+import qualified Codec.Archive.Tar.Index    as Tar
+import qualified Data.ByteString.Lazy       as BS.L
+import qualified Data.ByteString.Lazy.Char8 as BS.L.C8
 
 import Distribution.Package (PackageIdentifier)
 import Distribution.Text (display)
@@ -449,7 +450,7 @@ downloadPackage rep@Repository{..} pkgId dest = withMirror rep $ runVerify repLo
       case mRaw of
         Nothing -> liftIO $ throwChecked $ InvalidPackageException pkgId
         Just raw -> do
-          signed <- throwErrorsUnchecked (InvalidFileInIndex indexFile) $
+          signed <- throwErrorsUnchecked (InvalidFileInIndex indexFile raw) $
                       parseJSON_Keys_NoLayout keyEnv raw
           return $ trustIndex signed
 
@@ -775,7 +776,11 @@ data InvalidPackageException = InvalidPackageException PackageIdentifier
 data LocalFileCorrupted = LocalFileCorrupted DeserializationError
   deriving (Typeable)
 
-data InvalidFileInIndex = InvalidFileInIndex IndexFile DeserializationError
+data InvalidFileInIndex = InvalidFileInIndex {
+    invalidFileInIndex      :: IndexFile
+  , invalidFileInIndexRaw   :: BS.L.ByteString
+  , invalidFileInIndexError :: DeserializationError
+  }
   deriving (Typeable)
 
 #if MIN_VERSION_base(4,8,0)
@@ -801,8 +806,11 @@ instance Pretty LocalFileCorrupted where
   pretty (LocalFileCorrupted err) = "Local file corrupted: " ++ pretty err
 
 instance Pretty InvalidFileInIndex where
-  pretty (InvalidFileInIndex file err) = "Invalid file " ++ pretty file
-                                      ++ "in index: " ++ pretty err
+  pretty (InvalidFileInIndex file raw err) = unlines [
+      "Invalid file in index: "  ++ pretty file
+    , "Error: " ++ pretty err
+    , "Unparsed file: " ++ BS.L.C8.unpack raw
+    ]
 
 {-------------------------------------------------------------------------------
   Auxiliary
