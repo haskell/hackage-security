@@ -193,13 +193,13 @@ data Repository down = DownloadedFile down => Repository {
                  -> Verify (Some (HasFormat fs), down typ)
 
     -- | Get a cached file (if available)
-  , repGetCached :: CachedFile -> IO (Maybe AbsolutePath)
+  , repGetCached :: CachedFile -> IO (Maybe (Path Absolute))
 
     -- | Get the cached root
     --
     -- This is a separate method only because clients must ALWAYS have root
     -- information available.
-  , repGetCachedRoot :: IO AbsolutePath
+  , repGetCachedRoot :: IO (Path Absolute)
 
     -- | Clear all cached data
     --
@@ -343,7 +343,7 @@ class DownloadedFile (down :: * -> *) where
   downloadedRead :: down Metadata -> IO BS.L.ByteString
 
   -- | Copy a downloaded file to its destination
-  downloadedCopyTo :: down a -> AbsolutePath -> IO ()
+  downloadedCopyTo :: down a -> Path Absolute -> IO ()
 
 {-------------------------------------------------------------------------------
   Exceptions thrown by specific Repository implementations

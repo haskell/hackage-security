@@ -20,13 +20,13 @@ import TestSuite.Util.StrictMVar
 import TestSuite.InMemRepo
 
 data InMemCache = InMemCache {
-      inMemCacheGet     :: CachedFile -> IO (Maybe AbsolutePath)
-    , inMemCacheGetRoot :: IO AbsolutePath
+      inMemCacheGet     :: CachedFile -> IO (Maybe (Path Absolute))
+    , inMemCacheGetRoot :: IO (Path Absolute)
     , inMemCacheClear   :: IO ()
     , inMemCachePut     :: forall f typ. InMemFile typ -> Format f -> IsCached typ -> IO ()
     }
 
-newInMemCache :: AbsolutePath -> RepoLayout -> IO InMemCache
+newInMemCache :: Path Absolute -> RepoLayout -> IO InMemCache
 newInMemCache tempDir layout = do
     state <- newMVar $ initLocalState layout
     return InMemCache {
@@ -76,7 +76,7 @@ initLocalState layout = LocalState {
 -------------------------------------------------------------------------------}
 
 -- | Get a cached file (if available)
-get :: MVar LocalState -> AbsolutePath -> CachedFile -> IO (Maybe AbsolutePath)
+get :: MVar LocalState -> Path Absolute -> CachedFile -> IO (Maybe (Path Absolute))
 get state cacheTempDir cachedFile =
       case cachedFile of
         CachedRoot      -> serve "root.json"      $ render cachedRoot
@@ -91,7 +91,7 @@ get state cacheTempDir cachedFile =
 
     serve :: String
           -> (LocalState -> Maybe BS.L.ByteString)
-          -> IO (Maybe AbsolutePath)
+          -> IO (Maybe (Path Absolute))
     serve template f =
       withMVar state $ \st ->
         case f st of
@@ -102,7 +102,7 @@ get state cacheTempDir cachedFile =
                         return $ Just tempFile
 
 -- | Get the cached root
-getRoot :: MVar LocalState -> AbsolutePath -> IO AbsolutePath
+getRoot :: MVar LocalState -> Path Absolute -> IO (Path Absolute)
 getRoot state cacheTempDir =
     needRoot `fmap` get state cacheTempDir CachedRoot
 

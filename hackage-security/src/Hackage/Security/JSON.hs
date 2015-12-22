@@ -252,33 +252,33 @@ parseJSON_NoKeys_NoLayout bs =
       Left  err -> Left (DeserializationErrorMalformed err)
       Right val -> runReadJSON_NoKeys_NoLayout (fromJSON val)
 
-readJSON_Keys_Layout :: ( IsFileSystemRoot root
+readJSON_Keys_Layout :: ( FsRoot root
                         , FromJSON ReadJSON_Keys_Layout a
                         )
                      => KeyEnv
                      -> RepoLayout
-                     -> Path (Rooted root)
+                     -> Path root
                      -> IO (Either DeserializationError a)
 readJSON_Keys_Layout keyEnv repoLayout fp = do
     withFile fp ReadMode $ \h -> do
       bs <- BS.L.hGetContents h
       evaluate $ parseJSON_Keys_Layout keyEnv repoLayout bs
 
-readJSON_Keys_NoLayout :: ( IsFileSystemRoot root
+readJSON_Keys_NoLayout :: ( FsRoot root
                           , FromJSON ReadJSON_Keys_NoLayout a
                           )
                        => KeyEnv
-                       -> Path (Rooted root)
+                       -> Path root
                        -> IO (Either DeserializationError a)
 readJSON_Keys_NoLayout keyEnv fp = do
     withFile fp ReadMode $ \h -> do
       bs <- BS.L.hGetContents h
       evaluate $ parseJSON_Keys_NoLayout keyEnv bs
 
-readJSON_NoKeys_NoLayout :: ( IsFileSystemRoot root
+readJSON_NoKeys_NoLayout :: ( FsRoot root
                             , FromJSON ReadJSON_NoKeys_NoLayout a
                             )
-                         => Path (Rooted root)
+                         => Path root
                          -> IO (Either DeserializationError a)
 readJSON_NoKeys_NoLayout fp = do
     withFile fp ReadMode $ \h -> do
@@ -313,10 +313,10 @@ renderJSON repoLayout = renderCanonicalJSON . runWriteJSON repoLayout . toJSON
 renderJSON_NoLayout :: ToJSON Identity a => a -> BS.L.ByteString
 renderJSON_NoLayout = renderCanonicalJSON . runIdentity . toJSON
 
-writeJSON :: ToJSON WriteJSON a => RepoLayout -> AbsolutePath -> a -> IO ()
+writeJSON :: ToJSON WriteJSON a => RepoLayout -> Path Absolute -> a -> IO ()
 writeJSON repoLayout fp = writeLazyByteString fp . renderJSON repoLayout
 
-writeJSON_NoLayout :: ToJSON Identity a => AbsolutePath -> a -> IO ()
+writeJSON_NoLayout :: ToJSON Identity a => Path Absolute -> a -> IO ()
 writeJSON_NoLayout fp = writeLazyByteString fp . renderJSON_NoLayout
 
 writeKeyAsId :: Some PublicKey -> JSValue

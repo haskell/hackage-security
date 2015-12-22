@@ -85,19 +85,19 @@ ifVerified handler = Verify $ do
 -- | Create a short-lived temporary file
 --
 -- Creates the directory where the temp file should live if it does not exist.
-openTempFile :: IsFileSystemRoot root
-             => Path (Rooted root) -- ^ Temp directory
-             -> String             -- ^ Template
-             -> Verify (AbsolutePath, Handle)
+openTempFile :: FsRoot root
+             => Path root  -- ^ Temp directory
+             -> String     -- ^ Template
+             -> Verify (Path Absolute, Handle)
 openTempFile tmpDir template =
     acquire createTempFile closeAndDelete
   where
-    createTempFile :: IO (AbsolutePath, Handle)
+    createTempFile :: IO (Path Absolute, Handle)
     createTempFile = do
       createDirectoryIfMissing True tmpDir
       openTempFile' tmpDir template
 
-    closeAndDelete :: (AbsolutePath, Handle) -> IO ()
+    closeAndDelete :: (Path Absolute, Handle) -> IO ()
     closeAndDelete (fp, h) = do
       hClose h
       void $ handleDoesNotExist $ removeFile fp

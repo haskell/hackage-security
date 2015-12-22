@@ -127,8 +127,8 @@ instance Monad m => ToObjectKey m TargetPath where
 
 instance ReportSchemaErrors m => FromObjectKey m TargetPath where
   fromObjectKey ('<':'r':'e':'p':'o':'>':'/':path) =
-    return . TargetPathRepo  . rootPath Rooted . fromUnrootedFilePath $ path
+    return . TargetPathRepo  . rootPath . fromUnrootedFilePath $ path
   fromObjectKey ('<':'i':'n':'d':'e':'x':'>':'/':path) =
-    return . TargetPathIndex . rootPath Rooted . fromUnrootedFilePath $ path
+    return . TargetPathIndex . rootPath . fromUnrootedFilePath $ path
   fromObjectKey str =
     expected "target path" (Just str)

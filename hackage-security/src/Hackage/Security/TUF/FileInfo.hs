@@ -60,7 +60,7 @@ fileInfo bs = FileInfo {
     }
 
 -- | Compute 'FileInfo'
-computeFileInfo :: IsFileSystemRoot root => Path (Rooted root) -> IO FileInfo
+computeFileInfo :: FsRoot root => Path root -> IO FileInfo
 computeFileInfo fp = fileInfo <$> readLazyByteString fp
 
 -- | Compare known file info

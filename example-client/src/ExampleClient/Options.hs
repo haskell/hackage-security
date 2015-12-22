@@ -25,10 +25,10 @@ import Hackage.Security.Util.Path
 
 data GlobalOpts = GlobalOpts {
     -- | Path to the repository (local or remote)
-    globalRepo :: Either AbsolutePath URI
+    globalRepo :: Either (Path Absolute) URI
 
     -- | Directory to store the client cache
-  , globalCache :: AbsolutePath
+  , globalCache :: Path Absolute
 
     -- | HTTP client to use
   , globalHttpClient :: String
@@ -151,10 +151,10 @@ readPackageIdentifier = do
       Nothing    -> fail $ "Invalid package ID " ++ show raw
 
 -- Sadly, cannot do I/O actions inside ReadM
-readAbsolutePath :: String -> ReadM AbsolutePath
+readAbsolutePath :: String -> ReadM (Path Absolute)
 readAbsolutePath = return . unsafePerformIO . makeAbsolute . fromFilePath
 
-readRepo :: String -> ReadM (Either AbsolutePath URI)
+readRepo :: String -> ReadM (Either (Path Absolute) URI)
 readRepo filePath =
     if "http://" `isPrefixOf` filePath
       then Right <$> readURI filePath

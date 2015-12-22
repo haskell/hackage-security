@@ -86,17 +86,11 @@ instance Monad m => ToObjectKey m String where
 instance Monad m => FromObjectKey m String where
   fromObjectKey = return
 
-instance Monad m => ToObjectKey m (Path Unrooted) where
-  toObjectKey = return . toUnrootedFilePath
+instance Monad m => ToObjectKey m (Path root) where
+  toObjectKey (Path fp) = return fp
 
-instance Monad m => FromObjectKey m (Path Unrooted) where
-  fromObjectKey = return . fromUnrootedFilePath
-
-instance Monad m => ToObjectKey m (Path (Rooted root)) where
-  toObjectKey = toObjectKey . unrootPath'
-
-instance Monad m => FromObjectKey m (Path (Rooted root)) where
-  fromObjectKey = liftM (rootPath Rooted) . fromObjectKey
+instance Monad m => FromObjectKey m (Path root) where
+  fromObjectKey = liftM Path . fromObjectKey
 
 {-------------------------------------------------------------------------------
   ToJSON and FromJSON instances

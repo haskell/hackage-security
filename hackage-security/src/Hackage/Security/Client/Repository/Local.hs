@@ -20,7 +20,7 @@ import Hackage.Security.Util.Some
 --
 -- Note that we regard the local repository as immutable; we cache files just
 -- like we do for remote repositories.
-type LocalRepo = Path (Rooted Absolute)
+type LocalRepo = Path Absolute
 
 -- | Initialize the repository (and cleanup resources afterwards)
 --
@@ -72,7 +72,7 @@ getRemote repoLayout repo cache _attemptNr remoteFile = do
   Files in the local repository
 -------------------------------------------------------------------------------}
 
-newtype LocalFile a = LocalFile AbsolutePath
+newtype LocalFile a = LocalFile (Path Absolute)
 
 instance DownloadedFile LocalFile where
   downloadedVerify = verifyLocalFile

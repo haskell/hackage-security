@@ -340,7 +340,7 @@ data DownloadMethod :: * -> * -> * where
     Update :: {
         updateFormat :: HasFormat fs f
       , updateInfo   :: Trusted FileInfo
-      , updateLocal  :: AbsolutePath
+      , updateLocal  :: Path Absolute
       , updateTail   :: Int
       } -> DownloadMethod fs Binary
 
@@ -424,7 +424,7 @@ getFile cfg@RemoteConfig{..} attemptNr remoteFile method =
     update :: (typ ~ Binary)
            => HasFormat fs f    -- ^ Selected format
            -> Trusted FileInfo  -- ^ Expected info
-           -> AbsolutePath      -- ^ Location of cached file (after callback)
+           -> Path Absolute      -- ^ Location of cached file (after callback)
            -> Int               -- ^ How much of the tail to overwrite
            -> Verify (Some (HasFormat fs), RemoteTemp typ)
     update format info cachedFile fileTail = do
@@ -586,7 +586,7 @@ data RemoteConfig = RemoteConfig {
 
 -- | Template for the local file we use to download a URI to
 uriTemplate :: URI -> String
-uriTemplate = unFragment . takeFileName . uriPath
+uriTemplate = takeFileName . uriPath
 
 fileLength' :: Trusted FileInfo -> Int
 fileLength' = fileLength . fileInfoLength . trusted
@@ -597,7 +597,7 @@ fileLength' = fileLength . fileInfoLength . trusted
 
 data RemoteTemp :: * -> * where
     DownloadedWhole :: {
-        wholeTemp :: AbsolutePath
+        wholeTemp :: Path Absolute
       } -> RemoteTemp a
 
     -- | If we download only the delta, we record both the path to where the
@@ -612,8 +612,8 @@ data RemoteTemp :: * -> * where
     --   path. In this case, we expect that destination path to be equal to
     --   the path to the old file (and assert this to be the case).
     DownloadedDelta :: {
-        deltaTemp     :: AbsolutePath
-      , deltaExisting :: AbsolutePath
+        deltaTemp     :: Path Absolute
+      , deltaExisting :: Path Absolute
       , deltaSeek     :: Int          -- ^ How much of the existing file to keep
       } -> RemoteTemp Binary
 

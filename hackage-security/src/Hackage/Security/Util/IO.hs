@@ -18,7 +18,7 @@ import Hackage.Security.Util.Path
   Miscelleneous
 -------------------------------------------------------------------------------}
 
-getFileSize :: IsFileSystemRoot root => Path (Rooted root) -> IO Int
+getFileSize :: FsRoot root => Path root -> IO Int
 getFileSize fp = fromInteger <$> withFile fp ReadMode hFileSize
 
 handleDoesNotExist :: IO a -> IO (Maybe a)
@@ -37,11 +37,11 @@ handleDoesNotExist act =
 -- afterwards. Creating a directory that already exists will throw an exception
 -- on most OSs (certainly Linux, OSX and Windows) and is a reasonably common way
 -- to implement a lock file.
-withDirLock :: AbsolutePath -> IO a -> IO a
+withDirLock :: Path Absolute -> IO a -> IO a
 withDirLock dir = bracket_ takeLock releaseLock
   where
-    lock :: AbsolutePath
-    lock = dir </> fragment' "hackage-security-lock"
+    lock :: Path Absolute
+    lock = dir </> fragment "hackage-security-lock"
 
     takeLock, releaseLock :: IO ()
     takeLock    = createDirectory lock

@@ -401,7 +401,7 @@ downloadPackage :: ( Throws SomeRemoteError
                    )
                 => Repository down    -- ^ Repository
                 -> PackageIdentifier  -- ^ Package to download
-                -> AbsolutePath       -- ^ Destination (see also 'downloadPackage'')
+                -> Path Absolute      -- ^ Destination (see also 'downloadPackage'')
                 -> IO ()
 downloadPackage rep@Repository{..} pkgId dest = withMirror rep $ runVerify repLockCache $ do
     -- We need the cached root information in order to resolve key IDs and
@@ -530,7 +530,7 @@ directoryLookup Repository{..} (Directory idx) =
   where
     path :: IndexFile -> FilePath
     path = toUnrootedFilePath
-         . unrootPath'
+         . unrootPath
          . indexFileToPath (repoIndexLayout repLayout)
 
     mkEntry :: Tar.TarIndexEntry -> DirectoryEntry
@@ -830,7 +830,7 @@ verifyFileInfo' (Just info) targetPath tempPath = liftIO $ do
     unless verified $ throw $ VerificationErrorFileInfo targetPath
 
 readCachedJSON :: (MonadIO m, FromJSON ReadJSON_Keys_Layout a)
-               => Repository down -> KeyEnv -> AbsolutePath
+               => Repository down -> KeyEnv -> Path Absolute
                -> m (Either DeserializationError a)
 readCachedJSON Repository{..} keyEnv fp = liftIO $ do
     bs <- readLazyByteString fp

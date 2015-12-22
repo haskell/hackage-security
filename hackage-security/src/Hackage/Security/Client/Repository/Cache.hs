@@ -34,7 +34,7 @@ import Hackage.Security.Util.Path
 
 -- | Location and layout of the local cache
 data Cache = Cache {
-      cacheRoot   :: AbsolutePath
+      cacheRoot   :: Path Absolute
     , cacheLayout :: CacheLayout
     }
 
@@ -53,7 +53,7 @@ cacheRemoteFile cache downloaded f isCached = do
     go FGz CacheIndex     = copyTo (cachedIndexPath cache FGz) >> unzipIndex
     go _ _ = error "cacheRemoteFile: unexpected case" -- TODO: enforce in types?
 
-    copyTo :: AbsolutePath -> IO ()
+    copyTo :: Path Absolute -> IO ()
     copyTo fp = do
       createDirectoryIfMissing True (takeDirectory fp)
       downloadedCopyTo downloaded fp
@@ -105,7 +105,7 @@ rebuildTarIndex cache = do
                               )
 
 -- | Get a cached file (if available)
-getCached :: Cache -> CachedFile -> IO (Maybe AbsolutePath)
+getCached :: Cache -> CachedFile -> IO (Maybe (Path Absolute))
 getCached cache cachedFile = do
     exists <- doesFileExist localPath
     if exists then return $ Just localPath
@@ -114,7 +114,7 @@ getCached cache cachedFile = do
     localPath = cachedFilePath cache cachedFile
 
 -- | Get the cached index (if available)
-getCachedIndex :: Cache -> Format f -> IO (Maybe AbsolutePath)
+getCachedIndex :: Cache -> Format f -> IO (Maybe (Path Absolute))
 getCachedIndex cache format = do
     exists <- doesFileExist localPath
     if exists then return $ Just localPath
@@ -126,7 +126,7 @@ getCachedIndex cache format = do
 --
 -- Calling 'getCachedRoot' without root info available is a programmer error
 -- and will result in an unchecked exception. See 'requiresBootstrap'.
-getCachedRoot :: Cache -> IO AbsolutePath
+getCachedRoot :: Cache -> IO (Path Absolute)
 getCachedRoot cache = do
     mPath <- getCached cache CachedRoot
     case mPath of
@@ -169,7 +169,7 @@ addEntries = go
     go !_       (Fail err)  = Left err
 
 -- TODO: How come 'deserialise' uses _strict_ ByteStrings?
-tryReadIndex :: AbsolutePath -> IO (Either (Maybe IOException) TarIndex)
+tryReadIndex :: Path Absolute -> IO (Either (Maybe IOException) TarIndex)
 tryReadIndex fp =
     aux <$> try (TarIndex.deserialise <$> readStrictByteString fp)
   where
@@ -182,7 +182,7 @@ tryReadIndex fp =
   Auxiliary: paths
 -------------------------------------------------------------------------------}
 
-cachedFilePath :: Cache -> CachedFile -> AbsolutePath
+cachedFilePath :: Cache -> CachedFile -> Path Absolute
 cachedFilePath Cache{cacheLayout=CacheLayout{..}, ..} file =
     anchorCachePath cacheRoot $ go file
   where
@@ -192,7 +192,7 @@ cachedFilePath Cache{cacheLayout=CacheLayout{..}, ..} file =
     go CachedSnapshot  = cacheLayoutSnapshot
     go CachedMirrors   = cacheLayoutMirrors
 
-cachedIndexPath :: Cache -> Format f -> AbsolutePath
+cachedIndexPath :: Cache -> Format f -> Path Absolute
 cachedIndexPath Cache{..} format =
     anchorCachePath cacheRoot $ go format
   where
@@ -200,6 +200,6 @@ cachedIndexPath Cache{..} format =
     go FUn = cacheLayoutIndexTar   cacheLayout
     go FGz = cacheLayoutIndexTarGz cacheLayout
 
-cachedIndexIdxPath :: Cache -> AbsolutePath
+cachedIndexIdxPath :: Cache -> Path Absolute
 cachedIndexIdxPath Cache{..} =
     anchorCachePath cacheRoot $ cacheLayoutIndexIdx cacheLayout

@@ -61,7 +61,7 @@ cmdGet opts pkgId = do
     withRepo opts $ \rep -> uncheckClientErrors $
       downloadPackage rep pkgId localFile
   where
-    tarGzName :: Fragment
+    tarGzName :: String
     tarGzName = takeFileName $ repoLayoutPkgTarGz hackageRepoLayout pkgId
 
 cmdEnumIndex :: GlobalOpts -> NewOnly -> IO ()
@@ -94,7 +94,7 @@ cmdEnumIndex opts True = do
     saveStartingPoint = writeFile marker . show
 
     marker :: FilePath
-    marker = toFilePath (globalCache opts </> fragment' "enum.marker")
+    marker = toFilePath (globalCache opts </> fragment "enum.marker")
 
 {-------------------------------------------------------------------------------
   Common functionality
@@ -108,7 +108,7 @@ withRepo GlobalOpts{..} = \callback ->
       Left  local  -> withLocalRepo  local  callback
       Right remote -> withRemoteRepo remote callback
   where
-    withLocalRepo :: AbsolutePath -> (Repository Local.LocalFile -> IO a) -> IO a
+    withLocalRepo :: Path Absolute -> (Repository Local.LocalFile -> IO a) -> IO a
     withLocalRepo repo =
         Local.withRepository repo
                              cache

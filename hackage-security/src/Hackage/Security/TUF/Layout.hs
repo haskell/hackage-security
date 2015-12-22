@@ -38,15 +38,16 @@ import Hackage.Security.Util.Pretty
 -- Repository roots can be anchored at a remote URL or a local directory.
 --
 -- Note that even for remote repos 'RepoRoot' is (potentially) different from
--- 'WebRoot' -- for a repository located at, say, @http://hackage.haskell.org@
+-- 'Web' -- for a repository located at, say, @http://hackage.haskell.org@
 -- they happen to coincide, but for one location at
 -- @http://example.com/some/subdirectory@ they do not.
 data RepoRoot
 
 -- | Paths relative to the root of the repository
-type RepoPath = Path (Rooted RepoRoot)
+type RepoPath = Path RepoRoot
 
-instance IsRoot RepoRoot where showRoot _ = "<repo>"
+instance Pretty (Path RepoRoot) where
+  pretty (Path fp) = "<repo>/" ++ fp
 
 -- | Layout of a repository
 data RepoLayout = RepoLayout {
@@ -81,21 +82,21 @@ data RepoLayout = RepoLayout {
 -- | The layout used on Hackage
 hackageRepoLayout :: RepoLayout
 hackageRepoLayout = RepoLayout {
-      repoLayoutRoot       = rp $ fragment' "root.json"
-    , repoLayoutTimestamp  = rp $ fragment' "timestamp.json"
-    , repoLayoutSnapshot   = rp $ fragment' "snapshot.json"
-    , repoLayoutMirrors    = rp $ fragment' "mirrors.json"
-    , repoLayoutIndexTarGz = rp $ fragment' "01-index.tar.gz"
-    , repoLayoutIndexTar   = rp $ fragment' "01-index.tar"
-    , repoLayoutPkgTarGz   = \pkgId -> rp $ fragment' "package" </> pkgFile pkgId
+      repoLayoutRoot       = rp $ fragment "root.json"
+    , repoLayoutTimestamp  = rp $ fragment "timestamp.json"
+    , repoLayoutSnapshot   = rp $ fragment "snapshot.json"
+    , repoLayoutMirrors    = rp $ fragment "mirrors.json"
+    , repoLayoutIndexTarGz = rp $ fragment "01-index.tar.gz"
+    , repoLayoutIndexTar   = rp $ fragment "01-index.tar"
+    , repoLayoutPkgTarGz   = \pkgId -> rp $ fragment "package" </> pkgFile pkgId
     , repoIndexLayout      = hackageIndexLayout
     }
   where
-    pkgFile :: PackageIdentifier -> UnrootedPath
-    pkgFile pkgId = fragment' (display pkgId) <.> "tar.gz"
+    pkgFile :: PackageIdentifier -> Path Unrooted
+    pkgFile pkgId = fragment (display pkgId) <.> "tar.gz"
 
-    rp :: UnrootedPath -> RepoPath
-    rp = rootPath Rooted
+    rp :: Path Unrooted -> RepoPath
+    rp = rootPath
 
 -- | Layout used by cabal for ("legacy") local repos
 --
@@ -106,24 +107,23 @@ cabalLocalRepoLayout = hackageRepoLayout {
       repoLayoutPkgTarGz = \pkgId -> rp $ pkgLoc pkgId </> pkgFile pkgId
     }
   where
-    pkgLoc :: PackageIdentifier -> UnrootedPath
+    pkgLoc :: PackageIdentifier -> Path Unrooted
     pkgLoc pkgId = joinFragments [
-          mkFragment $ display (packageName    pkgId)
-        , mkFragment $ display (packageVersion pkgId)
+          display (packageName    pkgId)
+        , display (packageVersion pkgId)
         ]
 
-    pkgFile :: PackageIdentifier -> UnrootedPath
-    pkgFile pkgId = fragment' (display pkgId) <.> "tar.gz"
+    pkgFile :: PackageIdentifier -> Path Unrooted
+    pkgFile pkgId = fragment (display pkgId) <.> "tar.gz"
 
-    rp :: UnrootedPath -> RepoPath
-    rp = rootPath Rooted
+    rp :: Path Unrooted -> RepoPath
+    rp = rootPath
 
-anchorRepoPathLocally :: IsFileSystemRoot root
-                      => Path (Rooted root) -> RepoPath -> Path (Rooted root)
-anchorRepoPathLocally localRoot repoPath = localRoot </> unrootPath' repoPath
+anchorRepoPathLocally :: FsRoot root => Path root -> RepoPath -> Path root
+anchorRepoPathLocally localRoot repoPath = localRoot </> unrootPath repoPath
 
-anchorRepoPathRemotely :: URIPath -> RepoPath -> URIPath
-anchorRepoPathRemotely remoteRoot repoPath = remoteRoot </> unrootPath' repoPath
+anchorRepoPathRemotely :: Path Web -> RepoPath -> Path Web
+anchorRepoPathRemotely remoteRoot repoPath = remoteRoot </> unrootPath repoPath
 
 {-------------------------------------------------------------------------------
   Index layout
@@ -133,9 +133,10 @@ anchorRepoPathRemotely remoteRoot repoPath = remoteRoot </> unrootPath' repoPath
 data IndexRoot
 
 -- | Paths relative to the root of the index tarball
-type IndexPath = Path (Rooted RepoRoot)
+type IndexPath = Path RepoRoot
 
-instance IsRoot IndexRoot where showRoot _ = "<index>"
+instance Pretty (Path IndexRoot) where
+    pretty (Path fp) = "<index>/" ++ fp
 
 -- | Layout of the files within the index tarball
 data IndexLayout = IndexLayout  {
@@ -195,7 +196,7 @@ hackageIndexLayout = IndexLayout {
                                         ]
 
     fromFragments :: [String] -> IndexPath
-    fromFragments = rootPath Rooted . joinFragments . map mkFragment
+    fromFragments = rootPath . joinFragments
 
     fromPath :: FilePath -> Maybe IndexFile
     fromPath fp = case FP.splitPath fp of
@@ -215,9 +216,10 @@ hackageIndexLayout = IndexLayout {
 
 -- | The cache directory
 data CacheRoot
-type CachePath = Path (Rooted CacheRoot)
+type CachePath = Path CacheRoot
 
-instance IsRoot CacheRoot where showRoot _ = "<cache>"
+instance Pretty (Path CacheRoot) where
+    pretty (Path fp) = "<cache>/" ++ fp
 
 -- | Location of the various files we cache
 --
@@ -259,19 +261,18 @@ data CacheLayout = CacheLayout {
 -- the hackage-security library to get files from the index).
 cabalCacheLayout :: CacheLayout
 cabalCacheLayout = CacheLayout {
-      cacheLayoutRoot       = rp $ fragment' "root.json"
-    , cacheLayoutTimestamp  = rp $ fragment' "timestamp.json"
-    , cacheLayoutSnapshot   = rp $ fragment' "snapshot.json"
-    , cacheLayoutMirrors    = rp $ fragment' "mirrors.json"
-    , cacheLayoutIndexTar   = rp $ fragment' "00-index.tar"
-    , cacheLayoutIndexIdx   = rp $ fragment' "00-index.tar.idx"
-    , cacheLayoutIndexTarGz = rp $ fragment' "00-index.tar.gz"
+      cacheLayoutRoot       = rp $ fragment "root.json"
+    , cacheLayoutTimestamp  = rp $ fragment "timestamp.json"
+    , cacheLayoutSnapshot   = rp $ fragment "snapshot.json"
+    , cacheLayoutMirrors    = rp $ fragment "mirrors.json"
+    , cacheLayoutIndexTar   = rp $ fragment "00-index.tar"
+    , cacheLayoutIndexIdx   = rp $ fragment "00-index.tar.idx"
+    , cacheLayoutIndexTarGz = rp $ fragment "00-index.tar.gz"
     }
   where
-    rp :: UnrootedPath -> CachePath
-    rp = rootPath Rooted
+    rp :: Path Unrooted -> CachePath
+    rp = rootPath
 
 -- | Anchor a cache path to the location of the cache
-anchorCachePath :: IsFileSystemRoot root
-                => Path (Rooted root) -> CachePath -> Path (Rooted root)
-anchorCachePath cacheRoot cachePath = cacheRoot </> unrootPath' cachePath
+anchorCachePath :: FsRoot root => Path root -> CachePath -> Path root
+anchorCachePath cacheRoot cachePath = cacheRoot </> unrootPath cachePath

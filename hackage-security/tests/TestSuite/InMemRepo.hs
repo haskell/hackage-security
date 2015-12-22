@@ -181,13 +181,13 @@ get state remoteFile = do
 getPath :: MVar RemoteState -> RepoPath -> IO (Some InMemFile)
 getPath state repoPath = do
     RemoteState{..} <- readMVar state
-    case toFilePath (castRoot repoPath) of
-      "/root.json"       -> return $ Some (InMemMetadata remoteLayout remoteRoot)
-      "/timestamp.json"  -> return $ Some (InMemMetadata remoteLayout remoteTimestamp)
-      "/snapshot.json"   -> return $ Some (InMemMetadata remoteLayout remoteSnapshot)
-      "/mirrors.json"    -> return $ Some (InMemMetadata remoteLayout remoteMirrors)
-      "/01-index.tar.gz" -> return $ Some (InMemBinary remoteTarGz)
-      "/01-index.tar"    -> return $ Some (InMemBinary remoteTar)
+    case toUnrootedFilePath (unrootPath repoPath) of
+      "root.json"       -> return $ Some (InMemMetadata remoteLayout remoteRoot)
+      "timestamp.json"  -> return $ Some (InMemMetadata remoteLayout remoteTimestamp)
+      "snapshot.json"   -> return $ Some (InMemMetadata remoteLayout remoteSnapshot)
+      "mirrors.json"    -> return $ Some (InMemMetadata remoteLayout remoteMirrors)
+      "01-index.tar.gz" -> return $ Some (InMemBinary remoteTarGz)
+      "01-index.tar"    -> return $ Some (InMemBinary remoteTar)
       otherPath -> throwIO . userError $ "getPath: Unknown path " ++ otherPath
   where
 

@@ -399,7 +399,7 @@ httpMemTest test = uncheckClientErrors $ do
       let logger msg = modifyMVar_ logMsgs $ \msgs -> return $ msgs ++ [msg]
           httpLib    = httpMem inMemRepo
           cache      = Cache.Cache {
-                           cacheRoot   = tempDir </> fragment' "cache"
+                           cacheRoot   = tempDir </> fragment "cache"
                          , cacheLayout = cabalCacheLayout
                          }
 
