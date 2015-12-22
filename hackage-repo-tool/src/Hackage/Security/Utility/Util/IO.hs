@@ -38,14 +38,14 @@ getFileModTime GlobalOpts{..} repoLoc targetPath =
     handle handler $
       Posix.modificationTime <$> Posix.getFileStatus (toFilePath fp)
   where
-    fp :: AbsolutePath
+    fp :: Path Absolute
     fp = anchorTargetPath' globalRepoLayout repoLoc targetPath
 
     handler :: IOException -> IO EpochTime
     handler ex = if isDoesNotExistError ex then return 0
                                            else throwIO ex
 
-compress :: AbsolutePath -> AbsolutePath -> IO ()
+compress :: Path Absolute -> Path Absolute -> IO ()
 compress src dst =
     withFile dst WriteMode $ \h ->
       BS.L.hPut h =<< GZip.compress <$> readLazyByteString src
@@ -56,9 +56,9 @@ compress src dst =
 --
 -- TODO: Currently this always creates links to absolute locations, whether the
 -- user specified an absolute or a relative target.
-createSymbolicLink :: (IsFileSystemRoot root, IsFileSystemRoot root')
-                   => Path (Rooted root)  -- ^ Link target
-                   -> Path (Rooted root') -- ^ Link location
+createSymbolicLink :: (FsRoot root, FsRoot root')
+                   => Path root  -- ^ Link target
+                   -> Path root' -- ^ Link location
                    -> IO ()
 createSymbolicLink linkTarget linkLoc = do
     createDirectoryIfMissing True (takeDirectory linkLoc)

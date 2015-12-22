@@ -39,10 +39,10 @@ import Hackage.Security.Util.Some
   File system locations
 -------------------------------------------------------------------------------}
 
-newtype RepoLoc = RepoLoc { repoLocPath :: AbsolutePath }
+newtype RepoLoc = RepoLoc { repoLocPath :: Path Absolute }
   deriving Eq
 
-newtype KeysLoc = KeysLoc { keysLocPath :: AbsolutePath }
+newtype KeysLoc = KeysLoc { keysLocPath :: Path Absolute }
   deriving Eq
 
 {-------------------------------------------------------------------------------
@@ -54,7 +54,7 @@ newtype KeysLoc = KeysLoc { keysLocPath :: AbsolutePath }
 -- Since the layout of the tarball may not match the layout of the index,
 -- we create a local directory with the unpacked contents of the index.
 repoLayoutIndexDir :: RepoLayout -> RepoPath
-repoLayoutIndexDir _ = rootPath Rooted $ fragment' "index"
+repoLayoutIndexDir _ = rootPath $ fragment "index"
 
 {-------------------------------------------------------------------------------
   Key layout
@@ -62,9 +62,10 @@ repoLayoutIndexDir _ = rootPath Rooted $ fragment' "index"
 
 -- | The key directory
 data KeyRoot
-type KeyPath = Path (Rooted KeyRoot)
+type KeyPath = Path KeyRoot
 
-instance IsRoot KeyRoot where showRoot _ = "<keys>"
+instance Pretty (Path KeyRoot) where
+    pretty (Path fp) = "<keys>/" ++ fp
 
 -- | Layout of the keys directory
 --
@@ -76,22 +77,22 @@ data KeysLayout = KeysLayout {
     , keysLayoutTimestamp :: KeyPath
     , keysLayoutSnapshot  :: KeyPath
     , keysLayoutMirrors   :: KeyPath
-    , keysLayoutKeyFile   :: Some Key -> UnrootedPath
+    , keysLayoutKeyFile   :: Some Key -> Path Unrooted
     }
 
 defaultKeysLayout :: KeysLayout
 defaultKeysLayout = KeysLayout {
-      keysLayoutRoot      = rp $ fragment' "root"
-    , keysLayoutTarget    = rp $ fragment' "target"
-    , keysLayoutTimestamp = rp $ fragment' "timestamp"
-    , keysLayoutSnapshot  = rp $ fragment' "snapshot"
-    , keysLayoutMirrors   = rp $ fragment' "mirrors"
+      keysLayoutRoot      = rp $ fragment "root"
+    , keysLayoutTarget    = rp $ fragment "target"
+    , keysLayoutTimestamp = rp $ fragment "timestamp"
+    , keysLayoutSnapshot  = rp $ fragment "snapshot"
+    , keysLayoutMirrors   = rp $ fragment "mirrors"
     , keysLayoutKeyFile   = \key -> let kId = keyIdString (someKeyId key)
-                                    in fragment' kId <.> "private"
+                                    in fragment kId <.> "private"
     }
   where
-    rp :: UnrootedPath -> KeyPath
-    rp = rootPath Rooted
+    rp :: Path Unrooted -> KeyPath
+    rp = rootPath
 
 keysLayoutKey :: (KeysLayout -> KeyPath) -> Some Key -> KeysLayout -> KeyPath
 keysLayoutKey dir key keysLayout@KeysLayout{..} =
@@ -133,23 +134,23 @@ indexLayoutPkgCabal :: IndexLayout -> PackageIdentifier -> IndexPath
 indexLayoutPkgCabal IndexLayout{..} = indexFileToPath . IndexPkgCabal
 
 -- | Anchor a tarball path to the repo (see 'repoLayoutIndex')
-anchorIndexPath :: RepoLayout -> RepoLoc -> (IndexLayout -> IndexPath) -> AbsolutePath
+anchorIndexPath :: RepoLayout -> RepoLoc -> (IndexLayout -> IndexPath) -> Path Absolute
 anchorIndexPath repoLayout repoLoc file =
         anchorRepoPath repoLayout repoLoc repoLayoutIndexDir
-    </> unrootPath' (file $ repoIndexLayout repoLayout)
+    </> unrootPath (file $ repoIndexLayout repoLayout)
 
-anchorRepoPath :: RepoLayout -> RepoLoc -> (RepoLayout -> RepoPath) -> AbsolutePath
+anchorRepoPath :: RepoLayout -> RepoLoc -> (RepoLayout -> RepoPath) -> Path Absolute
 anchorRepoPath repoLayout (RepoLoc repoLoc) file =
     anchorRepoPathLocally repoLoc $ file repoLayout
 
-anchorKeyPath :: KeysLayout -> KeysLoc -> (KeysLayout -> KeyPath) -> AbsolutePath
+anchorKeyPath :: KeysLayout -> KeysLoc -> (KeysLayout -> KeyPath) -> Path Absolute
 anchorKeyPath keysLayout (KeysLoc keysLoc) dir =
-    keysLoc </> unrootPath' (dir keysLayout)
+    keysLoc </> unrootPath (dir keysLayout)
 
-anchorTargetPath' :: RepoLayout -> RepoLoc -> TargetPath' -> AbsolutePath
+anchorTargetPath' :: RepoLayout -> RepoLoc -> TargetPath' -> Path Absolute
 anchorTargetPath' repoLayout repoLoc = go
   where
-    go :: TargetPath' -> AbsolutePath
+    go :: TargetPath' -> Path Absolute
     go (InRep    file)       = anchorRepoPath  repoLayout repoLoc file
     go (InIdx    file)       = anchorIndexPath repoLayout repoLoc file
     go (InRepPkg file pkgId) = anchorRepoPath  repoLayout repoLoc (`file` pkgId)

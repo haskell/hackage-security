@@ -45,18 +45,18 @@ data Command =
   | Update KeysLoc RepoLoc
 
     -- | Create root metadta
-  | CreateRoot KeysLoc AbsolutePath
+  | CreateRoot KeysLoc (Path Absolute)
 
     -- | Create mirrors metadata
-  | CreateMirrors KeysLoc AbsolutePath [URI]
+  | CreateMirrors KeysLoc (Path Absolute) [URI]
 
     -- | Create a directory with symlinks in cabal-local-rep layout
   | SymlinkCabalLocalRepo RepoLoc RepoLoc
 
     -- | Sign an individual file
-  | Sign [KeyLoc] DeleteExistingSignatures AbsolutePath
+  | Sign [KeyLoc] DeleteExistingSignatures (Path Absolute)
 
-type KeyLoc                   = AbsolutePath
+type KeyLoc                   = Path Absolute
 type DeleteExistingSignatures = Bool
 
 {-------------------------------------------------------------------------------
@@ -169,5 +169,5 @@ readURI uriStr =
      Just uri -> return uri
 
 -- Sadly, cannot do I/O actions inside ReadM
-readAbsolutePath :: String -> ReadM AbsolutePath
+readAbsolutePath :: String -> ReadM (Path Absolute)
 readAbsolutePath = return . unsafePerformIO . makeAbsolute . fromFilePath

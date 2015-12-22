@@ -144,7 +144,7 @@ writeKey opts@GlobalOpts{..} keysLoc subDir key = do
   We translate absolute paths to repo layout to fit with rest of infrastructure.
 -------------------------------------------------------------------------------}
 
-createRoot :: GlobalOpts -> KeysLoc -> AbsolutePath -> IO ()
+createRoot :: GlobalOpts -> KeysLoc -> Path Absolute -> IO ()
 createRoot opts@GlobalOpts{..} keysLoc rootLoc = do
     keys <- readKeys opts keysLoc
     now  <- getCurrentTime
@@ -159,7 +159,7 @@ createRoot opts@GlobalOpts{..} keysLoc rootLoc = do
                   repoLayoutRoot = rootFragment $ takeFileName rootLoc
                 }
 
-createMirrors :: GlobalOpts -> KeysLoc -> AbsolutePath -> [URI] -> IO ()
+createMirrors :: GlobalOpts -> KeysLoc -> Path Absolute -> [URI] -> IO ()
 createMirrors opts@GlobalOpts{..} keysLoc mirrorsLoc mirrors = do
     keys <- readKeys opts keysLoc
     now  <- getCurrentTime
@@ -175,8 +175,8 @@ createMirrors opts@GlobalOpts{..} keysLoc mirrorsLoc mirrors = do
                   repoLayoutMirrors = rootFragment $ takeFileName mirrorsLoc
                 }
 
-rootFragment :: Fragment -> RepoPath
-rootFragment = rootPath Rooted . fragment
+rootFragment :: String -> RepoPath
+rootFragment = rootPath . fragment
 
 {-------------------------------------------------------------------------------
   Bootstrapping / updating
@@ -274,7 +274,7 @@ bootstrapOrUpdate opts@GlobalOpts{..} keysLoc repoLoc isBootstrap = do
                (withSignatures globalRepoLayout (privateTimestamp keys))
                timestamp
   where
-    pathIndexTar :: AbsolutePath
+    pathIndexTar :: Path Absolute
     pathIndexTar = anchorRepoPath globalRepoLayout repoLoc repoLayoutIndexTar
 
     -- | Compute file information for a file in the repo
@@ -413,7 +413,7 @@ findNewIndexFiles opts@GlobalOpts{..} repoLoc whenWrite = do
     indexFiles <- getRecursiveContents absIndexDir
 
     let indexFiles' :: [IndexPath]
-        indexFiles' = map (rootPath Rooted) indexFiles
+        indexFiles' = map rootPath indexFiles
 
     case whenWrite of
       WriteInitial -> return indexFiles'
@@ -423,7 +423,7 @@ findNewIndexFiles opts@GlobalOpts{..} repoLoc whenWrite = do
           if fileTS > indexTS then return $ Just indexFile
                               else return Nothing
   where
-    absIndexDir :: AbsolutePath
+    absIndexDir :: Path Absolute
     absIndexDir = anchorRepoPath globalRepoLayout repoLoc repoLayoutIndexDir
 
 -- | Extract the cabal file from the package tarball and copy it to the index
@@ -458,7 +458,7 @@ extractCabalFile opts@GlobalOpts{..} repoLoc whenWrite pkgId = do
                        , display (packageName pkgId)
                        ] FilePath.<.> "cabal"
 
-    pathCabalInIdx :: AbsolutePath
+    pathCabalInIdx :: Path Absolute
     pathCabalInIdx = anchorTargetPath' globalRepoLayout repoLoc dst
 
     src, dst :: TargetPath'
@@ -545,7 +545,7 @@ updateFile opts@GlobalOpts{..} repoLoc whenWrite fileLoc signPayload a = do
       createDirectoryIfMissing True (takeDirectory fp)
       writeJSON globalRepoLayout fp (signPayload doc)
 
-    fp :: AbsolutePath
+    fp :: Path Absolute
     fp = anchorTargetPath' globalRepoLayout repoLoc fileLoc
 
     writing, creating, overwriting, updating :: String
@@ -569,14 +569,14 @@ findPackages :: GlobalOpts -> RepoLoc -> IO [PackageIdentifier]
 findPackages GlobalOpts{..} (RepoLoc repoLoc) =
     nub . mapMaybe isPackage <$> getRecursiveContents repoLoc
   where
-    isPackage :: UnrootedPath -> Maybe PackageIdentifier
+    isPackage :: Path Unrooted -> Maybe PackageIdentifier
     isPackage path = do
       guard $ not (isIndex path)
       pkg <- hasExtensions path [".tar", ".gz"]
       simpleParse pkg
 
-    isIndex :: UnrootedPath -> Bool
-    isIndex = (==) (unrootPath' (repoLayoutIndexTarGz globalRepoLayout))
+    isIndex :: Path Unrooted -> Bool
+    isIndex = (==) (unrootPath (repoLayoutIndexTarGz globalRepoLayout))
 
 -- | Check that packages are in their expected location
 checkRepoLayout :: GlobalOpts -> RepoLoc -> [PackageIdentifier] -> IO Bool
@@ -623,7 +623,7 @@ symlinkCabalLocalRepo opts@GlobalOpts{..} repoLoc cabalRepoLoc = do
   Signing individual files
 -------------------------------------------------------------------------------}
 
-signFile :: [KeyLoc] -> DeleteExistingSignatures -> AbsolutePath -> IO ()
+signFile :: [KeyLoc] -> DeleteExistingSignatures -> Path Absolute -> IO ()
 signFile keyLocs deleteExisting fp = do
     UninterpretedSignatures (payload :: JSValue) oldSigs <-
       throwErrors =<< readJSON_NoKeys_NoLayout fp
@@ -657,16 +657,13 @@ logWarn _opts str =
 --
 -- > hasExtensions "foo.tar.gz" [".tar", ".gz"] == Just "foo"
 hasExtensions :: Path a -> [String] -> Maybe String
-hasExtensions = \fp exts -> go (takeFileName' fp) (reverse exts)
+hasExtensions = \fp exts -> go (takeFileName fp) (reverse exts)
   where
     go :: FilePath -> [String] -> Maybe String
     go fp []     = return fp
     go fp (e:es) = do let (fp', e') = FilePath.splitExtension fp
                       guard $ e == e'
                       go fp' es
-
-    takeFileName' :: Path a -> String
-    takeFileName' = unFragment . takeFileName
 
 throwErrors :: Exception e => Either e a -> IO a
 throwErrors (Left err) = throwIO err
