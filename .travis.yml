@@ -35,8 +35,8 @@ before_install:
  - export PATH=/opt/ghc/$GHCVER/bin:/opt/cabal/$CABALVER/bin:$PATH
 # TODO: base>=4.5 only
  - if [ "$GHCVER" = "7.2.2" ];
-   then TARGETS="tar/ hackage-security/ hackage-security-curl/ hackage-security-HTTP/ hackage-root-tool/ hackage-repo-tool/ example-client/";
-   else TARGETS="tar/ hackage-security/ hackage-security-curl/ hackage-security-HTTP/ hackage-root-tool/ hackage-repo-tool/ example-client/ hackage-security-http-client/";
+   then TARGETS="hackage-security/ hackage-security-curl/ hackage-security-HTTP/ hackage-root-tool/ hackage-repo-tool/ example-client/";
+   else TARGETS="hackage-security/ hackage-security-curl/ hackage-security-HTTP/ hackage-root-tool/ hackage-repo-tool/ example-client/ hackage-security-http-client/";
    fi
 
 install:
@@ -53,7 +53,7 @@ install:
    fi
  - travis_retry cabal update -v
  - sed -i 's/^jobs:/-- jobs:/' ${HOME}/.cabal/config
- - cabal install --only-dependencies --dry -v $TARGETS > installplan.txt
+ - cabal install --only-dependencies --dry -v $TARGETS tar/ > installplan.txt
  - sed -i -e '1,/^Resolving /d' installplan.txt; cat installplan.txt
 
 # check whether current requested install-plan matches cached package-db snapshot
@@ -67,7 +67,7 @@ install:
      echo "cabal build-cache MISS";
      rm -rf $HOME/.cabsnap;
      mkdir -p $HOME/.ghc $HOME/.cabal/lib $HOME/.cabal/share $HOME/.cabal/bin;
-     cabal install --only-dependencies $TARGETS;
+     cabal install --only-dependencies $TARGETS tar/;
    fi
 
 # snapshot package-db on cache miss
@@ -78,6 +78,9 @@ install:
       cp -a $HOME/.ghc $HOME/.cabsnap/ghc;
       cp -a $HOME/.cabal/lib $HOME/.cabal/share $HOME/.cabal/bin installplan.txt $HOME/.cabsnap/;
    fi
+
+# NB: we don't want reflection/ to be included in the cache
+ - cabal install tar/
 
 # Here starts the actual work to be performed for the package under test;
 # any command which exits with a non-zero exit code causes the build to fail.
