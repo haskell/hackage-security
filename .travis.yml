@@ -13,9 +13,6 @@ before_cache:
 
 matrix:
   include:
-    - env: CABALVER=1.22 GHCVER=7.2.2
-      compiler: ": #GHC 7.2.2"
-      addons: {apt: {packages: [cabal-install-1.22,ghc-7.2.2], sources: [hvr-ghc]}}
 # cabal 1.16's solver is too weak for GHC 7.4
     - env: CABALVER=1.22 GHCVER=7.4.2
       compiler: ": #GHC 7.4.2"
@@ -33,11 +30,7 @@ matrix:
 before_install:
  - unset CC
  - export PATH=/opt/ghc/$GHCVER/bin:/opt/cabal/$CABALVER/bin:$PATH
-# TODO: base>=4.5 only
- - if [ "$GHCVER" = "7.2.2" ];
-   then TARGETS="hackage-security/ hackage-security-curl/ hackage-security-HTTP/ hackage-root-tool/ hackage-repo-tool/ example-client/";
-   else TARGETS="hackage-security/ hackage-security-curl/ hackage-security-HTTP/ hackage-root-tool/ hackage-repo-tool/ example-client/ hackage-security-http-client/";
-   fi
+ - TARGETS="hackage-security/ hackage-security-curl/ hackage-security-HTTP/ hackage-root-tool/ hackage-repo-tool/ example-client/ hackage-security-http-client/";
 
 install:
 # Temporary: we need a branch of tar for now
@@ -120,12 +113,11 @@ script:
  - SRC_TGZ=$(cabal info . | awk '{print $2;exit}').tar.gz && (cd dist && cabal install --force-reinstalls "$SRC_TGZ")
  - cd ..
 
- # TODO: only for base>=4.5
  - cd hackage-security-http-client/
- - if [ "$GHCVER" != "7.2.2" ]; then cabal configure -v2; fi
- - if [ "$GHCVER" != "7.2.2" ]; then cabal build; fi
- - if [ "$GHCVER" != "7.2.2" ]; then cabal sdist; fi
- - if [ "$GHCVER" != "7.2.2" ]; then SRC_TGZ=$(cabal info . | awk '{print $2;exit}').tar.gz && (cd dist && cabal install --force-reinstalls "$SRC_TGZ"); fi
+ - cabal configure -v2
+ - cabal build
+ - cabal sdist
+ - SRC_TGZ=$(cabal info . | awk '{print $2;exit}').tar.gz && (cd dist && cabal install --force-reinstalls "$SRC_TGZ")
  - cd ..
 
  - cd example-client/

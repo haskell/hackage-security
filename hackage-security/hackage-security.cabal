@@ -82,8 +82,8 @@ library
                        Hackage.Security.Util.Stack
                        Hackage.Security.Util.TypedEmbedded
                        Prelude
-  -- We support ghc 7.2 (bundled with Cabal 1.12) and up
-  build-depends:       base              >= 4.4     && < 5,
+  -- We support ghc 7.4 (bundled with Cabal 1.14) and up
+  build-depends:       base              >= 4.5     && < 5,
                        base64-bytestring >= 1.0     && < 1.1,
                        -- we need Data.ByteString.Builder to build tar indices,
                        -- which is only available from bytestring-0.10.2 and up
@@ -91,7 +91,7 @@ library
                        -- so that we can compile with the version of bytestring
                        -- that comes with ghc for ghc < 7.8
                        bytestring        >= 0.10.2  && < 0.11,
-                       Cabal             >= 1.12    && < 1.25,
+                       Cabal             >= 1.14    && < 1.25,
                        containers        >= 0.4     && < 0.6,
                        -- directory 1.2.2.0 introduced makeAbsolute
                        directory         >= 1.2.2.0 && < 1.3,
