@@ -80,7 +80,7 @@ writeKey keypair = do
   Signing individual files
 -------------------------------------------------------------------------------}
 
-signFile :: KeyLoc -> AbsolutePath -> IO ()
+signFile :: KeyLoc -> Path Absolute -> IO ()
 signFile keyLoc fp = do
     UninterpretedSignatures (payload :: JSValue) _oldSigs <-
       throwErrors =<< readJSON_NoKeys_NoLayout fp
@@ -123,7 +123,7 @@ data Command =
     -- | Sign an individual file
   | Sign FilePath FilePath
 
-type KeyLoc = AbsolutePath
+type KeyLoc = Path Absolute
 
 {-------------------------------------------------------------------------------
   Parsers
@@ -157,4 +157,3 @@ parseGlobalOptions =
         , command "sign" $ info (helper <*> parseSign) $
             progDesc "Sign a file"
         ])
-
