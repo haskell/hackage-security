@@ -33,13 +33,17 @@ matrix:
 before_install:
  - unset CC
  - export PATH=/opt/ghc/$GHCVER/bin:/opt/cabal/$CABALVER/bin:$PATH
-# TODO: base>=4.5 only 
+# TODO: base>=4.5 only
  - if [ "$GHCVER" = "7.2.2" ];
-   then TARGETS="hackage-security/ hackage-security-curl/ hackage-security-HTTP/ hackage-root-tool/ hackage-repo-tool/ example-client/";
-   else TARGETS="hackage-security/ hackage-security-curl/ hackage-security-HTTP/ hackage-root-tool/ hackage-repo-tool/ example-client/ hackage-security-http-client/";
+   then TARGETS="tar/ hackage-security/ hackage-security-curl/ hackage-security-HTTP/ hackage-root-tool/ hackage-repo-tool/ example-client/";
+   else TARGETS="tar/ hackage-security/ hackage-security-curl/ hackage-security-HTTP/ hackage-root-tool/ hackage-repo-tool/ example-client/ hackage-security-http-client/";
    fi
 
 install:
+# Temporary: we need a branch of tar for now
+ - git clone -b dev https://github.com/edsko/tar/
+
+# Compute install plan (which we use as a travis cache key)
  - cabal --version
  - echo "$(ghc --version) [$(ghc --print-project-git-commit-id 2> /dev/null || echo '?')]"
  - if [ -f $HOME/.cabal/packages/hackage.haskell.org/00-index.tar.gz ];
@@ -65,7 +69,7 @@ install:
      mkdir -p $HOME/.ghc $HOME/.cabal/lib $HOME/.cabal/share $HOME/.cabal/bin;
      cabal install --only-dependencies $TARGETS;
    fi
- 
+
 # snapshot package-db on cache miss
  - if [ ! -d $HOME/.cabsnap ];
    then
@@ -84,7 +88,7 @@ script:
  - cabal sdist
  - SRC_TGZ=$(cabal info . | awk '{print $2;exit}').tar.gz && (cd dist && cabal install --force-reinstalls "$SRC_TGZ")
  - cd ..
- 
+
  - cd hackage-security-curl/
  - cabal configure -v2
  - cabal build
@@ -113,7 +117,7 @@ script:
  - SRC_TGZ=$(cabal info . | awk '{print $2;exit}').tar.gz && (cd dist && cabal install --force-reinstalls "$SRC_TGZ")
  - cd ..
 
- # TODO: only for base>=4.5 
+ # TODO: only for base>=4.5
  - cd hackage-security-http-client/
  - if [ "$GHCVER" != "7.2.2" ]; then cabal configure -v2; fi
  - if [ "$GHCVER" != "7.2.2" ]; then cabal build; fi
@@ -127,5 +131,5 @@ script:
  - cabal sdist
  - SRC_TGZ=$(cabal info . | awk '{print $2;exit}').tar.gz && (cd dist && cabal install --force-reinstalls "$SRC_TGZ")
  - cd ..
- 
+
 # EOF
