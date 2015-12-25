@@ -30,6 +30,12 @@ data GlobalOpts = GlobalOpts {
     -- | Should we be verbose?
   , globalVerbose :: Bool
 
+    -- | Expiry time when creating root (in years)
+  , globalExpireRoot :: Integer
+
+    -- | Expiry time when creating mirrors (in years)
+  , globalExpireMirrors :: Integer
+
     -- | Command to execute
   , globalCommand :: Command
   }
@@ -144,6 +150,20 @@ parseGlobalOptions = GlobalOpts
           long "verbose"
         , short 'v'
         , help "Verbose logging"
+        ])
+  <*> (option auto $ mconcat [
+          long "expire-root"
+        , metavar "YEARS"
+        , help "Expiry time for the root info"
+        , value 1
+        , showDefault
+        ])
+  <*> (option auto $ mconcat [
+          long "expire-mirrors"
+        , metavar "YEARS"
+        , help "Expiry time for the mirrors"
+        , value 10
+        , showDefault
         ])
   <*> (subparser $ mconcat [
           command "create-keys" $ info (helper <*> parseCreateKeys) $

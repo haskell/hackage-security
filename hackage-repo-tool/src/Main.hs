@@ -302,7 +302,7 @@ updateRoot opts repoLoc whenWrite keys now =
     root :: Root
     root = Root {
         rootVersion = versionInitial
-      , rootExpires = expiresInDays now 365
+      , rootExpires = expiresInDays now (globalExpireRoot opts * 365)
       , rootKeys    = KeyEnv.fromKeys $ concat [
                           privateRoot      keys
                         , privateTarget    keys
@@ -353,7 +353,7 @@ updateMirrors opts repoLoc whenWrite keys now uris =
     mirrors :: Mirrors
     mirrors = Mirrors {
         mirrorsVersion = versionInitial
-      , mirrorsExpires = expiresInDays now (10 * 365)
+      , mirrorsExpires = expiresInDays now (globalExpireMirrors opts * 365)
       , mirrorsMirrors = map mkMirror uris
       }
 
