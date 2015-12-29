@@ -21,6 +21,8 @@ module Hackage.Security.Client (
   , getDirectory
   , withIndex
   , withIndex'
+  , withIndexFiles
+  , getFromIndex
     -- * Bootstrapping
   , requiresBootstrap
   , bootstrap
@@ -446,7 +448,7 @@ downloadPackage rep@Repository{..} pkgId dest = withMirror rep $ runVerify repLo
     -- unnecessary.
     targets :: Trusted Targets <- do
       let indexFile = IndexPkgMetadata pkgId
-      mRaw <- getFromIndex rep indexFile
+      mRaw <- liftIO $ getFromIndex rep indexFile
       case mRaw of
         Nothing -> liftIO $ throwChecked $ InvalidPackageException pkgId
         Just raw -> do
@@ -611,6 +613,28 @@ withIndex rep callback =
         Nothing -> throwIO $ userError "Invalid DirectoryEntry"
         Just (entry, _next) -> return entry
 
+-- | Variation on 'withIndex' that provides access to the index by 'IndexFile'
+--
+-- This makes it easy to extract cabal files or metadata from the index.
+withIndexFiles :: Repository down
+               -> ((IndexFile -> IO (Maybe BS.L.ByteString)) -> IO a)
+               -> IO a
+withIndexFiles rep callback = do
+    dir <- getDirectory rep
+    withIndex rep $ \getDirEntry ->
+      callback $ \indexFile ->
+        case directoryLookup rep dir indexFile of
+          Just dirEntry -> Just . indexEntryContent <$> getDirEntry dirEntry
+          Nothing       -> return Nothing
+
+-- | Get a single file from the index
+--
+-- NOTE: If you need to access multiple files, it is more efficient to use
+-- 'withIndexFiles' (or a combination of 'getDirectory, 'directoryLookup' and
+-- 'withIndex').
+getFromIndex :: Repository down -> IndexFile -> IO (Maybe BS.L.ByteString)
+getFromIndex r file = withIndexFiles r ($ file)
+
 -- | Sequentially read entries from the index
 --
 -- Given a 'DirectoryEntry' the callback is provided with the corresponding
@@ -709,17 +733,6 @@ clearCache r = liftIO $ repClearCache r
 
 log :: MonadIO m => Repository down -> LogMessage -> m ()
 log r msg = liftIO $ repLog r msg
-
--- | Get a single file from the index
-getFromIndex :: MonadIO m
-             => Repository down
-             -> IndexFile
-             -> m (Maybe BS.L.ByteString)
-getFromIndex r file = liftIO $ do
-    dir <- getDirectory r
-    case directoryLookup r dir file of
-      Nothing    -> return Nothing
-      Just entry -> Just . indexEntryContent <$> withIndex r ($ entry)
 
 -- Tries to load the cached mirrors file
 withMirror :: Repository down -> IO a -> IO a
