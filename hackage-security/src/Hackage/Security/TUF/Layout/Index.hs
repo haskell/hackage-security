@@ -1,8 +1,6 @@
 module Hackage.Security.TUF.Layout.Index (
     -- * Repository layout
-    IndexRoot
-  , IndexPath
-  , IndexLayout(..)
+    IndexLayout(..)
   , IndexFile(..)
   , hackageIndexLayout
   ) where
@@ -12,21 +10,13 @@ import qualified System.FilePath as FP
 import Distribution.Package
 import Distribution.Text
 
+import Hackage.Security.TUF.Paths
 import Hackage.Security.Util.Path
 import Hackage.Security.Util.Pretty
 
 {-------------------------------------------------------------------------------
   Index layout
 -------------------------------------------------------------------------------}
-
--- | The root of the index tarball
-data IndexRoot
-
--- | Paths relative to the root of the index tarball
-type IndexPath = Path IndexRoot
-
-instance Pretty (Path IndexRoot) where
-    pretty (Path fp) = "<index>/" ++ fp
 
 -- | Layout of the files within the index tarball
 data IndexLayout = IndexLayout  {

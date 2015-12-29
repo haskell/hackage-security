@@ -1,25 +1,15 @@
 module Hackage.Security.TUF.Layout.Cache (
     -- * Cache layout
-    CacheRoot
-  , CachePath
-  , CacheLayout(..)
+    CacheLayout(..)
   , cabalCacheLayout
-  , anchorCachePath
   ) where
 
+import Hackage.Security.TUF.Paths
 import Hackage.Security.Util.Path
-import Hackage.Security.Util.Pretty
 
 {-------------------------------------------------------------------------------
   Cache layout
 -------------------------------------------------------------------------------}
-
--- | The cache directory
-data CacheRoot
-type CachePath = Path CacheRoot
-
-instance Pretty (Path CacheRoot) where
-    pretty (Path fp) = "<cache>/" ++ fp
 
 -- | Location of the various files we cache
 --
@@ -72,7 +62,3 @@ cabalCacheLayout = CacheLayout {
   where
     rp :: Path Unrooted -> CachePath
     rp = rootPath
-
--- | Anchor a cache path to the location of the cache
-anchorCachePath :: FsRoot root => Path root -> CachePath -> Path root
-anchorCachePath cacheRoot cachePath = cacheRoot </> unrootPath cachePath

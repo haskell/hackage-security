@@ -1,39 +1,19 @@
 module Hackage.Security.TUF.Layout.Repo (
     -- * Repository layout
-    RepoRoot
-  , RepoPath
-  , RepoLayout(..)
+    RepoLayout(..)
   , hackageRepoLayout
   , cabalLocalRepoLayout
-  , anchorRepoPathLocally
-  , anchorRepoPathRemotely
   ) where
 
 import Distribution.Package
 import Distribution.Text
 
+import Hackage.Security.TUF.Paths
 import Hackage.Security.Util.Path
-import Hackage.Security.Util.Pretty
 
 {-------------------------------------------------------------------------------
   Repository layout
 -------------------------------------------------------------------------------}
-
--- | The root of the repository
---
--- Repository roots can be anchored at a remote URL or a local directory.
---
--- Note that even for remote repos 'RepoRoot' is (potentially) different from
--- 'Web' -- for a repository located at, say, @http://hackage.haskell.org@
--- they happen to coincide, but for one location at
--- @http://example.com/some/subdirectory@ they do not.
-data RepoRoot
-
--- | Paths relative to the root of the repository
-type RepoPath = Path RepoRoot
-
-instance Pretty (Path RepoRoot) where
-  pretty (Path fp) = "<repo>/" ++ fp
 
 -- | Layout of a repository
 data RepoLayout = RepoLayout {
@@ -97,9 +77,3 @@ cabalLocalRepoLayout = hackageRepoLayout {
 
     rp :: Path Unrooted -> RepoPath
     rp = rootPath
-
-anchorRepoPathLocally :: FsRoot root => Path root -> RepoPath -> Path root
-anchorRepoPathLocally localRoot repoPath = localRoot </> unrootPath repoPath
-
-anchorRepoPathRemotely :: Path Web -> RepoPath -> Path Web
-anchorRepoPathRemotely remoteRoot repoPath = remoteRoot </> unrootPath repoPath

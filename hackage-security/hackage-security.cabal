@@ -73,6 +73,7 @@ library
                        Hackage.Security.TUF.Layout.Index
                        Hackage.Security.TUF.Layout.Repo
                        Hackage.Security.TUF.Mirrors
+                       Hackage.Security.TUF.Paths
                        Hackage.Security.TUF.Patterns
                        Hackage.Security.TUF.Root
                        Hackage.Security.TUF.Signed

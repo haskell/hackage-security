@@ -8,6 +8,7 @@ module Hackage.Security.TUF (
   , module Hackage.Security.TUF.Layout.Index
   , module Hackage.Security.TUF.Layout.Repo
   , module Hackage.Security.TUF.Mirrors
+  , module Hackage.Security.TUF.Paths
 --  , module Hackage.Security.TUF.Patterns
   , module Hackage.Security.TUF.Root
   , module Hackage.Security.TUF.Signed
@@ -24,6 +25,7 @@ import Hackage.Security.TUF.Layout.Index
 import Hackage.Security.TUF.Layout.Repo
 import Hackage.Security.TUF.Mirrors
 -- import Hackage.Security.TUF.Patterns
+import Hackage.Security.TUF.Paths
 import Hackage.Security.TUF.Root
 import Hackage.Security.TUF.Signed
 import Hackage.Security.TUF.Snapshot
