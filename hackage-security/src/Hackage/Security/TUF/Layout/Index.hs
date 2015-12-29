@@ -11,8 +11,11 @@ import Distribution.Package
 import Distribution.Text
 
 import Hackage.Security.TUF.Paths
+import Hackage.Security.TUF.Signed
+import Hackage.Security.TUF.Targets
 import Hackage.Security.Util.Path
 import Hackage.Security.Util.Pretty
+import Hackage.Security.Util.Some
 
 {-------------------------------------------------------------------------------
   Index layout
@@ -21,29 +24,34 @@ import Hackage.Security.Util.Pretty
 -- | Layout of the files within the index tarball
 data IndexLayout = IndexLayout  {
       -- | Translate an 'IndexFile' to a path
-      indexFileToPath :: IndexFile -> IndexPath
+      indexFileToPath :: forall dec. IndexFile dec -> IndexPath
 
       -- | Parse an 'FilePath'
-    , indexFileFromPath :: IndexPath -> Maybe IndexFile
+    , indexFileFromPath :: IndexPath -> Maybe (Some IndexFile)
     }
 
 -- | Files that we might request from the index
 --
+-- The type index tells us the type of the decoded file, if any. For files for
+-- which the library does not support decoding this will be @()@.
+--
 -- TODO: If we wanted to support legacy Hackage, we should also have a case for
 -- the global preferred-versions file. But supporting legacy Hackage will
 -- probably require more work anyway..
-data IndexFile =
+data IndexFile :: * -> * where
     -- | Package-specific metadata (@targets.json@)
-    IndexPkgMetadata PackageIdentifier
+    IndexPkgMetadata :: PackageIdentifier -> IndexFile (Signed Targets)
 
     -- | Cabal file for a package
-  | IndexPkgCabal PackageIdentifier
+    IndexPkgCabal :: PackageIdentifier -> IndexFile ()
 
     -- | Preferred versions a package
-  | IndexPkgPrefs PackageName
-  deriving Show
+    IndexPkgPrefs :: PackageName -> IndexFile ()
 
-instance Pretty IndexFile where
+deriving instance Show (IndexFile dec)
+instance SomeShow IndexFile where someShow = DictShow
+
+instance Pretty (IndexFile dec) where
   pretty (IndexPkgMetadata pkgId) = "metadata for " ++ display pkgId
   pretty (IndexPkgCabal    pkgId) = ".cabal for " ++ display pkgId
   pretty (IndexPkgPrefs    pkgNm) = "preferred-versions for " ++ display pkgNm
@@ -55,7 +63,7 @@ hackageIndexLayout = IndexLayout {
     , indexFileFromPath = fromPath . toUnrootedFilePath . unrootPath
     }
   where
-    toPath :: IndexFile -> IndexPath
+    toPath :: IndexFile dec -> IndexPath
     toPath (IndexPkgCabal    pkgId) = fromFragments [
                                           display (packageName    pkgId)
                                         , display (packageVersion pkgId)
@@ -74,14 +82,14 @@ hackageIndexLayout = IndexLayout {
     fromFragments :: [String] -> IndexPath
     fromFragments = rootPath . joinFragments
 
-    fromPath :: FilePath -> Maybe IndexFile
+    fromPath :: FilePath -> Maybe (Some IndexFile)
     fromPath fp = case FP.splitPath fp of
       [pkg, version, file] -> do
         pkgId <- simpleParse (init pkg ++ "-" ++ init version)
         case FP.takeExtension file of
-          ".cabal"   -> return $ IndexPkgCabal    pkgId
-          ".json"    -> return $ IndexPkgMetadata pkgId
+          ".cabal"   -> return $ Some $ IndexPkgCabal    pkgId
+          ".json"    -> return $ Some $ IndexPkgMetadata pkgId
           _otherwise -> Nothing
       [pkg, "preferred-versions"] ->
-        IndexPkgPrefs <$> simpleParse (init pkg)
+        Some . IndexPkgPrefs <$> simpleParse (init pkg)
       _otherwise -> Nothing

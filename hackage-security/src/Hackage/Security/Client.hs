@@ -20,8 +20,6 @@ module Hackage.Security.Client (
   , directoryLookup
   , getDirectory
   , withIndex
-  , withIndex'
-  , withIndexFiles
   , getFromIndex
     -- * Bootstrapping
   , requiresBootstrap
@@ -407,12 +405,6 @@ downloadPackage :: ( Throws SomeRemoteError
                 -> Path Absolute      -- ^ Destination (see also 'downloadPackage'')
                 -> IO ()
 downloadPackage rep@Repository{..} pkgId dest = withMirror rep $ runVerify repLockCache $ do
-    -- We need the cached root information in order to resolve key IDs and
-    -- verify signatures. Note that whenever we read a JSON file, we verify
-    -- signatures (even if we don't verify the keys); if this is a problem
-    -- (for performance) we need to parameterize parseJSON.
-    (_cachedRoot, keyEnv) <- readLocalRoot rep
-
     -- NOTE: The files inside the index as evaluated lazily.
     --
     -- 1. The index tarball contains delegated target.json files for both
@@ -446,14 +438,15 @@ downloadPackage rep@Repository{..} pkgId dest = withMirror rep $ runVerify repLo
     -- metadata. By rights we should read the global targets file and apply the
     -- delegation rules. Until we have author signing however this is
     -- unnecessary.
-    targets :: Trusted Targets <- do
+    targets :: Trusted Targets <- liftIO $ do
       let indexFile = IndexPkgMetadata pkgId
-      mRaw <- liftIO $ getFromIndex rep indexFile
+      mRaw <- getFromIndex rep indexFile
       case mRaw of
-        Nothing -> liftIO $ throwChecked $ InvalidPackageException pkgId
-        Just raw -> do
-          signed <- throwErrorsUnchecked (InvalidFileInIndex indexFile raw) $
-                      parseJSON_Keys_NoLayout keyEnv raw
+        Nothing ->
+          throwChecked $ InvalidPackageException pkgId
+        Just IndexEntry{indexEntryContentParsed = Left ex} ->
+          throwUnchecked ex
+        Just IndexEntry{indexEntryContentParsed = Right signed} ->
           return $ trustIndex signed
 
     -- The path of the package, relative to the targets.json file
@@ -517,6 +510,8 @@ instance Show DirectoryEntry where
 instance Read DirectoryEntry where
   readsPrec p = map (first DirectoryEntry) . readsPrec p
 
+-- TODO: Clean up firstDirectoryEntry and directoryLookup
+
 -- | First directory entry of the index
 firstDirectoryEntry :: DirectoryEntry
 firstDirectoryEntry = DirectoryEntry 0
@@ -526,12 +521,12 @@ firstDirectoryEntry = DirectoryEntry 0
 -- This is an efficient operation
 directoryLookup :: Repository down
                 -> Directory
-                -> IndexFile
+                -> IndexFile dec
                 -> Maybe DirectoryEntry
 directoryLookup Repository{..} (Directory idx) =
     liftM mkEntry . Tar.lookup idx . path
   where
-    path :: IndexFile -> FilePath
+    path :: IndexFile dec -> FilePath
     path = toUnrootedFilePath
          . unrootPath
          . indexFileToPath repIndexLayout
@@ -546,12 +541,12 @@ directoryLookup Repository{..} (Directory idx) =
 -- efficiently be read in sequence.
 directoryEntries :: Repository down
                  -> Directory
-                 -> [(DirectoryEntry, IndexPath, Maybe IndexFile)]
+                 -> [(DirectoryEntry, IndexPath, Maybe (Some IndexFile))]
 directoryEntries Repository{..} (Directory idx) =
     map aux . sortBy (comparing snd) $ Tar.toList idx
   where
     aux :: (FilePath, Tar.TarEntryOffset)
-        -> (DirectoryEntry, IndexPath, Maybe IndexFile)
+        -> (DirectoryEntry, IndexPath, Maybe (Some IndexFile))
     aux (fp, off) = (
           DirectoryEntry off
         , indexPath
@@ -567,106 +562,143 @@ getDirectory :: Repository down -> IO Directory
 getDirectory = liftM Directory . repGetIndexIdx
 
 -- | Entry from the Hackage index; see 'withIndex'.
-data IndexEntry = IndexEntry {
-    indexEntryPath       :: IndexPath
-  , indexEntryPathParsed :: Maybe IndexFile
-  , indexEntryContent    :: BS.L.ByteString
-  , indexEntryTime       :: Tar.EpochTime
+data IndexEntry dec = IndexEntry {
+    -- | The raw path in the tarfile
+    indexEntryPath :: IndexPath
+
+    -- | The parsed file (if recognised)
+  , indexEntryPathParsed :: Maybe (IndexFile dec)
+
+    -- | The raw contents
+    --
+    -- Although this is a lazy bytestring, this is actually read into memory
+    -- strictly (i.e., it can safely be used outside the scope of withIndex and
+    -- friends).
+  , indexEntryContent :: BS.L.ByteString
+
+    -- | The parsed contents
+    --
+    -- This field is lazily constructed; the parser is not unless you do a
+    -- pattern match on this value.
+  , indexEntryContentParsed :: Either SomeException dec
+
+    -- | The time of the entry in the tarfile.
+  , indexEntryTime :: Tar.EpochTime
   }
 
--- | Construct an 'IndexEntry'
---
--- (Internal function)
-mkIndexEntry :: Repository down -> Tar.Entry -> BS.L.ByteString -> IndexEntry
-mkIndexEntry Repository{..} entry content = IndexEntry{
-      indexEntryPath       = path
-    , indexEntryPathParsed = parsed
-    , indexEntryContent    = content
-    , indexEntryTime       = time
-    }
-  where
-    path   = rootPath . fromUnrootedFilePath $ Tar.entryPath entry
-    time   = Tar.entryTime entry
-    parsed = indexFileFromPath repIndexLayout path
-
--- | Look up an entry in the Hackage index
+-- | Look up entries in the Hackage index
 --
 -- This is in 'withFile' style so that clients can efficiently look up multiple
--- files from the index. Although the callback is given a lazy bytestring, this
--- is actually read into memory strictly (i.e., they can safely be used outside
--- the scope of the callback).
+-- files from the index. The callback is provided with two functions:
+--
+-- * The first can be used to lookup entries by 'DirectoryEntry'; it is assumed
+--   that these entries are valid; if they are not, an exception will be thrown.
+--   This function also returns the 'DirectoryEntry' of the _next_ file in the
+--   index (if any) for the benefit of clients who wish to walk through the
+--   entire index.
+-- * The second can be used to look up entries by 'IndexFile'.
+--
+-- Note that 'IndexEntry' contains a fields both for the raw file contents and
+-- the parsed file contents; clients can choose which to use.
 --
 -- In principle this will do verification (once we have implemented author
 -- signing). Right now it doesn't need to do that, because the index as a whole
 -- will have been verified.
 --
 -- Should only be called after 'checkForUpdates'.
---
--- See also 'withIndex''.
 withIndex :: Repository down
-          -> ((DirectoryEntry -> IO IndexEntry) -> IO a)
+          -> (   (DirectoryEntry -> IO (Some IndexEntry, Maybe DirectoryEntry))
+              -> (IndexFile dec -> IO (Maybe (IndexEntry dec)))
+              -> IO a )
           -> IO a
-withIndex rep callback =
-    withIndex' rep $ callback . aux
-  where
-    aux getEntry dirEntry = do
-      mEntry <- getEntry dirEntry
-      case mEntry of
-        Nothing -> throwIO $ userError "Invalid DirectoryEntry"
-        Just (entry, _next) -> return entry
+withIndex rep@Repository{..} callback = do
+    -- We need the cached root information in order to resolve key IDs and
+    -- verify signatures. Note that whenever we read a JSON file, we verify
+    -- signatures (even if we don't verify the keys); if this is a problem
+    -- (for performance) we need to parameterize parseJSON.
+    (_cachedRoot, keyEnv) <- readLocalRoot rep
 
--- | Variation on 'withIndex' that provides access to the index by 'IndexFile'
---
--- This makes it easy to extract cabal files or metadata from the index.
-withIndexFiles :: Repository down
-               -> ((IndexFile -> IO (Maybe BS.L.ByteString)) -> IO a)
-               -> IO a
-withIndexFiles rep callback = do
-    dir <- getDirectory rep
-    withIndex rep $ \getDirEntry ->
-      callback $ \indexFile ->
-        case directoryLookup rep dir indexFile of
-          Just dirEntry -> Just . indexEntryContent <$> getDirEntry dirEntry
-          Nothing       -> return Nothing
+    -- We need the directory to resolve 'IndexFile's
+    dir@(Directory tarIndex) <- getDirectory rep
+
+    -- Open the index
+    repWithIndex $ \h -> do
+      let getEntry :: DirectoryEntry
+                   -> IO (Some IndexEntry, Maybe DirectoryEntry)
+          getEntry entry = do
+            (tarEntry, content, next) <- getTarEntry entry
+            let path = indexPath tarEntry
+            case indexFile path of
+              Nothing ->
+                return (Some (mkEntry tarEntry content Nothing), next)
+              Just (Some file) ->
+                return (Some (mkEntry tarEntry content (Just file)), next)
+
+          getFile :: IndexFile dec -> IO (Maybe (IndexEntry dec))
+          getFile file =
+            case directoryLookup rep dir file of
+              Nothing       -> return Nothing
+              Just dirEntry -> do
+                (tarEntry, content, _next) <- getTarEntry dirEntry
+                return $ Just (mkEntry tarEntry content (Just file))
+
+          mkEntry :: Tar.Entry -> BS.L.ByteString
+                  -> Maybe (IndexFile dec)
+                  -> IndexEntry dec
+          mkEntry tarEntry content mFile = IndexEntry {
+              indexEntryPath          = indexPath tarEntry
+            , indexEntryPathParsed    = mFile
+            , indexEntryContent       = content
+            , indexEntryContentParsed = parseContent mFile content
+            , indexEntryTime          = Tar.entryTime tarEntry
+            }
+
+          parseContent :: Maybe (IndexFile dec)
+                       -> BS.L.ByteString -> Either SomeException dec
+          parseContent Nothing     _   = Left pathNotRecognized
+          parseContent (Just file) raw = case file of
+            IndexPkgPrefs _ ->
+              Right () -- We don't currently parse preference files
+            IndexPkgCabal _ ->
+              Right () -- We don't currently parse .cabal files
+            IndexPkgMetadata _ ->
+              let mkEx = either
+                           (Left . SomeException . InvalidFileInIndex file raw)
+                           Right
+              in mkEx $ parseJSON_Keys_NoLayout keyEnv raw
+
+          -- Read an entry from the tar file. Returns entry content separately,
+          -- throwing an exception if the entry is not a regular file.
+          -- Also throws an exception if the 'DirectoryEntry' is invalid.
+          getTarEntry :: DirectoryEntry
+                      -> IO (Tar.Entry, BS.L.ByteString, Maybe DirectoryEntry)
+          getTarEntry (DirectoryEntry offset) = do
+            entry   <- Tar.hReadEntry h offset
+            content <- case Tar.entryContent entry of
+                         Tar.NormalFile content _sz -> return content
+                         _ -> throwIO $ userError "withIndex: unexpected entry"
+            let next  = Tar.nextEntryOffset entry offset
+                mNext = if next == Tar.indexEndEntryOffset tarIndex
+                          then Nothing
+                          else Just (DirectoryEntry next)
+            return (entry, content, mNext)
+
+      callback getEntry getFile
+  where
+    indexPath :: Tar.Entry -> IndexPath
+    indexPath = rootPath . fromUnrootedFilePath . Tar.entryPath
+
+    indexFile :: IndexPath -> Maybe (Some IndexFile)
+    indexFile = indexFileFromPath repIndexLayout
+
+    pathNotRecognized :: SomeException
+    pathNotRecognized = SomeException (userError "Path not recognized")
 
 -- | Get a single file from the index
 --
--- NOTE: If you need to access multiple files, it is more efficient to use
--- 'withIndexFiles' (or a combination of 'getDirectory, 'directoryLookup' and
--- 'withIndex').
-getFromIndex :: Repository down -> IndexFile -> IO (Maybe BS.L.ByteString)
-getFromIndex r file = withIndexFiles r ($ file)
-
--- | Sequentially read entries from the index
---
--- Given a 'DirectoryEntry' the callback is provided with the corresponding
--- 'IndexEntry' and next 'DirectoryEntry' entry, if they exist. Note that this
--- next 'DirectoryEntry' may or may not itself refer to an existing entry; by
--- sequentially walking through the index the callback can discover the
--- 'DirectoryEntry' that will correspond to the first entry to be added to the
--- index on the next call to 'checkForUpdates'.
---
--- See also 'withIndex'.
-withIndex' :: Repository down
-           -> ((DirectoryEntry -> IO (Maybe (IndexEntry, DirectoryEntry))) -> IO a)
-           -> IO a
-withIndex' rep@Repository{..} callback =
-    repWithIndex $ callback . lookupEntry
-  where
-    lookupEntry :: Handle -> DirectoryEntry -> IO (Maybe (IndexEntry, DirectoryEntry))
-    lookupEntry h (DirectoryEntry offset) = do
-      mEntry <- Tar.hReadEntryHeaderOrEof h offset
-      case mEntry of
-        Nothing -> return Nothing
-        Just (entry, next) ->
-          case Tar.entryContent entry of
-            Tar.NormalFile _uninitialized sz -> do
-              Tar.hSeekEntryContentOffset h offset
-              content <- BS.L.hGet h (fromIntegral sz)
-              let e = mkIndexEntry rep entry content
-              return $ Just (e, DirectoryEntry next)
-            _otherEntryType ->
-              throwIO $ userError "withIndex: unexpected entry"
+-- NOTE: If you need to multiple files, it is more efficient to use 'withIndex'.
+getFromIndex :: Repository down -> IndexFile dec -> IO (Maybe (IndexEntry dec))
+getFromIndex r file = withIndex r $ \_getEntry getFile -> getFile file
 
 {-------------------------------------------------------------------------------
   Bootstrapping
@@ -791,8 +823,8 @@ data InvalidPackageException = InvalidPackageException PackageIdentifier
 data LocalFileCorrupted = LocalFileCorrupted DeserializationError
   deriving (Typeable)
 
-data InvalidFileInIndex = InvalidFileInIndex {
-    invalidFileInIndex      :: IndexFile
+data InvalidFileInIndex = forall dec. InvalidFileInIndex {
+    invalidFileInIndex      :: IndexFile dec
   , invalidFileInIndexRaw   :: BS.L.ByteString
   , invalidFileInIndexError :: DeserializationError
   }
