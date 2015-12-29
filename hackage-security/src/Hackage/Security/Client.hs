@@ -546,17 +546,19 @@ directoryLookup Repository{..} (Directory idx) =
 -- efficiently be read in sequence.
 directoryEntries :: Repository down
                  -> Directory
-                 -> [(DirectoryEntry, FilePath, Maybe IndexFile)]
+                 -> [(DirectoryEntry, IndexPath, Maybe IndexFile)]
 directoryEntries Repository{..} (Directory idx) =
     map aux . sortBy (comparing snd) $ Tar.toList idx
   where
     aux :: (FilePath, Tar.TarEntryOffset)
-        -> (DirectoryEntry, FilePath, Maybe IndexFile)
+        -> (DirectoryEntry, IndexPath, Maybe IndexFile)
     aux (fp, off) = (
-        DirectoryEntry off
-      , fp
-      , indexFileFromPath (repoIndexLayout repLayout) fp
-      )
+          DirectoryEntry off
+        , indexPath
+        , indexFileFromPath (repoIndexLayout repLayout) indexPath
+        )
+      where
+        indexPath = rootPath $ fromUnrootedFilePath fp
 
 -- | Read the Hackage index directory
 --
@@ -566,7 +568,7 @@ getDirectory = liftM Directory . repGetIndexIdx
 
 -- | Entry from the Hackage index; see 'withIndex'.
 data IndexEntry = IndexEntry {
-    indexEntryPath       :: FilePath
+    indexEntryPath       :: IndexPath
   , indexEntryPathParsed :: Maybe IndexFile
   , indexEntryContent    :: BS.L.ByteString
   , indexEntryTime       :: Tar.EpochTime
@@ -583,7 +585,7 @@ mkIndexEntry Repository{..} entry content = IndexEntry{
     , indexEntryTime       = time
     }
   where
-    path   = Tar.entryPath entry
+    path   = rootPath . fromUnrootedFilePath $ Tar.entryPath entry
     time   = Tar.entryTime entry
     parsed = indexFileFromPath (repoIndexLayout repLayout) path
 

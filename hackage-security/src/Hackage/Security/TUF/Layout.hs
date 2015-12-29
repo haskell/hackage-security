@@ -133,7 +133,7 @@ anchorRepoPathRemotely remoteRoot repoPath = remoteRoot </> unrootPath repoPath
 data IndexRoot
 
 -- | Paths relative to the root of the index tarball
-type IndexPath = Path RepoRoot
+type IndexPath = Path IndexRoot
 
 instance Pretty (Path IndexRoot) where
     pretty (Path fp) = "<index>/" ++ fp
@@ -144,11 +144,7 @@ data IndexLayout = IndexLayout  {
       indexFileToPath :: IndexFile -> IndexPath
 
       -- | Parse an 'FilePath'
-      --
-      -- TODO: This takes a 'FilePath' rather than an 'IndexPath' for now,
-      -- because we need this to be relatively quick and the the indirection
-      -- through 'IndexPath' doesn't really gain us anything here.
-    , indexFileFromPath :: FilePath -> Maybe IndexFile
+    , indexFileFromPath :: IndexPath -> Maybe IndexFile
     }
 
 -- | Files that we might request from the index
@@ -176,7 +172,7 @@ instance Pretty IndexFile where
 hackageIndexLayout :: IndexLayout
 hackageIndexLayout = IndexLayout {
       indexFileToPath   = toPath
-    , indexFileFromPath = fromPath
+    , indexFileFromPath = fromPath . toUnrootedFilePath . unrootPath
     }
   where
     toPath :: IndexFile -> IndexPath
