@@ -4,7 +4,9 @@ module Hackage.Security.TUF (
   , module Hackage.Security.TUF.FileInfo
   , module Hackage.Security.TUF.FileMap
   , module Hackage.Security.TUF.Header
-  , module Hackage.Security.TUF.Layout
+  , module Hackage.Security.TUF.Layout.Cache
+  , module Hackage.Security.TUF.Layout.Index
+  , module Hackage.Security.TUF.Layout.Repo
   , module Hackage.Security.TUF.Mirrors
 --  , module Hackage.Security.TUF.Patterns
   , module Hackage.Security.TUF.Root
@@ -17,7 +19,9 @@ module Hackage.Security.TUF (
 import Hackage.Security.TUF.Common
 import Hackage.Security.TUF.FileInfo
 import Hackage.Security.TUF.Header
-import Hackage.Security.TUF.Layout
+import Hackage.Security.TUF.Layout.Cache
+import Hackage.Security.TUF.Layout.Index
+import Hackage.Security.TUF.Layout.Repo
 import Hackage.Security.TUF.Mirrors
 -- import Hackage.Security.TUF.Patterns
 import Hackage.Security.TUF.Root

@@ -534,7 +534,7 @@ directoryLookup Repository{..} (Directory idx) =
     path :: IndexFile -> FilePath
     path = toUnrootedFilePath
          . unrootPath
-         . indexFileToPath (repoIndexLayout repLayout)
+         . indexFileToPath repIndexLayout
 
     mkEntry :: Tar.TarIndexEntry -> DirectoryEntry
     mkEntry (Tar.TarFileEntry offset) = DirectoryEntry offset
@@ -555,7 +555,7 @@ directoryEntries Repository{..} (Directory idx) =
     aux (fp, off) = (
           DirectoryEntry off
         , indexPath
-        , indexFileFromPath (repoIndexLayout repLayout) indexPath
+        , indexFileFromPath repIndexLayout indexPath
         )
       where
         indexPath = rootPath $ fromUnrootedFilePath fp
@@ -587,7 +587,7 @@ mkIndexEntry Repository{..} entry content = IndexEntry{
   where
     path   = rootPath . fromUnrootedFilePath $ Tar.entryPath entry
     time   = Tar.entryTime entry
-    parsed = indexFileFromPath (repoIndexLayout repLayout) path
+    parsed = indexFileFromPath repIndexLayout path
 
 -- | Look up an entry in the Hackage index
 --

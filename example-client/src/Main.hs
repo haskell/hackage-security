@@ -113,6 +113,7 @@ withRepo GlobalOpts{..} = \callback ->
         Local.withRepository repo
                              cache
                              hackageRepoLayout
+                             hackageIndexLayout
                              logTUF
 
     withRemoteRepo :: URI -> (Repository Remote.RemoteTemp -> IO a) -> IO a
@@ -122,6 +123,7 @@ withRepo GlobalOpts{..} = \callback ->
                               repoOpts
                               cache
                               hackageRepoLayout
+                              hackageIndexLayout
                               logTUF
                               callback
 

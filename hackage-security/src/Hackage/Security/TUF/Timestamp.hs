@@ -10,7 +10,7 @@ import Hackage.Security.JSON
 import Hackage.Security.TUF.FileInfo
 import Hackage.Security.TUF.FileMap
 import Hackage.Security.TUF.Header
-import Hackage.Security.TUF.Layout
+import Hackage.Security.TUF.Layout.Repo
 import Hackage.Security.TUF.Signed
 import qualified Hackage.Security.TUF.FileMap as FileMap
 

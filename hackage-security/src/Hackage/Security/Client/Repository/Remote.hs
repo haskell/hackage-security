@@ -160,6 +160,7 @@ withRepository
   -> RepoOpts                         -- ^ Repository options
   -> Cache                            -- ^ Location of local cache
   -> RepoLayout                       -- ^ Repository layout
+  -> IndexLayout                      -- ^ Index layout
   -> (LogMessage -> IO ())            -- ^ Logger
   -> (Repository RemoteTemp -> IO a)  -- ^ Callback
   -> IO a
@@ -168,6 +169,7 @@ withRepository httpLib
                repoOpts
                cache
                repLayout
+               repIndexLayout
                logger
                callback
                = do
@@ -197,6 +199,7 @@ withRepository httpLib
                                       repoOpts
       , repLog           = logger
       , repLayout        = repLayout
+      , repIndexLayout   = repIndexLayout
       , repDescription   = "Remote repository at " ++ show outOfBandMirrors
       }
 

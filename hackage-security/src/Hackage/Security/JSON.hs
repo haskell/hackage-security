@@ -48,7 +48,7 @@ import qualified Data.ByteString.Lazy as BS.L
 
 import Hackage.Security.Key
 import Hackage.Security.Key.Env (KeyEnv)
-import Hackage.Security.TUF.Layout
+import Hackage.Security.TUF.Layout.Repo
 import Hackage.Security.Util.JSON
 import Hackage.Security.Util.Path
 import Hackage.Security.Util.Pretty

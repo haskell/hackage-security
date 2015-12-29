@@ -33,10 +33,18 @@ withRepository
   :: LocalRepo                       -- ^ Location of local repository
   -> Cache                           -- ^ Location of local cache
   -> RepoLayout                      -- ^ Repository layout
+  -> IndexLayout                     -- ^ Index layout
   -> (LogMessage -> IO ())           -- ^ Logger
   -> (Repository LocalFile -> IO a)  -- ^ Callback
   -> IO a
-withRepository repo cache repLayout logger callback = callback Repository {
+withRepository repo
+               cache
+               repLayout
+               repIndexLayout
+               logger
+               callback
+               =
+  callback Repository {
       repGetRemote     = getRemote repLayout repo cache
     , repGetCached     = getCached     cache
     , repGetCachedRoot = getCachedRoot cache
@@ -47,6 +55,7 @@ withRepository repo cache repLayout logger callback = callback Repository {
     , repWithMirror    = mirrorsUnsupported
     , repLog           = logger
     , repLayout        = repLayout
+    , repIndexLayout   = repIndexLayout
     , repDescription   = "Local repository at " ++ pretty repo
     }
 

@@ -254,6 +254,12 @@ data Repository down = DownloadedFile down => Repository {
     -- | Layout of this repository
   , repLayout :: RepoLayout
 
+    -- | Layout of the index
+    --
+    -- Since the repository hosts the index, the layout of the index is
+    -- not independent of the layout of the repository.
+  , repIndexLayout :: IndexLayout
+
     -- | Description of the repository (used in the show instance)
   , repDescription :: String
   }

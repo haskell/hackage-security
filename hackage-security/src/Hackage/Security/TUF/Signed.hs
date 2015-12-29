@@ -35,7 +35,7 @@ import qualified Data.Set             as Set
 
 import Hackage.Security.JSON
 import Hackage.Security.Key
-import Hackage.Security.TUF.Layout
+import Hackage.Security.TUF.Layout.Repo
 import Hackage.Security.Util.Some
 import Text.JSON.Canonical
 import qualified Hackage.Security.Util.Base64 as B64

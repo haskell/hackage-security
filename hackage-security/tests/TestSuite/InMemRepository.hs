@@ -18,11 +18,12 @@ import TestSuite.InMemCache
 import TestSuite.InMemRepo
 
 newInMemRepository :: RepoLayout
+                   -> IndexLayout
                    -> InMemRepo
                    -> InMemCache
                    -> (LogMessage -> IO ())
                    -> IO (Repository InMemFile)
-newInMemRepository layout repo cache logger = do
+newInMemRepository layout indexLayout repo cache logger = do
     cacheLock <- newMVar ()
     return $ Repository {
         repGetRemote     = getRemote     repo cache
@@ -35,6 +36,7 @@ newInMemRepository layout repo cache logger = do
       , repWithMirror    = withMirror
       , repLog           = logger
       , repLayout        = layout
+      , repIndexLayout   = indexLayout
       , repDescription   = "In memory repository"
       }
 

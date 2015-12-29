@@ -373,7 +373,7 @@ inMemTest test = uncheckClientErrors $ do
       logMsgs    <- newMVar []
 
       let logger msg = modifyMVar_ logMsgs $ \msgs -> return $ msgs ++ [msg]
-      repository <- newInMemRepository layout inMemRepo inMemCache logger
+      repository <- newInMemRepository layout hackageIndexLayout inMemRepo inMemCache logger
 
       bootstrap repository (map someKeyId (privateRoot keys)) (KeyThreshold 2)
       test inMemRepo logMsgs repository
@@ -408,6 +408,7 @@ httpMemTest test = uncheckClientErrors $ do
                             Remote.defaultRepoOpts
                             cache
                             hackageRepoLayout
+                            hackageIndexLayout
                             logger
                             $ \repository -> do
         withAssertLog "bootstrap" logMsgs bootstrapMsgs $
