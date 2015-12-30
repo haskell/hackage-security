@@ -3,6 +3,10 @@ module Hackage.Security.TUF.Layout.Index (
     IndexLayout(..)
   , IndexFile(..)
   , hackageIndexLayout
+    -- ** Utility
+  , indexLayoutPkgMetadata
+  , indexLayoutPkgCabal
+  , indexLayoutPkgPrefs
   ) where
 
 import qualified System.FilePath as FP
@@ -97,3 +101,16 @@ hackageIndexLayout = IndexLayout {
       [pkg, "preferred-versions"] ->
         Some . IndexPkgPrefs <$> simpleParse (init pkg)
       _otherwise -> Nothing
+
+{-------------------------------------------------------------------------------
+  Utility
+-------------------------------------------------------------------------------}
+
+indexLayoutPkgMetadata :: IndexLayout -> PackageIdentifier -> IndexPath
+indexLayoutPkgMetadata IndexLayout{..} = indexFileToPath . IndexPkgMetadata
+
+indexLayoutPkgCabal :: IndexLayout -> PackageIdentifier -> IndexPath
+indexLayoutPkgCabal IndexLayout{..} = indexFileToPath . IndexPkgCabal
+
+indexLayoutPkgPrefs :: IndexLayout -> PackageName -> IndexPath
+indexLayoutPkgPrefs IndexLayout{..} = indexFileToPath . IndexPkgPrefs

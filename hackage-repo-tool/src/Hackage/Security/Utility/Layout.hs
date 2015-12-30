@@ -127,12 +127,6 @@ applyTargetPath' repoLayout targetPath =
   Utility
 -------------------------------------------------------------------------------}
 
-indexLayoutPkgMetadata :: IndexLayout -> PackageIdentifier -> IndexPath
-indexLayoutPkgMetadata IndexLayout{..} = indexFileToPath . IndexPkgMetadata
-
-indexLayoutPkgCabal :: IndexLayout -> PackageIdentifier -> IndexPath
-indexLayoutPkgCabal IndexLayout{..} = indexFileToPath . IndexPkgCabal
-
 -- | Anchor a tarball path to the repo (see 'repoLayoutIndex')
 anchorIndexPath :: RepoLayout -> RepoLoc -> (IndexLayout -> IndexPath) -> Path Absolute
 anchorIndexPath repoLayout repoLoc file =
