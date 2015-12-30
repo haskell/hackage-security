@@ -1,4 +1,4 @@
-module Hackage.Security.Utility.Options (
+module Hackage.Security.RepoTool.Options (
     GlobalOpts(..)
   , Command(..)
   , KeyLoc
@@ -13,7 +13,8 @@ import System.IO.Unsafe (unsafePerformIO)
 import Hackage.Security.Client
 import Hackage.Security.Util.Path
 
-import Hackage.Security.Utility.Layout
+import Hackage.Security.RepoTool.Layout.Keys
+import Hackage.Security.RepoTool.Paths
 
 {-------------------------------------------------------------------------------
   Types
@@ -26,6 +27,9 @@ data GlobalOpts = GlobalOpts {
 
     -- | Local repository layout
   , globalRepoLayout :: RepoLayout
+
+    -- | Local index layout
+  , globalIndexLayout :: IndexLayout
 
     -- | Should we be verbose?
   , globalVerbose :: Bool
@@ -146,6 +150,7 @@ parseGlobalOptions :: Parser GlobalOpts
 parseGlobalOptions = GlobalOpts
   <$> (pure defaultKeysLayout)
   <*> (pure hackageRepoLayout)
+  <*> (pure hackageIndexLayout)
   <*> (switch $ mconcat [
           long "verbose"
         , short 'v'

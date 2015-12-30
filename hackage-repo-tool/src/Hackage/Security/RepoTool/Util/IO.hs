@@ -1,6 +1,6 @@
 -- | IO utilities
 {-# LANGUAGE CPP #-}
-module Hackage.Security.Utility.Util.IO (
+module Hackage.Security.RepoTool.Util.IO (
     -- * Miscellaneous
     compress
   , getFileModTime
@@ -26,20 +26,21 @@ import qualified System.Posix.Files as Posix
 -- hackage-security
 import Hackage.Security.Util.Path
 
--- hackage-security-utility
-import Hackage.Security.Utility.Options
-import Hackage.Security.Utility.Layout
+-- hackage-repo-tool
+import Hackage.Security.RepoTool.Options
+import Hackage.Security.RepoTool.Layout
+import Hackage.Security.RepoTool.Paths
 
 -- | Get the modification time of the specified file
 --
 -- Returns 0 if the file does not exist .
 getFileModTime :: GlobalOpts -> RepoLoc -> TargetPath' -> IO EpochTime
-getFileModTime GlobalOpts{..} repoLoc targetPath =
+getFileModTime opts repoLoc targetPath =
     handle handler $
       Posix.modificationTime <$> Posix.getFileStatus (toFilePath fp)
   where
     fp :: Path Absolute
-    fp = anchorTargetPath' globalRepoLayout repoLoc targetPath
+    fp = anchorTargetPath' opts repoLoc targetPath
 
     handler :: IOException -> IO EpochTime
     handler ex = if isDoesNotExistError ex then return 0
@@ -79,9 +80,9 @@ tarExtractFile :: GlobalOpts
                -> TargetPath'
                -> FilePath
                -> IO (Maybe (BS.L.ByteString, Tar.FileSize))
-tarExtractFile GlobalOpts{..} repoLoc pathTarGz pathToExtract =
-     handle (throwIO . TarGzError (prettyTargetPath' globalRepoLayout pathTarGz)) $ do
-       let pathTarGz' = anchorTargetPath' globalRepoLayout repoLoc pathTarGz
+tarExtractFile opts repoLoc pathTarGz pathToExtract =
+     handle (throwIO . TarGzError (prettyTargetPath' opts pathTarGz)) $ do
+       let pathTarGz' = anchorTargetPath' opts repoLoc pathTarGz
        go =<< Tar.read . GZip.decompress <$> readLazyByteString pathTarGz'
   where
     go :: Exception e => Tar.Entries e -> IO (Maybe (BS.L.ByteString, Tar.FileSize))

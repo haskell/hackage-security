@@ -26,9 +26,11 @@ flag use-network-uri
 
 executable hackage-repo-tool
   main-is:             Main.hs
-  other-modules:       Hackage.Security.Utility.Options
-                       Hackage.Security.Utility.Layout
-                       Hackage.Security.Utility.Util.IO
+  other-modules:       Hackage.Security.RepoTool.Options
+                       Hackage.Security.RepoTool.Layout
+                       Hackage.Security.RepoTool.Layout.Keys
+                       Hackage.Security.RepoTool.Paths
+                       Hackage.Security.RepoTool.Util.IO
                        Prelude
   build-depends:       base                 >= 4.4  && < 5,
                        Cabal                >= 1.12 && < 1.25,

@@ -26,12 +26,14 @@ import Hackage.Security.Util.Pretty
 import qualified Hackage.Security.Key.Env     as KeyEnv
 import qualified Hackage.Security.TUF.FileMap as FileMap
 import qualified Hackage.Security.Util.Lens   as Lens
-
--- hackage-security-utility
-import Hackage.Security.Utility.Options
-import Hackage.Security.Utility.Layout
-import Hackage.Security.Utility.Util.IO
 import Text.JSON.Canonical (JSValue)
+
+-- hackage-repo-tool
+import Hackage.Security.RepoTool.Options
+import Hackage.Security.RepoTool.Layout
+import Hackage.Security.RepoTool.Layout.Keys
+import Hackage.Security.RepoTool.Paths
+import Hackage.Security.RepoTool.Util.IO
 
 {-------------------------------------------------------------------------------
   Main application driver
@@ -117,7 +119,7 @@ writeKeys opts keysLoc PrivateKeys{..} = do
     forM_ privateMirrors   $ writeKey opts keysLoc keysLayoutMirrors
 
 readKeysAt :: GlobalOpts -> KeysLoc -> (KeysLayout -> KeyPath) -> IO [Some Key]
-readKeysAt opts@GlobalOpts{..} keysLoc subDir = catMaybes <$> do
+readKeysAt opts keysLoc subDir = catMaybes <$> do
     entries <- getDirectoryContents absPath
     forM entries $ \entry -> do
       let path = absPath </> entry
@@ -127,7 +129,7 @@ readKeysAt opts@GlobalOpts{..} keysLoc subDir = catMaybes <$> do
                         return Nothing
         Right key -> return $ Just key
   where
-    absPath = anchorKeyPath globalKeysLayout keysLoc subDir
+    absPath = anchorKeyPath opts keysLoc subDir
 
 writeKey :: GlobalOpts -> KeysLoc -> (KeysLayout -> KeyPath) -> Some Key -> IO ()
 writeKey opts@GlobalOpts{..} keysLoc subDir key = do
@@ -136,7 +138,7 @@ writeKey opts@GlobalOpts{..} keysLoc subDir key = do
     writeJSON_NoLayout absPath key
   where
     relPath = keysLayoutKey subDir key
-    absPath = anchorKeyPath globalKeysLayout keysLoc relPath
+    absPath = anchorKeyPath opts keysLoc relPath
 
 {-------------------------------------------------------------------------------
   Creating individual files
@@ -230,13 +232,13 @@ bootstrapOrUpdate opts@GlobalOpts{..} keysLoc repoLoc isBootstrap = do
                     ++ " file(s) to " ++ prettyRepo repoLayoutIndexTar
     unless (null newFiles) $ do
       tarAppend
-        (anchorRepoPath globalRepoLayout repoLoc repoLayoutIndexTar)
-        (anchorRepoPath globalRepoLayout repoLoc repoLayoutIndexDir)
+        (anchorRepoPath opts repoLoc repoLayoutIndexTar)
+        (anchorRepoPath opts repoLoc repoLayoutIndexDir)
         (map castRoot newFiles)
 
       logInfo opts $ "Writing " ++ prettyRepo repoLayoutIndexTarGz
-      compress (anchorRepoPath globalRepoLayout repoLoc repoLayoutIndexTar)
-               (anchorRepoPath globalRepoLayout repoLoc repoLayoutIndexTarGz)
+      compress (anchorRepoPath opts repoLoc repoLayoutIndexTar)
+               (anchorRepoPath opts repoLoc repoLayoutIndexTarGz)
 
     -- Create snapshot
     -- TODO: If we are updating we should be incrementing the version, not
@@ -275,14 +277,14 @@ bootstrapOrUpdate opts@GlobalOpts{..} keysLoc repoLoc isBootstrap = do
                timestamp
   where
     pathIndexTar :: Path Absolute
-    pathIndexTar = anchorRepoPath globalRepoLayout repoLoc repoLayoutIndexTar
+    pathIndexTar = anchorRepoPath opts repoLoc repoLayoutIndexTar
 
     -- | Compute file information for a file in the repo
     computeFileInfo' :: (RepoLayout -> RepoPath) -> IO FileInfo
-    computeFileInfo' = computeFileInfo . anchorRepoPath globalRepoLayout repoLoc
+    computeFileInfo' = computeFileInfo . anchorRepoPath opts repoLoc
 
     prettyRepo :: (RepoLayout -> RepoPath) -> String
-    prettyRepo = prettyTargetPath' globalRepoLayout . InRep
+    prettyRepo = prettyTargetPath' opts . InRep
 
 -- | Create root metadata
 updateRoot :: GlobalOpts
@@ -362,7 +364,7 @@ updateMirrors opts repoLoc whenWrite keys now uris =
 
 -- | Create package metadata
 createPackageMetadata :: GlobalOpts -> RepoLoc -> WhenWrite -> PackageIdentifier -> IO ()
-createPackageMetadata opts@GlobalOpts{..} repoLoc whenWrite pkgId = do
+createPackageMetadata opts repoLoc whenWrite pkgId = do
     srcTS <- getFileModTime opts repoLoc src
     dstTS <- getFileModTime opts repoLoc dst
     let skip = case whenWrite of
@@ -370,7 +372,7 @@ createPackageMetadata opts@GlobalOpts{..} repoLoc whenWrite pkgId = do
                  WriteUpdate  -> dstTS >= srcTS
 
     if skip
-      then logInfo opts $ "Skipping " ++ prettyTargetPath' globalRepoLayout dst
+      then logInfo opts $ "Skipping " ++ prettyTargetPath' opts dst
       else do
         fileMapEntries <- mapM computeFileMapEntry fileMapFiles
         let targets = Targets {
@@ -390,8 +392,8 @@ createPackageMetadata opts@GlobalOpts{..} repoLoc whenWrite pkgId = do
   where
     computeFileMapEntry :: TargetPath' -> IO (TargetPath, FileInfo)
     computeFileMapEntry file = do
-      info <- computeFileInfo $ anchorTargetPath' globalRepoLayout repoLoc file
-      return (applyTargetPath' globalRepoLayout file, info)
+      info <- computeFileInfo $ anchorTargetPath' opts repoLoc file
+      return (applyTargetPath' opts file, info)
 
     -- The files we need to add to the package targets file
     -- Currently this is just the .tar.gz file
@@ -424,7 +426,7 @@ findNewIndexFiles opts@GlobalOpts{..} repoLoc whenWrite = do
                               else return Nothing
   where
     absIndexDir :: Path Absolute
-    absIndexDir = anchorRepoPath globalRepoLayout repoLoc repoLayoutIndexDir
+    absIndexDir = anchorRepoPath opts repoLoc repoLayoutIndexDir
 
 -- | Extract the cabal file from the package tarball and copy it to the index
 extractCabalFile :: GlobalOpts -> RepoLoc -> WhenWrite -> PackageIdentifier -> IO ()
@@ -435,7 +437,7 @@ extractCabalFile opts@GlobalOpts{..} repoLoc whenWrite pkgId = do
                  WriteInitial -> False
                  WriteUpdate  -> dstTS >= srcTS
     if skip
-      then logInfo opts $ "Skipping " ++ prettyTargetPath' globalRepoLayout dst
+      then logInfo opts $ "Skipping " ++ prettyTargetPath' opts dst
       else do
         mCabalFile <- try $ tarExtractFile opts repoLoc src pathCabalInTar
         case mCabalFile of
@@ -446,9 +448,9 @@ extractCabalFile opts@GlobalOpts{..} repoLoc whenWrite pkgId = do
             logWarn opts $ ".cabal file missing for package " ++ display pkgId
           Right (Just (cabalFile, _cabalSize)) -> do
             logInfo opts $ "Writing "
-                        ++ prettyTargetPath' globalRepoLayout dst
+                        ++ prettyTargetPath' opts dst
                         ++ " (extracted from "
-                        ++ prettyTargetPath' globalRepoLayout src
+                        ++ prettyTargetPath' opts src
                         ++ ")"
             withFile pathCabalInIdx WriteMode $ \h -> BS.L.hPut h cabalFile
   where
@@ -459,7 +461,7 @@ extractCabalFile opts@GlobalOpts{..} repoLoc whenWrite pkgId = do
                        ] FilePath.<.> "cabal"
 
     pathCabalInIdx :: Path Absolute
-    pathCabalInIdx = anchorTargetPath' globalRepoLayout repoLoc dst
+    pathCabalInIdx = anchorTargetPath' opts repoLoc dst
 
     src, dst :: TargetPath'
     dst = InIdxPkg indexLayoutPkgCabal pkgId
@@ -535,7 +537,7 @@ updateFile opts@GlobalOpts{..} repoLoc whenWrite fileLoc signPayload a = do
             wOldFileInfo = fileInfo wOldRendered
 
         if knownFileInfoEqual oldFileInfo wOldFileInfo
-          then logInfo opts $ "Unchanged " ++ prettyTargetPath' globalRepoLayout fileLoc
+          then logInfo opts $ "Unchanged " ++ prettyTargetPath' opts fileLoc
           else writeDoc updating wIncVersion
   where
     -- | Actually write the file
@@ -546,13 +548,13 @@ updateFile opts@GlobalOpts{..} repoLoc whenWrite fileLoc signPayload a = do
       writeJSON globalRepoLayout fp (signPayload doc)
 
     fp :: Path Absolute
-    fp = anchorTargetPath' globalRepoLayout repoLoc fileLoc
+    fp = anchorTargetPath' opts repoLoc fileLoc
 
     writing, creating, overwriting, updating :: String
-    writing     = "Writing "     ++ prettyTargetPath' globalRepoLayout fileLoc
-    creating    = "Creating "    ++ prettyTargetPath' globalRepoLayout fileLoc
-    overwriting = "Overwriting " ++ prettyTargetPath' globalRepoLayout fileLoc ++ " (old file corrupted)"
-    updating    = "Updating "    ++ prettyTargetPath' globalRepoLayout fileLoc
+    writing     = "Writing "     ++ prettyTargetPath' opts fileLoc
+    creating    = "Creating "    ++ prettyTargetPath' opts fileLoc
+    overwriting = "Overwriting " ++ prettyTargetPath' opts fileLoc ++ " (old file corrupted)"
+    updating    = "Updating "    ++ prettyTargetPath' opts fileLoc
 
 {-------------------------------------------------------------------------------
   Inspect the repo layout
@@ -580,15 +582,15 @@ findPackages GlobalOpts{..} (RepoLoc repoLoc) =
 
 -- | Check that packages are in their expected location
 checkRepoLayout :: GlobalOpts -> RepoLoc -> [PackageIdentifier] -> IO Bool
-checkRepoLayout opts@GlobalOpts{..} repoLoc = liftM and . mapM checkPackage
+checkRepoLayout opts repoLoc = liftM and . mapM checkPackage
   where
     checkPackage :: PackageIdentifier -> IO Bool
     checkPackage pkgId = do
-        existsTarGz <- doesFileExist $ anchorTargetPath' globalRepoLayout repoLoc expectedTarGz
+        existsTarGz <- doesFileExist $ anchorTargetPath' opts repoLoc expectedTarGz
         unless existsTarGz $
           logWarn opts $ "Package tarball " ++ display pkgId
                       ++ " expected in location "
-                      ++ prettyTargetPath' globalRepoLayout expectedTarGz
+                      ++ prettyTargetPath' opts expectedTarGz
 
         return existsTarGz
       where
@@ -616,8 +618,9 @@ symlinkCabalLocalRepo opts@GlobalOpts{..} repoLoc cabalRepoLoc = do
                              ++ " (already exists)"
             else throwIO ex
       where
-        target = anchorRepoPath globalRepoLayout     repoLoc      file
-        loc    = anchorRepoPath cabalLocalRepoLayout cabalRepoLoc file
+        target = anchorRepoPath opts  repoLoc      file
+        loc    = anchorRepoPath opts' cabalRepoLoc file
+        opts'  = opts { globalRepoLayout = cabalLocalRepoLayout }
 
 {-------------------------------------------------------------------------------
   Signing individual files
