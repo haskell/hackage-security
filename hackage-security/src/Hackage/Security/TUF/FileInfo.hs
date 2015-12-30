@@ -7,6 +7,7 @@ module Hackage.Security.TUF.FileInfo (
   , fileInfo
   , computeFileInfo
   , knownFileInfoEqual
+  , fileInfoSHA256
   ) where
 
 import Prelude hiding (lookup)
@@ -71,6 +72,10 @@ computeFileInfo fp = fileInfo <$> readLazyByteString fp
 knownFileInfoEqual :: FileInfo -> FileInfo -> Bool
 knownFileInfoEqual a b = (==) (fileInfoLength a, fileInfoHashes a)
                               (fileInfoLength b, fileInfoHashes b)
+
+-- | Extract SHA256 hash from 'FileInfo' (if present)
+fileInfoSHA256 :: FileInfo -> Maybe Hash
+fileInfoSHA256 FileInfo{..} = Map.lookup HashFnSHA256 fileInfoHashes
 
 {-------------------------------------------------------------------------------
   JSON

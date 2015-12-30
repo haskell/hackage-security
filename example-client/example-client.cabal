@@ -24,6 +24,7 @@ executable example-client
   other-modules: Prelude ExampleClient.Options
 
   build-depends:       base                 >= 4.4,
+                       bytestring           >= 0.9,
                        Cabal                >= 1.12,
                        directory            >= 1.1,
                        filepath             >= 1.2,

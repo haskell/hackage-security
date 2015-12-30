@@ -58,6 +58,12 @@ data Command =
 
     -- | Enumerate the entries in the index
   | EnumIndex NewOnly
+
+    -- | Extract a cabal file from the index
+  | GetCabal PackageIdentifier
+
+    -- | Read a package hash from the index
+  | GetHash PackageIdentifier
   deriving Show
 
 type NewOnly = Bool
@@ -89,6 +95,12 @@ parseEnumIndex = EnumIndex
       long "new-only"
     , help "Only enumerate entries since last call to enum-index"
     ])
+
+parseGetCabal :: Parser Command
+parseGetCabal = GetCabal <$> argument readPackageIdentifier (metavar "PKG")
+
+parseGetHash :: Parser Command
+parseGetHash = GetHash <$> argument readPackageIdentifier (metavar "PKG")
 
 parseGlobalOptions :: Parser GlobalOpts
 parseGlobalOptions = GlobalOpts
@@ -135,6 +147,10 @@ parseGlobalOptions = GlobalOpts
             progDesc "Download a package"
         , command "enum-index" $ info (helper <*> parseEnumIndex) $
             progDesc "Enumerate the index"
+        , command "cabal" $ info (helper <*> parseGetCabal) $
+            progDesc "Extract a cabal file from the index"
+        , command "hash" $ info (helper <*> parseGetHash) $
+            progDesc "Read a package hash from the index"
         ])
 
 readKeyId :: ReadM KeyId

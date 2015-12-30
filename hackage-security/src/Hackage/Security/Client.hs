@@ -25,6 +25,7 @@ module Hackage.Security.Client (
     -- * Re-exports
   , module Hackage.Security.TUF
   , module Hackage.Security.Key
+  , trusted
     -- ** We only a few bits from .Repository
     -- TODO: Maybe this is a sign that these should be in a different module?
   , Repository -- opaque
@@ -402,82 +403,27 @@ downloadPackage :: ( Throws SomeRemoteError
                 -> PackageIdentifier  -- ^ Package to download
                 -> Path Absolute      -- ^ Destination (see also 'downloadPackage'')
                 -> IO ()
-downloadPackage rep@Repository{..} pkgId dest = withMirror rep $ runVerify repLockCache $ do
-    -- NOTE: The files inside the index as evaluated lazily.
-    --
-    -- 1. The index tarball contains delegated target.json files for both
-    --    unsigned and signed packages. We need to verify the signatures of all
-    --    signed metadata (that is: the metadata for signed packages).
-    --
-    -- 2. Since the tarball also contains the .cabal files, we should also
-    --    verify the hashes of those .cabal files against the hashes recorded in
-    --    signed metadata (there is no point comparing against hashes recorded
-    --    in unsigned metadata because attackers could just change those).
-    --
-    -- Since we don't have author signing yet, we don't have any additional
-    -- signed metadata and therefore we currently don't have to do anything
-    -- here.
-    --
-    -- TODO: If we have explicit, author-signed, lists of versions for a package
-    -- (as described in @README.md@), then evaluating these "middle-level"
-    -- delegation files lazily opens us up to a rollback attack: if we've never
-    -- downloaded the delegations for a package before, then we have nothing to
-    -- compare the version number in the file that we downloaded against. One
-    -- option is to always download and verify all these middle level files
-    -- (strictly); other is to include the version number of all of these files
-    -- in the snapshot. This is described in more detail in
-    -- <https://github.com/theupdateframework/tuf/issues/282#issuecomment-102468421>.
-    let trustIndex :: Signed a -> Trusted a
-        trustIndex = trustLocalFile
+downloadPackage rep@Repository{..} pkgId dest =
+    withMirror rep $
+      withIndex rep $ \IndexCallbacks{..} -> runVerify repLockCache $ do
+        -- Get the metadata (from the previously updated index)
+        targetFileInfo <- liftIO $ indexLookupFileInfo pkgId
 
-    -- Get the metadata (from the previously updated index)
-    --
-    -- NOTE: Currently we hardcode the location of the package specific
-    -- metadata. By rights we should read the global targets file and apply the
-    -- delegation rules. Until we have author signing however this is
-    -- unnecessary.
-    targets :: Trusted Targets <- liftIO $ do
-      let indexFile = IndexPkgMetadata pkgId
-      mRaw <- getFromIndex rep indexFile
-      case mRaw of
-        Nothing ->
-          throwChecked $ InvalidPackageException pkgId
-        Just IndexEntry{indexEntryContentParsed = Left ex} ->
-          throwUnchecked ex
-        Just IndexEntry{indexEntryContentParsed = Right signed} ->
-          return $ trustIndex signed
+        -- TODO: should we check if cached package available? (spec says no)
+        tarGz <- do
+          (targetPath, downloaded) <- getRemote' rep (AttemptNr 0) $
+            RemotePkgTarGz pkgId targetFileInfo
+          verifyFileInfo' (Just targetFileInfo) targetPath downloaded
+          return downloaded
 
-    -- The path of the package, relative to the targets.json file
-    let filePath :: TargetPath
-        filePath = TargetPathRepo $ repoLayoutPkgTarGz repLayout pkgId
-
-    let mTargetMetaData :: Maybe (Trusted FileInfo)
-        mTargetMetaData = trustElems
-                        $ trustStatic (static targetsLookup)
-             `trustApply` DeclareTrusted filePath
-             `trustApply` targets
-    targetMetaData :: Trusted FileInfo
-      <- case mTargetMetaData of
-           Nothing -> liftIO $
-             throwChecked $ VerificationErrorUnknownTarget filePath
-           Just nfo ->
-             return nfo
-
-    -- TODO: should we check if cached package available? (spec says no)
-    tarGz <- do
-      (targetPath, downloaded) <- getRemote' rep (AttemptNr 0) $
-        RemotePkgTarGz pkgId targetMetaData
-      verifyFileInfo' (Just targetMetaData) targetPath downloaded
-      return downloaded
-
-    -- If all checks succeed, copy file to its target location.
-    liftIO $ downloadedCopyTo tarGz dest
+        -- If all checks succeed, copy file to its target location.
+        liftIO $ downloadedCopyTo tarGz dest
 
 -- | Variation on 'downloadPackage' that takes a FilePath instead.
 downloadPackage' :: ( Throws SomeRemoteError
-                   , Throws VerificationError
-                   , Throws InvalidPackageException
-                   )
+                    , Throws VerificationError
+                    , Throws InvalidPackageException
+                    )
                  => Repository down    -- ^ Repository
                  -> PackageIdentifier  -- ^ Package to download
                  -> FilePath           -- ^ Destination
@@ -486,7 +432,35 @@ downloadPackage' rep pkgId dest =
     downloadPackage rep pkgId =<< makeAbsolute (fromFilePath dest)
 
 {-------------------------------------------------------------------------------
-  Access to the tar index
+  Access to the tar index (the API is exported and used internally)
+
+  NOTE: The files inside the index as evaluated lazily.
+
+  1. The index tarball contains delegated target.json files for both unsigned
+     and signed packages. We need to verify the signatures of all signed
+     metadata (that is: the metadata for signed packages).
+
+  2. Since the tarball also contains the .cabal files, we should also verify the
+     hashes of those .cabal files against the hashes recorded in signed metadata
+     (there is no point comparing against hashes recorded in unsigned metadata
+     because attackers could just change those).
+
+  Since we don't have author signing yet, we don't have any additional signed
+  metadata and therefore we currently don't have to do anything here.
+
+  TODO: If we have explicit, author-signed, lists of versions for a package (as
+  described in @README.md@), then evaluating these "middle-level" delegation
+  files lazily opens us up to a rollback attack: if we've never downloaded the
+  delegations for a package before, then we have nothing to compare the version
+  number in the file that we downloaded against. One option is to always
+  download and verify all these middle level files (strictly); other is to
+  include the version number of all of these files in the snapshot. This is
+  described in more detail in
+  <https://github.com/theupdateframework/tuf/issues/282#issuecomment-102468421>.
+
+  TODO: Currently we hardcode the location of the package specific metadata. By
+  rights we should read the global targets file and apply the delegation rules.
+  Until we have author signing however this is unnecessary.
 -------------------------------------------------------------------------------}
 
 -- | Index directory
@@ -608,16 +582,53 @@ data IndexEntry dec = IndexEntry {
 data IndexCallbacks = IndexCallbacks {
     -- | Look up an entry by 'DirectoryEntry'
     --
-    -- It is assumed that the input 'DirectoryEntry' points to a valid entry; if
-    -- it does not, an exception will be thrown. This function also returns the
-    -- 'DirectoryEntry' of the /next/ file in the index (if any) for the benefit
-    -- of clients who wish to walk through the entire index.
-    indexLookupEntry :: DirectoryEntry -> IO (Some IndexEntry, Maybe DirectoryEntry)
+    -- Since these 'DirectoryEntry's must come from somewhere (probably from the
+    -- 'Directory'), it is assumed that they are valid; if they are not, an
+    -- (unchecked) exception will be thrown.
+    --
+    -- This function also returns the 'DirectoryEntry' of the /next/ file in the
+    -- index (if any) for the benefit of clients who wish to walk through the
+    -- entire index.
+    indexLookupEntry :: DirectoryEntry
+                     -> IO (Some IndexEntry, Maybe DirectoryEntry)
 
     -- | Look up an entry by 'IndexFile'
     --
     -- Returns 'Nothing' if the 'IndexFile' does not refer to an existing file.
-  , indexLookupFile :: forall dec. IndexFile dec -> IO (Maybe (IndexEntry dec))
+  , indexLookupFile :: forall dec.
+                       IndexFile dec
+                    -> IO (Maybe (IndexEntry dec))
+
+    -- | Get (raw) cabal file (wrapper around 'indexLookupFile')
+  , indexLookupCabal :: Throws InvalidPackageException
+                     => PackageIdentifier
+                     -> IO (Trusted BS.L.ByteString)
+
+    -- | Lookup package metadata (wrapper around 'indexLookupFile')
+    --
+    -- This will throw an (unchecked) exception if the @targets.json@ file
+    -- could not be parsed.
+  , indexLookupMetadata :: Throws InvalidPackageException
+                        => PackageIdentifier
+                        -> IO (Trusted Targets)
+
+    -- | Get file info (including hash) (wrapper around 'indexLookupFile')
+  , indexLookupFileInfo :: ( Throws InvalidPackageException
+                           , Throws VerificationError
+                           )
+                        => PackageIdentifier
+                        -> IO (Trusted FileInfo)
+
+    -- | Get the SHA256 hash for a package (wrapper around 'indexLookupInfo')
+    --
+    -- In addition to the exceptions thrown by 'indexLookupInfo', this will also
+    -- throw an exception if the SHA256 is not listed in the 'FileMap' (again,
+    -- this will not happen with a well-formed Hackage index.)
+  , indexLookupHash :: ( Throws InvalidPackageException
+                       , Throws VerificationError
+                       )
+                    => PackageIdentifier
+                    -> IO (Trusted Hash)
 
     -- | The 'Directory' for the index
     --
@@ -703,10 +714,77 @@ withIndex rep@Repository{..} callback = do
                 mNext = guard (next < directoryNext) >> return next
             return (entry, content, mNext)
 
+          -- Get cabal file
+          getCabal :: Throws InvalidPackageException
+                   => PackageIdentifier -> IO (Trusted BS.L.ByteString)
+          getCabal pkgId = do
+            mCabal <- getFile $ IndexPkgCabal pkgId
+            case mCabal of
+              Nothing ->
+                throwChecked $ InvalidPackageException pkgId
+              Just IndexEntry{..} ->
+                return $ DeclareTrusted indexEntryContent
+
+          -- Get package metadata
+          getMetadata :: Throws InvalidPackageException
+                      => PackageIdentifier -> IO (Trusted Targets)
+          getMetadata pkgId = do
+            mEntry <- getFile $ IndexPkgMetadata pkgId
+            case mEntry of
+              Nothing ->
+                throwChecked $ InvalidPackageException pkgId
+              Just IndexEntry{indexEntryContentParsed = Left ex} ->
+                throwUnchecked $ ex
+              Just IndexEntry{indexEntryContentParsed = Right signed} ->
+                return $ trustLocalFile signed
+
+          -- Get package info
+          getFileInfo :: ( Throws InvalidPackageException
+                         , Throws VerificationError
+                         )
+                      => PackageIdentifier -> IO (Trusted FileInfo)
+          getFileInfo pkgId = do
+            targets <- getMetadata pkgId
+
+            let mTargetMetadata :: Maybe (Trusted FileInfo)
+                mTargetMetadata = trustElems
+                                $ trustStatic (static targetsLookup)
+                     `trustApply` DeclareTrusted (targetPath pkgId)
+                     `trustApply` targets
+
+            case mTargetMetadata of
+              Nothing ->
+                throwChecked $ VerificationErrorUnknownTarget (targetPath pkgId)
+              Just info ->
+                return info
+
+          -- Get package SHA256
+          getHash :: ( Throws InvalidPackageException
+                     , Throws VerificationError
+                     )
+                  => PackageIdentifier -> IO (Trusted Hash)
+          getHash pkgId = do
+            info <- getFileInfo pkgId
+
+            let mTrustedHash :: Maybe (Trusted Hash)
+                mTrustedHash = trustElems
+                             $ trustStatic (static fileInfoSHA256)
+                  `trustApply` info
+
+            case mTrustedHash of
+              Nothing ->
+                throwChecked $ VerificationErrorMissingSHA256 (targetPath pkgId)
+              Just hash ->
+                return hash
+
       callback IndexCallbacks{
-          indexLookupEntry = getEntry
-        , indexLookupFile  = getFile
-        , indexDirectory   = dir
+          indexLookupEntry    = getEntry
+        , indexLookupFile     = getFile
+        , indexDirectory      = dir
+        , indexLookupCabal    = getCabal
+        , indexLookupMetadata = getMetadata
+        , indexLookupFileInfo = getFileInfo
+        , indexLookupHash     = getHash
         }
   where
     indexPath :: Tar.Entry -> IndexPath
@@ -714,6 +792,9 @@ withIndex rep@Repository{..} callback = do
 
     indexFile :: IndexPath -> Maybe (Some IndexFile)
     indexFile = indexFileFromPath repIndexLayout
+
+    targetPath :: PackageIdentifier -> TargetPath
+    targetPath = TargetPathRepo . repoLayoutPkgTarGz repLayout
 
     pathNotRecognized :: SomeException
     pathNotRecognized = SomeException (userError "Path not recognized")

@@ -22,7 +22,6 @@ import Hackage.Security.Client.Formats
 import Hackage.Security.Client.Repository
 import Hackage.Security.Client.Verify
 import Hackage.Security.JSON
-import Hackage.Security.Trusted
 import Hackage.Security.Util.Path
 import Hackage.Security.Util.Some
 

@@ -180,6 +180,9 @@ data VerificationError =
      -- but the information wasn't in the corresponding @targets.json@ file.
    | VerificationErrorUnknownTarget TargetPath
 
+     -- | The metadata for the specified target is missing a SHA256
+   | VerificationErrorMissingSHA256 TargetPath
+
      -- | Some verification errors materialize as deserialization errors
      --
      -- For example: if we try to deserialize a timestamp file but the timestamp
@@ -224,6 +227,8 @@ instance Pretty VerificationError where
       "Invalid hash for " ++ pretty file
   pretty (VerificationErrorUnknownTarget file) =
       pretty file ++ " not found in corresponding target metadata"
+  pretty (VerificationErrorMissingSHA256 file) =  
+      "Missing SHA256 hash for " ++ pretty file
   pretty (VerificationErrorDeserialization file err) =
       "Could not deserialize " ++ pretty file ++ ": " ++ pretty err
   pretty (VerificationErrorLoop es) =

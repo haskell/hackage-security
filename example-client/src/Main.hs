@@ -5,6 +5,7 @@ module Main where
 import Control.Exception
 import Control.Monad
 import Data.Time
+import qualified Data.ByteString.Lazy as BS.L
 
 -- Cabal
 import Distribution.Package
@@ -36,6 +37,8 @@ main = do
       Check               -> cmdCheck     opts
       Get       pkgId     -> cmdGet       opts pkgId
       EnumIndex newOnly   -> cmdEnumIndex opts newOnly
+      GetCabal  pkgId     -> cmdGetCabal  opts pkgId
+      GetHash   pkgId     -> cmdGetHash   opts pkgId
 
 {-------------------------------------------------------------------------------
   The commands are just thin wrappers around the hackage-security Client API
@@ -83,7 +86,7 @@ cmdEnumIndex opts True = do
                         Nothing   -> return ()
                         Just next -> go next
         startingPoint <- getStartingPoint (directoryFirst indexDirectory)
-        if (startingPoint == directoryNext indexDirectory) 
+        if (startingPoint == directoryNext indexDirectory)
           then putStrLn "No new entries"
           else do
             go startingPoint
@@ -99,6 +102,18 @@ cmdEnumIndex opts True = do
 
     marker :: FilePath
     marker = toFilePath (globalCache opts </> fragment "enum.marker")
+
+cmdGetCabal :: GlobalOpts -> PackageIdentifier -> IO ()
+cmdGetCabal opts pkgId =
+    withRepo opts $ \rep -> uncheckClientErrors $
+      withIndex rep $ \IndexCallbacks{..} ->
+        BS.L.putStr . trusted =<< indexLookupCabal pkgId
+
+cmdGetHash :: GlobalOpts -> PackageIdentifier -> IO ()
+cmdGetHash opts pkgId =
+    withRepo opts $ \rep -> uncheckClientErrors $
+      withIndex rep $ \IndexCallbacks{..} ->
+        print =<< indexLookupHash pkgId
 
 {-------------------------------------------------------------------------------
   Common functionality
