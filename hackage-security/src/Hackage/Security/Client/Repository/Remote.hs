@@ -97,6 +97,7 @@ data FileSize =
     -- | For some files we might not know the size beforehand, but we might
     -- be able to provide an upper bound (timestamp, root info)
   | FileSizeBound Int
+  deriving Show
 
 fileSizeWithinBounds :: Int -> FileSize -> Bool
 fileSizeWithinBounds sz (FileSizeExact sz') = sz <= sz'
@@ -482,7 +483,7 @@ execBodyReader file mlen h br = go 0
     go :: Int -> IO ()
     go sz = do
       unless (sz `fileSizeWithinBounds` mlen) $
-        throwChecked $ SomeRemoteError $ FileTooLarge file
+        throwChecked $ SomeRemoteError $ FileTooLarge file mlen
       bs <- br
       if BS.null bs
         then return ()
@@ -490,11 +491,22 @@ execBodyReader file mlen h br = go 0
 
 -- | The file we requested from the server was larger than expected
 -- (potential endless data attack)
-data FileTooLarge = FileTooLarge TargetPath
+data FileTooLarge = FileTooLarge {
+    fileTooLargePath     :: TargetPath
+  , fileTooLargeExpected :: FileSize
+  }
   deriving (Typeable)
 
 instance Pretty FileTooLarge where
-  pretty (FileTooLarge file) = "file returned by server too large: " ++ pretty file
+  pretty FileTooLarge{..} = concat [
+      "file returned by server too large: "
+    , pretty fileTooLargePath
+    , " (expected " ++ expected fileTooLargeExpected ++ " bytes)"
+    ]
+    where
+      expected :: FileSize -> String
+      expected (FileSizeExact n) = "exactly " ++ show n
+      expected (FileSizeBound n) = "at most " ++ show n
 
 #if MIN_VERSION_base(4,8,0)
 deriving instance Show FileTooLarge
