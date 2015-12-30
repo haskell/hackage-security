@@ -11,14 +11,12 @@ module Hackage.Security.Client (
   , downloadPackage
   , downloadPackage'
     -- * Access to the Hackage index
-  , Directory      -- opaque
+  , Directory(..)
   , DirectoryEntry(..)
+  , getDirectory
   , IndexFile(..)
   , IndexEntry(..)
-  , firstDirectoryEntry
-  , directoryEntries
-  , directoryLookup
-  , getDirectory
+  , IndexCallbacks(..)
   , withIndex
   , getFromIndex
     -- * Bootstrapping
@@ -491,15 +489,46 @@ downloadPackage' rep pkgId dest =
   Access to the tar index
 -------------------------------------------------------------------------------}
 
--- | (Abstract) directory into the Hackage index providing efficient lookups.
-newtype Directory = Directory Tar.TarIndex
+-- | Index directory
+data Directory = Directory {
+    -- | The first entry in the dictionary
+    directoryFirst :: DirectoryEntry
+
+    -- | The next available (i.e., one after last) directory entry
+  , directoryNext :: DirectoryEntry
+
+    -- | Lookup an entry in the dictionary
+    --
+    -- This is an efficient operation.
+  , directoryLookup :: forall dec. IndexFile dec -> Maybe DirectoryEntry
+
+    -- | An enumeration of all entries
+    --
+    -- This field is lazily constructed, so if you don't need it, it does not
+    -- incur a performance overhead. Moreover, the 'IndexFile' is also created
+    -- lazily so if you only need the raw 'IndexPath' there is no parsing
+    -- overhead.
+    --
+    -- The entries are ordered by 'DirectoryEntry' so that the entries can
+    -- efficiently be read in sequence.
+    --
+    -- NOTE: This means that there are two ways to enumerate all entries in the
+    -- tar file, since when lookup an entry using 'indexLookupEntry' the
+    -- 'DirectoryEntry' of the next entry is also returned. However, this
+    -- involves reading through the entire @tar@ file. If you only need to read
+    -- /some/ files, it is significantly more efficient to enumerate the tar
+    -- entries using 'directoryEntries' instead and only call 'indexLookupEntry'
+    -- when required.
+  , directoryEntries :: [(DirectoryEntry, IndexPath, Maybe (Some IndexFile))]
+  }
 
 -- | Entry into the Hackage index.
---
--- See 'directoryLookup' or 'directoryEntries' to obtain a 'IndexEntry', or
--- 'indexLookup' to lookup retrieve an entry from the index
 newtype DirectoryEntry = DirectoryEntry {
     -- | (Low-level) block number of the tar index entry
+    --
+    -- Exposed for the benefit of clients who read the @.tar@ file directly.
+    -- For this reason also the 'Show' and 'Read' instances for 'DirectoryEntry'
+    -- just print and parse the underlying 'TarEntryOffset'.
     directoryEntryBlockNo :: Tar.TarEntryOffset
   }
   deriving (Eq, Ord)
@@ -510,56 +539,38 @@ instance Show DirectoryEntry where
 instance Read DirectoryEntry where
   readsPrec p = map (first DirectoryEntry) . readsPrec p
 
--- TODO: Clean up firstDirectoryEntry and directoryLookup
-
--- | First directory entry of the index
-firstDirectoryEntry :: DirectoryEntry
-firstDirectoryEntry = DirectoryEntry 0
-
--- | Do a directory lookup
---
--- This is an efficient operation
-directoryLookup :: Repository down
-                -> Directory
-                -> IndexFile dec
-                -> Maybe DirectoryEntry
-directoryLookup Repository{..} (Directory idx) =
-    liftM mkEntry . Tar.lookup idx . path
-  where
-    path :: IndexFile dec -> FilePath
-    path = toUnrootedFilePath
-         . unrootPath
-         . indexFileToPath repIndexLayout
-
-    mkEntry :: Tar.TarIndexEntry -> DirectoryEntry
-    mkEntry (Tar.TarFileEntry offset) = DirectoryEntry offset
-    mkEntry (Tar.TarDir _) = error "directoryLookup: unexpected directory"
-
--- | Enumerate the entries in the index
---
--- The result will be ordered by 'DirectoryEntry' so that the entries can
--- efficiently be read in sequence.
-directoryEntries :: Repository down
-                 -> Directory
-                 -> [(DirectoryEntry, IndexPath, Maybe (Some IndexFile))]
-directoryEntries Repository{..} (Directory idx) =
-    map aux . sortBy (comparing snd) $ Tar.toList idx
-  where
-    aux :: (FilePath, Tar.TarEntryOffset)
-        -> (DirectoryEntry, IndexPath, Maybe (Some IndexFile))
-    aux (fp, off) = (
-          DirectoryEntry off
-        , indexPath
-        , indexFileFromPath repIndexLayout indexPath
-        )
-      where
-        indexPath = rootPath $ fromUnrootedFilePath fp
-
 -- | Read the Hackage index directory
 --
 -- Should only be called after 'checkForUpdates'.
 getDirectory :: Repository down -> IO Directory
-getDirectory = liftM Directory . repGetIndexIdx
+getDirectory Repository{..} = mkDirectory <$> repGetIndexIdx
+  where
+    mkDirectory :: Tar.TarIndex -> Directory
+    mkDirectory idx = Directory {
+        directoryFirst   = DirectoryEntry 0
+      , directoryNext    = DirectoryEntry $ Tar.indexEndEntryOffset idx
+      , directoryLookup  = liftM dirEntry . Tar.lookup idx . filePath
+      , directoryEntries = map mkEntry $ sortBy (comparing snd) (Tar.toList idx)
+      }
+
+    mkEntry :: (FilePath, Tar.TarEntryOffset)
+            -> (DirectoryEntry, IndexPath, Maybe (Some IndexFile))
+    mkEntry (fp, off) = (DirectoryEntry off, path, indexFile path)
+      where
+        path = indexPath fp
+
+    dirEntry :: Tar.TarIndexEntry -> DirectoryEntry
+    dirEntry (Tar.TarFileEntry offset) = DirectoryEntry offset
+    dirEntry (Tar.TarDir _) = error "directoryLookup: unexpected directory"
+
+    indexFile :: IndexPath -> Maybe (Some IndexFile)
+    indexFile = indexFileFromPath repIndexLayout
+
+    indexPath :: FilePath -> IndexPath
+    indexPath = rootPath . fromUnrootedFilePath
+
+    filePath :: IndexFile dec -> FilePath
+    filePath = toUnrootedFilePath . unrootPath . indexFileToPath repIndexLayout
 
 -- | Entry from the Hackage index; see 'withIndex'.
 data IndexEntry dec = IndexEntry {
@@ -586,31 +597,41 @@ data IndexEntry dec = IndexEntry {
   , indexEntryTime :: Tar.EpochTime
   }
 
--- | Look up entries in the Hackage index
---
--- This is in 'withFile' style so that clients can efficiently look up multiple
--- files from the index. The callback is provided with two functions:
---
--- * The first can be used to lookup entries by 'DirectoryEntry'; it is assumed
---   that these entries are valid; if they are not, an exception will be thrown.
---   This function also returns the 'DirectoryEntry' of the _next_ file in the
---   index (if any) for the benefit of clients who wish to walk through the
---   entire index.
--- * The second can be used to look up entries by 'IndexFile'.
+-- | Various operations that we can perform on the index once its open
 --
 -- Note that 'IndexEntry' contains a fields both for the raw file contents and
 -- the parsed file contents; clients can choose which to use.
 --
--- In principle this will do verification (once we have implemented author
--- signing). Right now it doesn't need to do that, because the index as a whole
--- will have been verified.
+-- In principle these callbacks will do verification (once we have implemented
+-- author signing). Right now they don't need to do that, because the index as a
+-- whole will have been verified.
+data IndexCallbacks = IndexCallbacks {
+    -- | Look up an entry by 'DirectoryEntry'
+    --
+    -- It is assumed that the input 'DirectoryEntry' points to a valid entry; if
+    -- it does not, an exception will be thrown. This function also returns the
+    -- 'DirectoryEntry' of the /next/ file in the index (if any) for the benefit
+    -- of clients who wish to walk through the entire index.
+    indexLookupEntry :: DirectoryEntry -> IO (Some IndexEntry, Maybe DirectoryEntry)
+
+    -- | Look up an entry by 'IndexFile'
+    --
+    -- Returns 'Nothing' if the 'IndexFile' does not refer to an existing file.
+  , indexLookupFile :: forall dec. IndexFile dec -> IO (Maybe (IndexEntry dec))
+
+    -- | The 'Directory' for the index
+    --
+    -- We provide this here because 'withIndex' will have read this anyway.
+  , indexDirectory :: Directory
+  }
+
+-- | Look up entries in the Hackage index
+--
+-- This is in 'withFile' style so that clients can efficiently look up multiple
+-- files from the index.
 --
 -- Should only be called after 'checkForUpdates'.
-withIndex :: Repository down
-          -> (   (DirectoryEntry -> IO (Some IndexEntry, Maybe DirectoryEntry))
-              -> (IndexFile dec -> IO (Maybe (IndexEntry dec)))
-              -> IO a )
-          -> IO a
+withIndex :: Repository down -> (IndexCallbacks -> IO a) -> IO a
 withIndex rep@Repository{..} callback = do
     -- We need the cached root information in order to resolve key IDs and
     -- verify signatures. Note that whenever we read a JSON file, we verify
@@ -618,8 +639,9 @@ withIndex rep@Repository{..} callback = do
     -- (for performance) we need to parameterize parseJSON.
     (_cachedRoot, keyEnv) <- readLocalRoot rep
 
-    -- We need the directory to resolve 'IndexFile's
-    dir@(Directory tarIndex) <- getDirectory rep
+    -- We need the directory to resolve 'IndexFile's and to know the index of
+    -- the last entry.
+    dir@Directory{..} <- getDirectory rep
 
     -- Open the index
     repWithIndex $ \h -> do
@@ -636,7 +658,7 @@ withIndex rep@Repository{..} callback = do
 
           getFile :: IndexFile dec -> IO (Maybe (IndexEntry dec))
           getFile file =
-            case directoryLookup rep dir file of
+            case directoryLookup file of
               Nothing       -> return Nothing
               Just dirEntry -> do
                 (tarEntry, content, _next) <- getTarEntry dirEntry
@@ -677,13 +699,15 @@ withIndex rep@Repository{..} callback = do
             content <- case Tar.entryContent entry of
                          Tar.NormalFile content _sz -> return content
                          _ -> throwIO $ userError "withIndex: unexpected entry"
-            let next  = Tar.nextEntryOffset entry offset
-                mNext = if next == Tar.indexEndEntryOffset tarIndex
-                          then Nothing
-                          else Just (DirectoryEntry next)
+            let next  = DirectoryEntry $ Tar.nextEntryOffset entry offset
+                mNext = guard (next < directoryNext) >> return next
             return (entry, content, mNext)
 
-      callback getEntry getFile
+      callback IndexCallbacks{
+          indexLookupEntry = getEntry
+        , indexLookupFile  = getFile
+        , indexDirectory   = dir
+        }
   where
     indexPath :: Tar.Entry -> IndexPath
     indexPath = rootPath . fromUnrootedFilePath . Tar.entryPath
@@ -698,7 +722,7 @@ withIndex rep@Repository{..} callback = do
 --
 -- NOTE: If you need to multiple files, it is more efficient to use 'withIndex'.
 getFromIndex :: Repository down -> IndexFile dec -> IO (Maybe (IndexEntry dec))
-getFromIndex r file = withIndex r $ \_getEntry getFile -> getFile file
+getFromIndex r file = withIndex r $ \IndexCallbacks{..} -> indexLookupFile file
 
 {-------------------------------------------------------------------------------
   Bootstrapping

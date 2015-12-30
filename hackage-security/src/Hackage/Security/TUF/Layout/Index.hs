@@ -49,12 +49,14 @@ data IndexFile :: * -> * where
     IndexPkgPrefs :: PackageName -> IndexFile ()
 
 deriving instance Show (IndexFile dec)
-instance SomeShow IndexFile where someShow = DictShow
 
 instance Pretty (IndexFile dec) where
   pretty (IndexPkgMetadata pkgId) = "metadata for " ++ display pkgId
   pretty (IndexPkgCabal    pkgId) = ".cabal for " ++ display pkgId
   pretty (IndexPkgPrefs    pkgNm) = "preferred-versions for " ++ display pkgNm
+
+instance SomeShow   IndexFile where someShow   = DictShow
+instance SomePretty IndexFile where somePretty = DictPretty
 
 -- | The layout of the index as maintained on Hackage
 hackageIndexLayout :: IndexLayout

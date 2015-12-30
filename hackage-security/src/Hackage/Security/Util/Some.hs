@@ -8,6 +8,9 @@ module Hackage.Security.Util.Some (
     -- ** Serialization
   , DictShow(..)
   , SomeShow(..)
+    -- ** Pretty-printing
+  , DictPretty(..)
+  , SomePretty(..)
     -- ** Type checking
   , typecheckSome
 #if !MIN_VERSION_base(4,7,0)
@@ -23,6 +26,7 @@ import qualified Data.Typeable as Typeable
 #endif
 
 import Hackage.Security.Util.TypedEmbedded
+import Hackage.Security.Util.Pretty
 
 data Some f = forall a. Some (f a)
 
@@ -71,6 +75,21 @@ class SomeShow f where
 instance SomeShow f => Show (Some f) where
   show (Some (x :: f a)) =
     case someShow :: DictShow (f a) of DictShow -> show x
+
+{-------------------------------------------------------------------------------
+  Pretty-printing Some types
+-------------------------------------------------------------------------------}
+
+data DictPretty a where
+  DictPretty :: Pretty a => DictPretty a
+
+-- | Type @f@ satisfies @SomeShow f@ if @f a@ satisfies @Show@ independent of @a@
+class SomePretty f where
+  somePretty :: DictPretty (f a)
+
+instance SomePretty f => Pretty (Some f) where
+  pretty (Some (x :: f a)) =
+    case somePretty :: DictPretty (f a) of DictPretty -> pretty x
 
 {-------------------------------------------------------------------------------
   Typechecking Some types

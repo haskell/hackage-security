@@ -13,6 +13,7 @@ import Distribution.Package
 import Hackage.Security.Client
 import Hackage.Security.Util.Path
 import Hackage.Security.Util.Pretty
+import Hackage.Security.Util.Some
 import Hackage.Security.Client.Repository.HttpLib
 import qualified Hackage.Security.Client.Repository.Cache       as Cache
 import qualified Hackage.Security.Client.Repository.Local       as Local
@@ -68,27 +69,30 @@ cmdEnumIndex :: GlobalOpts -> NewOnly -> IO ()
 cmdEnumIndex opts False =
     withRepo opts $ \rep -> uncheckClientErrors $ do
       dir <- getDirectory rep
-      forM_ (directoryEntries rep dir) $ putStrLn . aux
+      forM_ (directoryEntries dir) $ putStrLn . aux
   where
-    aux :: (DirectoryEntry, IndexPath, Maybe IndexFile) -> String
+    aux :: (Pretty fp, Pretty file) => (DirectoryEntry, fp, Maybe file) -> String
     aux (_, _,  Just file) = pretty file
     aux (_, fp, Nothing  ) = "unrecognized: " ++ pretty fp
 cmdEnumIndex opts True = do
-    startingPoint <- getStartingPoint
     withRepo opts $ \rep -> uncheckClientErrors $ do
-      withIndex' rep $ \getEntry -> do
-        let go n = do mEntry <- getEntry n
-                      case mEntry of
-                        Nothing -> return n
-                        Just (entry, next) -> do
-                          putStrLn $ pretty $ indexEntryPath entry
-                          go next
-        saveStartingPoint =<< go startingPoint
+      withIndex rep $ \IndexCallbacks{..} -> do
+        let go n = do (Some IndexEntry{..}, mNext) <- indexLookupEntry n
+                      putStrLn $ pretty indexEntryPath
+                      case mNext of
+                        Nothing   -> return ()
+                        Just next -> go next
+        startingPoint <- getStartingPoint (directoryFirst indexDirectory)
+        if (startingPoint == directoryNext indexDirectory) 
+          then putStrLn "No new entries"
+          else do
+            go startingPoint
+            saveStartingPoint $ directoryNext indexDirectory
   where
-    getStartingPoint :: IO DirectoryEntry
-    getStartingPoint =
+    getStartingPoint :: DirectoryEntry -> IO DirectoryEntry
+    getStartingPoint def =
       catch (read <$> readFile marker)
-            (\(SomeException _) -> return firstDirectoryEntry)
+            (\(SomeException _) -> return def)
 
     saveStartingPoint :: DirectoryEntry -> IO ()
     saveStartingPoint = writeFile marker . show
