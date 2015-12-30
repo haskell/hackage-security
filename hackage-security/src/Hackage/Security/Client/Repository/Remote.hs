@@ -118,11 +118,6 @@ data RepoOpts = RepoOpts {
       -- algorithm may prefer to disallow content compression.
       repoAllowContentCompression :: Bool
 
-      -- | Do we want to a copy of the compressed index?
-      --
-      -- This is important for mirroring clients only.
-    , repoWantCompressedIndex :: Bool
-
       -- | Allow additional mirrors?
       --
       -- If this is set to True (default), in addition to the (out-of-band)
@@ -135,7 +130,6 @@ data RepoOpts = RepoOpts {
 defaultRepoOpts :: RepoOpts
 defaultRepoOpts = RepoOpts {
       repoAllowContentCompression = True
-    , repoWantCompressedIndex     = False
     , repoAllowAdditionalMirrors  = True
     }
 
