@@ -34,6 +34,8 @@ data IndexLayout = IndexLayout  {
 --
 -- The type index tells us the type of the decoded file, if any. For files for
 -- which the library does not support decoding this will be @()@.
+-- NOTE: Clients should NOT rely on this type index being @()@, or they might
+-- break if we add support for parsing additional file formats in the future.
 --
 -- TODO: If we wanted to support legacy Hackage, we should also have a case for
 -- the global preferred-versions file. But supporting legacy Hackage will

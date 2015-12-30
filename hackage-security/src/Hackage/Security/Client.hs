@@ -18,7 +18,6 @@ module Hackage.Security.Client (
   , IndexEntry(..)
   , IndexCallbacks(..)
   , withIndex
-  , getFromIndex
     -- * Bootstrapping
   , requiresBootstrap
   , bootstrap
@@ -599,6 +598,14 @@ data IndexCallbacks = IndexCallbacks {
                        IndexFile dec
                     -> IO (Maybe (IndexEntry dec))
 
+    -- | Variation if both the 'DirectoryEntry' and the 'IndexFile' are known
+    --
+    -- You might use this when scanning the index using 'directoryEntries'.
+  , indexLookupFileEntry :: forall dec.
+                            DirectoryEntry
+                         -> IndexFile dec
+                         -> IO (IndexEntry dec)
+
     -- | Get (raw) cabal file (wrapper around 'indexLookupFile')
   , indexLookupCabal :: Throws InvalidPackageException
                      => PackageIdentifier
@@ -671,11 +678,17 @@ withIndex rep@Repository{..} callback = do
           getFile file =
             case directoryLookup file of
               Nothing       -> return Nothing
-              Just dirEntry -> do
-                (tarEntry, content, _next) <- getTarEntry dirEntry
-                return $ Just (mkEntry tarEntry content (Just file))
+              Just dirEntry -> Just <$> getFileEntry dirEntry file
 
-          mkEntry :: Tar.Entry -> BS.L.ByteString
+          getFileEntry :: DirectoryEntry
+                       -> IndexFile dec
+                       -> IO (IndexEntry dec)
+          getFileEntry dirEntry file = do
+            (tarEntry, content, _next) <- getTarEntry dirEntry
+            return $ mkEntry tarEntry content (Just file)
+
+          mkEntry :: Tar.Entry
+                  -> BS.L.ByteString
                   -> Maybe (IndexFile dec)
                   -> IndexEntry dec
           mkEntry tarEntry content mFile = IndexEntry {
@@ -778,13 +791,14 @@ withIndex rep@Repository{..} callback = do
                 return hash
 
       callback IndexCallbacks{
-          indexLookupEntry    = getEntry
-        , indexLookupFile     = getFile
-        , indexDirectory      = dir
-        , indexLookupCabal    = getCabal
-        , indexLookupMetadata = getMetadata
-        , indexLookupFileInfo = getFileInfo
-        , indexLookupHash     = getHash
+          indexLookupEntry     = getEntry
+        , indexLookupFile      = getFile
+        , indexLookupFileEntry = getFileEntry
+        , indexDirectory       = dir
+        , indexLookupCabal     = getCabal
+        , indexLookupMetadata  = getMetadata
+        , indexLookupFileInfo  = getFileInfo
+        , indexLookupHash      = getHash
         }
   where
     indexPath :: Tar.Entry -> IndexPath
@@ -798,12 +812,6 @@ withIndex rep@Repository{..} callback = do
 
     pathNotRecognized :: SomeException
     pathNotRecognized = SomeException (userError "Path not recognized")
-
--- | Get a single file from the index
---
--- NOTE: If you need to multiple files, it is more efficient to use 'withIndex'.
-getFromIndex :: Repository down -> IndexFile dec -> IO (Maybe (IndexEntry dec))
-getFromIndex r file = withIndex r $ \IndexCallbacks{..} -> indexLookupFile file
 
 {-------------------------------------------------------------------------------
   Bootstrapping
