@@ -99,8 +99,8 @@ rebuildTarIndex cache = do
     -- The initial index builder
     -- If we don't have an index (or it's broken), we start from scratch
     initBuilder :: Either e TarIndex -> (IndexBuilder, TarEntryOffset)
-    initBuilder (Left  _)   = ( TarIndex.emptyIndex, 0 )
-    initBuilder (Right idx) = ( TarIndex.resumeIndexBuilder  idx
+    initBuilder (Left  _)   = ( TarIndex.empty, 0 )
+    initBuilder (Right idx) = ( TarIndex.unfinalise          idx
                               , TarIndex.indexEndEntryOffset idx
                               )
 
@@ -165,7 +165,7 @@ addEntries :: IndexBuilder -> Entries e -> Either e TarIndex
 addEntries = go
   where
     go !builder (Next e es) = go (TarIndex.addNextEntry e builder) es
-    go !builder  Done       = Right $! TarIndex.finaliseIndex builder
+    go !builder  Done       = Right $! TarIndex.finalise builder
     go !_       (Fail err)  = Left err
 
 -- TODO: How come 'deserialise' uses _strict_ ByteStrings?
