@@ -15,6 +15,11 @@
 * API for accessing the Hackage index contents changed; it should now be
   easier for clients to do their own incremental updates should they wish
   to do so.
+* Relies on tar >= 0.4.4
+* Removed obsolete option for downloading the compressed index (we now _always_
+  download the compressed index)
+* Path module now works on Windows (#118)
+* Dropped support for ghc 7.2
 
 0.4.0.0
 -------
