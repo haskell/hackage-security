@@ -429,19 +429,31 @@ getFile cfg@RemoteConfig{..} attemptNr remoteFile method =
         currentSz <- liftIO $ getFileSize cachedFile
         let fileSz    = fileLength' info
             range     = (0 `max` (currentSz - fileTail), fileSz)
-            rangeSz   = FileSizeExact (snd range - fst range)
             cacheRoot = Cache.cacheRoot cfgCache
         (tempPath, h) <- openTempFile cacheRoot (uriTemplate uri)
-        liftIO $ do
-          httpGetRange headers uri range $ \responseHeaders bodyReader -> do
+        statusCode <- liftIO $
+          httpGetRange headers uri range $ \statusCode responseHeaders bodyReader -> do
             updateServerCapabilities cfgCaps responseHeaders
-            execBodyReader targetPath rangeSz h bodyReader
-          hClose h
-        cacheIfVerified format $ DownloadedDelta {
-            deltaTemp     = tempPath
-          , deltaExisting = cachedFile
-          , deltaSeek     = fst range
-          }
+            let expectedSize =
+                  case statusCode of
+                    HttpStatus206PartialContent ->
+                      FileSizeExact (snd range - fst range)
+                    HttpStatus200OK ->
+                      FileSizeExact fileSz
+            execBodyReader targetPath expectedSize h bodyReader
+            hClose h
+            return statusCode
+        let downloaded =
+              case statusCode of
+                HttpStatus206PartialContent ->
+                  DownloadedDelta {
+                      deltaTemp     = tempPath
+                    , deltaExisting = cachedFile
+                    , deltaSeek     = fst range
+                    }
+                HttpStatus200OK ->
+                  DownloadedWhole tempPath
+        cacheIfVerified format downloaded
       where
         targetPath = TargetPathRepo repoPath
         uri        = modifyUriPath cfgBase (`anchorRepoPathRemotely` repoPath)

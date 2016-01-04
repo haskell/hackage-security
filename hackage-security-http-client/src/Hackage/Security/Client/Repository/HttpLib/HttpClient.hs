@@ -65,7 +65,7 @@ get manager reqHeaders uri callback = wrapCustomEx $ do
 getRange :: Throws SomeRemoteError
          => Manager
          -> [HttpRequestHeader] -> URI -> (Int, Int)
-         -> ([HttpResponseHeader] -> BodyReader -> IO a)
+         -> (HttpStatus -> [HttpResponseHeader] -> BodyReader -> IO a)
          -> IO a
 getRange manager reqHeaders uri (from, to) callback = wrapCustomEx $ do
     request' <- HttpClient.setUri def uri
@@ -74,12 +74,16 @@ getRange manager reqHeaders uri (from, to) callback = wrapCustomEx $ do
                 $ request'
     checkHttpException $ HttpClient.withResponse request manager $ \response -> do
       let br = wrapCustomEx $ HttpClient.responseBody response
-      if HttpClient.responseStatus response == HttpClient.partialContent206
-        then callback (getResponseHeaders response) br
-        else throwChecked $ HttpClient.StatusCodeException
-                              (HttpClient.responseStatus    response)
-                              (HttpClient.responseHeaders   response)
-                              (HttpClient.responseCookieJar response)
+      case () of
+         () | HttpClient.responseStatus response == HttpClient.partialContent206 ->
+           callback HttpStatus206PartialContent (getResponseHeaders response) br
+         () | HttpClient.responseStatus response == HttpClient.ok200 ->
+           callback HttpStatus200OK (getResponseHeaders response) br
+         _otherwise ->
+           throwChecked $ HttpClient.StatusCodeException
+                            (HttpClient.responseStatus    response)
+                            (HttpClient.responseHeaders   response)
+                            (HttpClient.responseCookieJar response)
 
 -- | Wrap custom exceptions
 --

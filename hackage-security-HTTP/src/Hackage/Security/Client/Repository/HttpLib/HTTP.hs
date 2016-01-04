@@ -79,7 +79,7 @@ get browser reqHeaders uri callback = wrapCustomEx $ do
 getRange :: Throws SomeRemoteError
          => Browser
          -> [HttpRequestHeader] -> URI -> (Int, Int)
-         -> ([HttpResponseHeader] -> BodyReader -> IO a)
+         -> (HttpStatus -> [HttpResponseHeader] -> BodyReader -> IO a)
          -> IO a
 getRange browser reqHeaders uri (from, to) callback = wrapCustomEx $ do
     response <- request browser
@@ -89,7 +89,8 @@ getRange browser reqHeaders uri (from, to) callback = wrapCustomEx $ do
       $ removeHeader HTTP.HdrContentLength
       $ HTTP.mkRequest HTTP.GET uri
     case HTTP.rspCode response of
-      (2, 0, 6) -> withResponse response callback
+      (2, 0, 0) -> withResponse response $ callback HttpStatus200OK
+      (2, 0, 6) -> withResponse response $ callback HttpStatus206PartialContent
       otherCode -> throwChecked $ UnexpectedResponse uri otherCode
 
 removeHeader :: HTTP.HasHeaders a => HTTP.HeaderName -> a -> a

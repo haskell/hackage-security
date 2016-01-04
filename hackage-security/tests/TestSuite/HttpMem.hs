@@ -66,7 +66,7 @@ getRange :: forall a. Throws SomeRemoteError
          -> [HttpRequestHeader]
          -> URI
          -> (Int, Int)
-         -> ([HttpResponseHeader] -> BodyReader -> IO a)
+         -> (HttpStatus -> [HttpResponseHeader] -> BodyReader -> IO a)
          -> IO a
 getRange InMemRepo{..} _requestHeaders uri (fr, to) callback = do
     Some inMemFile <- inMemRepoGetPath $ castRoot (uriPath uri)
@@ -75,7 +75,7 @@ getRange InMemRepo{..} _requestHeaders uri (fr, to) callback = do
     let responseHeaders = concat [
             [ HttpResponseAcceptRangesBytes ]
           ]
-    callback responseHeaders br
+    callback HttpStatus206PartialContent responseHeaders br
   where
     substr :: BS.L.ByteString -> BS.L.ByteString
     substr = BS.L.take (fromIntegral (to - fr)) . BS.L.drop (fromIntegral fr)

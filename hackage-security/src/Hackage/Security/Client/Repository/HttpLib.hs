@@ -4,6 +4,7 @@ module Hackage.Security.Client.Repository.HttpLib (
     HttpLib(..)
   , HttpRequestHeader(..)
   , HttpResponseHeader(..)
+  , HttpStatus(..)
   , ProxyConfig(..)
     -- ** Body reader
   , BodyReader
@@ -39,11 +40,23 @@ data HttpLib = HttpLib {
     -- | Download a byte range
     --
     -- Range is starting and (exclusive) end offset in bytes.
+    --
+    -- HTTP servers are normally expected to respond to a range request with
+    -- a "206 Partial Content" response. However, servers can respond with a
+    -- "200 OK" response, sending the entire file instead (for instance, this
+    -- may happen for servers that don't actually support range rqeuests, but
+    -- for which we optimistically assumed they did). Implementations of
+    -- 'HttpLib' may accept such a response and inform the @hackage-security@
+    -- library that the whole file is being returned; the security library can
+    -- then decide to execute the 'BodyReader' anyway (downloading the entire
+    -- file) or abort the request and try something else. For this reason
+    -- the security library must be informed whether the server returned the
+    -- full file or the requested range.
   , httpGetRange :: forall a. Throws SomeRemoteError
                  => [HttpRequestHeader]
                  -> URI
                  -> (Int, Int)
-                 -> ([HttpResponseHeader] -> BodyReader -> IO a)
+                 -> (HttpStatus -> [HttpResponseHeader] -> BodyReader -> IO a)
                  -> IO a
   }
 
@@ -68,6 +81,14 @@ data HttpRequestHeader =
     -- is a potential security concern).
   | HttpRequestContentCompression
   deriving (Eq, Ord, Show)
+
+-- | HTTP status code
+data HttpStatus =
+     -- | 200 OK
+     HttpStatus200OK
+
+     -- | 206 Partial Content
+   | HttpStatus206PartialContent
 
 -- | Response headers
 --
