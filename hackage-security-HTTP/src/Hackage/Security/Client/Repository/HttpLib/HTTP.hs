@@ -21,16 +21,11 @@ import Control.Monad
 import Data.List (intercalate)
 import Data.Typeable (Typeable)
 import Network.URI
-import qualified Data.ByteString.Lazy   as BS.L
-import qualified Control.Monad.State    as State
-import qualified Codec.Compression.GZip as GZip
-import qualified Network.Browser        as HTTP
-import qualified Network.HTTP           as HTTP
-import qualified Network.HTTP.Proxy     as HTTP
-
-#if MIN_VERSION_zlib(0,6,0)
-import qualified Codec.Compression.Zlib.Internal as GZip (DecompressError)
-#endif
+import qualified Data.ByteString.Lazy as BS.L
+import qualified Control.Monad.State  as State
+import qualified Network.Browser      as HTTP
+import qualified Network.HTTP         as HTTP
+import qualified Network.HTTP.Proxy   as HTTP
 
 import Hackage.Security.Client
 import Hackage.Security.Client.Repository.HttpLib
@@ -107,33 +102,15 @@ withResponse :: Throws SomeRemoteError
              -> ([HttpResponseHeader] -> BodyReader -> IO a)
              -> IO a
 withResponse response callback = wrapCustomEx $ do
-    br <- bodyReaderFromBS $ decompress (HTTP.rspBody response)
-    callback responseHeaders $ wrapCustomEx (checkDecompressError br)
+    br <- bodyReaderFromBS $ HTTP.rspBody response
+    callback responseHeaders $ wrapCustomEx br
   where
-    responseHeaders    = getResponseHeaders response
-    needsDecompression = HttpResponseContentCompression `elem` responseHeaders
-    decompress         = if needsDecompression then GZip.decompress else id
+    responseHeaders = getResponseHeaders response
 
 {-------------------------------------------------------------------------------
   Custom exception types
 -------------------------------------------------------------------------------}
 
-#if MIN_VERSION_zlib(0,6,0)
-wrapCustomEx :: ( ( Throws UnexpectedResponse
-                  , Throws IOException
-                  , Throws GZip.DecompressError
-                  ) => IO a)
-             -> (Throws SomeRemoteError => IO a)
-wrapCustomEx act = handleChecked (\(ex :: UnexpectedResponse)   -> go ex)
-                 $ handleChecked (\(ex :: IOException)          -> go ex)
-                 $ handleChecked (\(ex :: GZip.DecompressError) -> go ex)
-                 $ act
-  where
-    go ex = throwChecked (SomeRemoteError ex)
-
-checkDecompressError :: Throws GZip.DecompressError => IO a -> IO a
-checkDecompressError = handle $ \(ex :: GZip.DecompressError) -> throwChecked ex
-#else
 wrapCustomEx :: ( ( Throws UnexpectedResponse
                   , Throws IOException
                   ) => IO a)
@@ -143,10 +120,6 @@ wrapCustomEx act = handleChecked (\(ex :: UnexpectedResponse) -> go ex)
                  $ act
   where
     go ex = throwChecked (SomeRemoteError ex)
-
-checkDecompressError :: IO a -> IO a
-checkDecompressError = id
-#endif
 
 data UnexpectedResponse = UnexpectedResponse URI (Int, Int, Int)
   deriving (Typeable)
@@ -275,8 +248,6 @@ setRequestHeaders =
       trOpt (insert HTTP.HdrCacheControl ["max-age=0"] acc) os
     trOpt acc (HttpRequestNoTransform:os) =
       trOpt (insert HTTP.HdrCacheControl ["no-transform"] acc) os
-    trOpt acc (HttpRequestContentCompression:os) =
-      trOpt (insert HTTP.HdrAcceptEncoding ["gzip"] acc) os
 
     -- Some headers are comma-separated, others need multiple headers for
     -- multiple options.
@@ -299,8 +270,5 @@ getResponseHeaders response = concat [
     -- and <http://www.w3.org/Protocols/rfc2616/rfc2616-sec3.html#sec3.12>
     [ HttpResponseAcceptRangesBytes
     | "bytes" `elem` map HTTP.hdrValue (HTTP.retrieveHeaders hAcceptRanges response)
-    ]
-  , [ HttpResponseContentCompression
-    | HTTP.findHeader HTTP.HdrContentEncoding response == Just "gzip"
     ]
   ]

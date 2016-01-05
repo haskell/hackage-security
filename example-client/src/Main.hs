@@ -1,4 +1,3 @@
-{-# LANGUAGE CPP #-}
 module Main where
 
 -- stdlib
@@ -21,10 +20,7 @@ import qualified Hackage.Security.Client.Repository.Local       as Local
 import qualified Hackage.Security.Client.Repository.Remote      as Remote
 import qualified Hackage.Security.Client.Repository.HttpLib.HTTP as HttpLib.HTTP
 import qualified Hackage.Security.Client.Repository.HttpLib.Curl as HttpLib.Curl
-
-#ifdef MIN_VERSION_hackage_security_http_client
 import qualified Hackage.Security.Client.Repository.HttpLib.HttpClient as HttpLib.HttpClient
-#endif
 
 -- example-client
 import ExampleClient.Options
@@ -147,9 +143,7 @@ withRepo GlobalOpts{..} = \callback ->
                               callback
 
     repoOpts :: Remote.RepoOpts
-    repoOpts = Remote.defaultRepoOpts {
-         Remote.repoAllowContentCompression = not globalDisallowCompression
-       }
+    repoOpts = Remote.defaultRepoOpts
 
     withClient :: (HttpLib -> IO a) -> IO a
     withClient act =
@@ -163,11 +157,9 @@ withRepo GlobalOpts{..} = \callback ->
           "curl" ->
             HttpLib.Curl.withClient $ \httpLib ->
               act httpLib
-#ifdef MIN_VERSION_hackage_security_http_client
           "http-client" ->
             HttpLib.HttpClient.withClient proxyConfig $ \_manager httpLib ->
               act httpLib
-#endif
           otherClient ->
             error $ "unsupported HTTP client " ++ show otherClient
 

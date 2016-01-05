@@ -6,7 +6,7 @@
 * Build tar-index incrementally (#22)
 * Generalize 'Repository' over the representation of downloaded remote files.
 * Update index incrementally by downloading delta of `.tar.gz` and writing only
-  tail of local `.tar` file (#101)
+  tail of local `.tar` file (#101). Content compression no longer used.
 * Take a lock on the cache directory before updating it, and no longer use
   atomic file ops (pointless since we now update some files incrementally)
 * Code refactoring/simplification.

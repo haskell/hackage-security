@@ -1,4 +1,3 @@
-{-# LANGUAGE CPP #-}
 module ExampleClient.Options (
     GlobalOpts(..)
   , Command(..)
@@ -38,9 +37,6 @@ data GlobalOpts = GlobalOpts {
 
     -- | Should we check expiry times?
   , globalCheckExpiry :: Bool
-
-    -- | Should we disable content compression? (For the security paranoid)
-  , globalDisallowCompression :: Bool
 
     -- | Command to execute
   , globalCommand :: Command
@@ -119,11 +115,7 @@ parseGlobalOptions = GlobalOpts
        , metavar "CLIENT"
        , value "HTTP"
        , showDefault
-#ifdef MIN_VERSION_hackage_security_http_client
        , help "HTTP client to use (currently supported: HTTP, http-conduit, curl)"
-#else
-       , help "HTTP client to use (currently supported: HTTP, curl)"
-#endif
        ])
   <*> (many . option readKeyId $ mconcat [
          long "root-key"
@@ -133,10 +125,6 @@ parseGlobalOptions = GlobalOpts
   <*> (switch $ mconcat [
          long "ignore-expiry"
        , help "Don't check expiry dates (should only be used in exceptional circumstances)"
-       ])
-  <*> (switch $ mconcat [
-         long "disallow-content-compression"
-       , help "Disallow HTTP content compression (for the security paranoid)"
        ])
   <*> (subparser $ mconcat [
           command "bootstrap" $ info (helper <*> parseBootstrap) $

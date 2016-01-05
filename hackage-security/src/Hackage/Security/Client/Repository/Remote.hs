@@ -111,26 +111,18 @@ fileSizeWithinBounds sz (FileSizeBound sz') = sz <= sz'
 --
 -- Clients should use 'defaultRepositoryOpts' and override required settings.
 data RepoOpts = RepoOpts {
-      -- | Should we allow HTTP content compression?
-      --
-      -- Since content compression happens before signature verification, users
-      -- who are concerned about potential exploits of the decompression
-      -- algorithm may prefer to disallow content compression.
-      repoAllowContentCompression :: Bool
-
       -- | Allow additional mirrors?
       --
       -- If this is set to True (default), in addition to the (out-of-band)
       -- specified mirrors we will also use mirrors reported by those
       -- out-of-band mirrors (that is, @mirrors.json@).
-    , repoAllowAdditionalMirrors :: Bool
+      repoAllowAdditionalMirrors :: Bool
     }
 
 -- | Default repository options
 defaultRepoOpts :: RepoOpts
 defaultRepoOpts = RepoOpts {
-      repoAllowContentCompression = True
-    , repoAllowAdditionalMirrors  = True
+      repoAllowAdditionalMirrors = True
     }
 
 -- | Initialize the repository (and cleanup resources afterwards)
@@ -243,30 +235,14 @@ getRemote remoteConfig selectedMirror attemptNr remoteFile = do
 -- mess things up with respect to hashes etc). Additionally, after a validation
 -- error we want to make sure caches get files upstream in case the validation
 -- error was because the cache updated files out of order.
-httpRequestHeaders :: RemoteConfig
-                   -> AttemptNr
-                   -> DownloadMethod fs typ
-                   -> [HttpRequestHeader]
-httpRequestHeaders RemoteConfig{..} attemptNr method =
+httpRequestHeaders :: RemoteConfig -> AttemptNr -> [HttpRequestHeader]
+httpRequestHeaders RemoteConfig{..} attemptNr =
     if attemptNr == 0 then defaultHeaders
                       else HttpRequestMaxAge0 : defaultHeaders
   where
     -- Headers we provide for _every_ attempt, first or not
     defaultHeaders :: [HttpRequestHeader]
-    defaultHeaders = concat [
-        [ HttpRequestNoTransform ]
-      , [ HttpRequestContentCompression
-        | repoAllowContentCompression cfgOpts && not (isRangeRequest method)
-        ]
-      ]
-
-    -- If we are doing a range request, we must not request content compression:
-    -- servers such as Apache interpret this range against the _compressed_
-    -- stream, making it near useless for our purposes here.
-    isRangeRequest :: DownloadMethod fs typ -> Bool
-    isRangeRequest NeverUpdated{} = False
-    isRangeRequest CannotUpdate{} = False
-    isRangeRequest Update{}       = True
+    defaultHeaders = [HttpRequestNoTransform]
 
 -- | Mirror selection
 withMirror :: forall a.
@@ -400,7 +376,7 @@ getFile cfg@RemoteConfig{..} attemptNr remoteFile method =
         update updateFormat updateInfo updateLocal updateTail
 
     headers :: [HttpRequestHeader]
-    headers = httpRequestHeaders cfg attemptNr method
+    headers = httpRequestHeaders cfg attemptNr
 
     -- Get any file from the server, without using incremental updates
     download :: Throws SomeRemoteError => HasFormat fs f

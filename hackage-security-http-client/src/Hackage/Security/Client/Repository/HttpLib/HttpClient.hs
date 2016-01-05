@@ -137,15 +137,8 @@ setRequestHeaders opts req = req {
       trOpt (insert HttpClient.hCacheControl ["max-age=0"] acc) os
     trOpt acc (HttpRequestNoTransform:os) =
       trOpt (insert HttpClient.hCacheControl ["no-transform"] acc) os
-    trOpt acc (HttpRequestContentCompression:os) =
-      trOpt (insert hAcceptEncoding ["gzip"] acc) os
 
-    -- http-client deals with decompression completely transparently, so we
-    -- don't actually need to manually decompress the response stream (we do
-    -- still need to report to the `hackage-security` library however that the
-    -- response stream had been compressed). However, we do have to make sure
-    -- that we allow for compression _only_ when explicitly requested because
-    -- the default is that it's always enabled.
+    -- disable content compression (potential security issue)
     disallowCompressionByDefault :: [(HttpClient.HeaderName, [ByteString])]
     disallowCompressionByDefault = [(hAcceptEncoding, [])]
 
@@ -165,9 +158,6 @@ getResponseHeaders :: HttpClient.Response a -> [HttpResponseHeader]
 getResponseHeaders response = concat [
       [ HttpResponseAcceptRangesBytes
       | (hAcceptRanges, "bytes") `elem` headers
-      ]
-    , [ HttpResponseContentCompression
-      | (HttpClient.hContentEncoding, "gzip") `elem` headers
       ]
     ]
   where

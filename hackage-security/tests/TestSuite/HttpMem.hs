@@ -40,18 +40,7 @@ get :: forall a. Throws SomeRemoteError
 get InMemRepo{..} requestHeaders uri callback = do
     Some inMemFile <- inMemRepoGetPath $ castRoot (uriPath uri)
     br <- bodyReaderFromBS $ inMemFileRender inMemFile
-
-    -- We pretend that we used content compression (the HttpLib spec
-    -- explicitly states that it is the responsibility of the HttpLib
-    -- implementation to decode compressed content), and indicate that we can
-    -- use range requests
-    let responseHeaders = concat [
-            [ HttpResponseAcceptRangesBytes ]
-          , [ HttpResponseContentCompression
-            | HttpRequestContentCompression <- requestHeaders
-            ]
-          ]
-    callback responseHeaders br
+    callback [HttpResponseAcceptRangesBytes] br
 
 -- | Download a byte range
 --

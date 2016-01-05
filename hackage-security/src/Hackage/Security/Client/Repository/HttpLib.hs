@@ -70,16 +70,6 @@ data HttpRequestHeader =
 
     -- | Set @Cache-Control: no-transform@
   | HttpRequestNoTransform
-
-    -- | Request transport compression (@Accept-Encoding: gzip@)
-    --
-    -- It is the responsibility of the 'HttpLib' to do compression
-    -- (and report whether the original server reply was compressed or not).
-    --
-    -- NOTE: Clients should NOT allow for compression unless explicitly
-    -- requested (since decompression happens before signature verification, it
-    -- is a potential security concern).
-  | HttpRequestContentCompression
   deriving (Eq, Ord, Show)
 
 -- | HTTP status code
@@ -97,10 +87,6 @@ data HttpStatus =
 data HttpResponseHeader =
     -- | Server accepts byte-range requests (@Accept-Ranges: bytes@)
     HttpResponseAcceptRangesBytes
-
-    -- | Original server response was compressed
-    -- (the 'HttpLib' however must do decompression)
-  | HttpResponseContentCompression
   deriving (Eq, Ord, Show)
 
 -- | Proxy configuration
