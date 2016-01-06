@@ -110,10 +110,11 @@ instance ReportSchemaErrors m => FromJSON m String where
   fromJSON val            = expected' "string" val
 
 instance Monad m => ToJSON m Int where
-  toJSON = return . JSNum
+  -- TODO: runtime-check that 'Int' fits into 'Int32'
+  toJSON = return . JSNum . fromIntegral
 
 instance ReportSchemaErrors m => FromJSON m Int where
-  fromJSON (JSNum i) = return i
+  fromJSON (JSNum i) = return (fromIntegral i)
   fromJSON val       = expected' "int" val
 
 instance
