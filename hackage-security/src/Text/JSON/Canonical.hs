@@ -34,7 +34,10 @@ import Text.ParserCombinators.Parsec
          , satisfy, char, string, digit, spaces
          , parse )
 import Control.Arrow (first)
-import Data.Bits (Bits, FiniteBits)
+import Data.Bits (Bits)
+#if MIN_VERSION_base(4,7,0)
+import Data.Bits (FiniteBits)
+#endif
 import Data.Char (isDigit, digitToInt)
 import Data.Data (Data)
 import Data.Function (on)
