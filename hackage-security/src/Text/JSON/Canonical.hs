@@ -17,7 +17,10 @@
 -- This implementation is derived from the json parser from the json package,
 -- with simplifications to meet the Canonical JSON grammar.
 --
-
+-- Known bugs/limitations:
+--
+--  * Decoding/encoding Unicode code-points beyond @U+00ff@ is currently broken
+--
 module Text.JSON.Canonical
   ( JSValue(..)
   , parseCanonicalJSON
@@ -31,13 +34,14 @@ import Text.ParserCombinators.Parsec
 import Data.Char (isDigit, digitToInt)
 import Data.List (foldl', sortBy)
 import Data.Function (on)
+import Data.Int (Int32)
 import qualified Data.ByteString.Lazy.Char8 as BS
 
 
 data JSValue
     = JSNull
     | JSBool     !Bool
-    | JSNum      !Int
+    | JSNum      !Int32
     | JSString   String
     | JSArray    [JSValue]
     | JSObject   [(String, JSValue)]
@@ -45,6 +49,23 @@ data JSValue
 
 ------------------------------------------------------------------------------
 
+-- | Encode as \"Canonical\" JSON.
+--
+-- NB: Canonical JSON's string escaping rules deviate from RFC 7159
+-- JSON which requires
+--
+--    "All Unicode characters may be placed within the quotation
+--    marks, except for the characters that must be escaped: quotation
+--    mark, reverse solidus, and the control characters (@U+0000@
+--    through @U+001F@)."
+--
+-- Whereas the current specification of Canonical JSON explicitly
+-- requires to violate this by only escaping the quotation mark and
+-- the reverse solidus. This, however, contradicts Canonical JSON's
+-- statement that "Canonical JSON is parsable with any full JSON
+-- parser"
+--
+-- Consequently, Canonical JSON is not a proper subset of RFC 7159.
 renderCanonicalJSON :: JSValue -> BS.ByteString
 renderCanonicalJSON v = BS.pack (s_value v [])
 
@@ -111,7 +132,7 @@ p_jvalue          =  (JSNull      <$  p_null)
                  <|> (JSArray     <$> p_array)
                  <|> (JSString    <$> p_string)
                  <|> (JSObject    <$> p_object)
-                 <|> (JSNum       <$> p_number)
+                 <|> (JSNum . fromIntegral <$> p_number)
                  <?> "JSON value"
 
 p_null           :: CharParser () ()
