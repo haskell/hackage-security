@@ -33,6 +33,7 @@ import Text.ParserCombinators.Parsec
          ( CharParser, (<|>), (<?>), many, between, sepBy
          , satisfy, char, string, digit, spaces
          , parse )
+import Control.Arrow (first)
 import Data.Bits (Bits, FiniteBits)
 import Data.Char (isDigit, digitToInt)
 import Data.Data (Data)
@@ -63,7 +64,7 @@ data JSValue
 -- checking and just inherit all type class instance from Int64. We should
 -- probably define `fromInteger` to do bounds checking, give different instances
 -- for type classes such as `Bounded` and `FiniteBits`, etc.
-newtype Int54 = Int54 Int64
+newtype Int54 = Int54 { int54ToInt64 :: Int64 }
   deriving ( Bounded
            , Enum
            , Eq
@@ -71,9 +72,7 @@ newtype Int54 = Int54 Int64
            , Data
            , Num
            , Ord
-           , Read
            , Real
-           , Show
            , Ix
 #if MIN_VERSION_base(4,7,0)
            , FiniteBits
@@ -83,6 +82,12 @@ newtype Int54 = Int54 Int64
            , PrintfArg
            , Typeable
            )
+
+instance Show Int54 where
+  show = show . int54ToInt64
+
+instance Read Int54 where
+  readsPrec p = map (first Int54) . readsPrec p
 
 ------------------------------------------------------------------------------
 
