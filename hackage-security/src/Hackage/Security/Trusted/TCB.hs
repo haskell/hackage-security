@@ -227,7 +227,7 @@ instance Pretty VerificationError where
       "Invalid hash for " ++ pretty file
   pretty (VerificationErrorUnknownTarget file) =
       pretty file ++ " not found in corresponding target metadata"
-  pretty (VerificationErrorMissingSHA256 file) =  
+  pretty (VerificationErrorMissingSHA256 file) =
       "Missing SHA256 hash for " ++ pretty file
   pretty (VerificationErrorDeserialization file err) =
       "Could not deserialize " ++ pretty file ++ ": " ++ pretty err
@@ -289,7 +289,7 @@ verifyRole' (trusted -> RoleSpec{roleSpecThreshold = KeyThreshold threshold, ..}
       -- was invalid we would already have thrown an error constructing Signed.
       -- (Similarly, if two signatures were made by the same key, the FromJSON
       -- instance for Signatures would have thrown an error.)
-      unless (length (filter isRoleSpecKey sigs) >= threshold) $
+      unless (length (filter isRoleSpecKey sigs) >= fromIntegral threshold) $
         throwError $ VerificationErrorSignatures targetPath
 
       -- Everything is A-OK!
@@ -312,7 +312,7 @@ verifyFingerprints fingerprints
                    (KeyThreshold threshold)
                    targetPath
                    Signed{signatures = Signatures sigs, ..} =
-    if length (filter isTrustedKey sigs) >= threshold
+    if length (filter isTrustedKey sigs) >= fromIntegral threshold
       then Right $ SignaturesVerified signed
       else Left $ VerificationErrorSignatures targetPath
   where

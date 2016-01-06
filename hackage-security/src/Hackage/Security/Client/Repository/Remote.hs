@@ -92,14 +92,14 @@ checkServerCapability (SC mv) f = liftIO $ withMVar mv $ return . f
 data FileSize =
     -- | For most files we download we know the exact size beforehand
     -- (because this information comes from the snapshot or delegated info)
-    FileSizeExact Int
+    FileSizeExact Int54
 
     -- | For some files we might not know the size beforehand, but we might
     -- be able to provide an upper bound (timestamp, root info)
-  | FileSizeBound Int
+  | FileSizeBound Int54
   deriving Show
 
-fileSizeWithinBounds :: Int -> FileSize -> Bool
+fileSizeWithinBounds :: Int54 -> FileSize -> Bool
 fileSizeWithinBounds sz (FileSizeExact sz') = sz <= sz'
 fileSizeWithinBounds sz (FileSizeBound sz') = sz <= sz'
 
@@ -315,7 +315,7 @@ data DownloadMethod :: * -> * -> * where
         updateFormat :: HasFormat fs f
       , updateInfo   :: Trusted FileInfo
       , updateLocal  :: Path Absolute
-      , updateTail   :: Int
+      , updateTail   :: Int54
       } -> DownloadMethod fs Binary
 
 pickDownloadMethod :: forall fs typ. RemoteConfig
@@ -398,17 +398,18 @@ getFile cfg@RemoteConfig{..} attemptNr remoteFile method =
     update :: (typ ~ Binary)
            => HasFormat fs f    -- ^ Selected format
            -> Trusted FileInfo  -- ^ Expected info
-           -> Path Absolute      -- ^ Location of cached file (after callback)
-           -> Int               -- ^ How much of the tail to overwrite
+           -> Path Absolute     -- ^ Location of cached file (after callback)
+           -> Int54             -- ^ How much of the tail to overwrite
            -> Verify (Some (HasFormat fs), RemoteTemp typ)
     update format info cachedFile fileTail = do
         currentSz <- liftIO $ getFileSize cachedFile
         let fileSz    = fileLength' info
             range     = (0 `max` (currentSz - fileTail), fileSz)
+            range'    = (fromIntegral (fst range), fromIntegral (snd range))
             cacheRoot = Cache.cacheRoot cfgCache
         (tempPath, h) <- openTempFile cacheRoot (uriTemplate uri)
         statusCode <- liftIO $
-          httpGetRange headers uri range $ \statusCode responseHeaders bodyReader -> do
+          httpGetRange headers uri range' $ \statusCode responseHeaders bodyReader -> do
             updateServerCapabilities cfgCaps responseHeaders
             let expectedSize =
                   case statusCode of
@@ -462,14 +463,14 @@ execBodyReader :: Throws SomeRemoteError
                -> IO ()
 execBodyReader file mlen h br = go 0
   where
-    go :: Int -> IO ()
+    go :: Int54 -> IO ()
     go sz = do
       unless (sz `fileSizeWithinBounds` mlen) $
         throwChecked $ SomeRemoteError $ FileTooLarge file mlen
       bs <- br
       if BS.null bs
         then return ()
-        else BS.hPut h bs >> go (sz + BS.length bs)
+        else BS.hPut h bs >> go (sz + fromIntegral (BS.length bs))
 
 -- | The file we requested from the server was larger than expected
 -- (potential endless data attack)
@@ -533,7 +534,7 @@ remoteFileSize (RemotePkgTarGz _pkgId len) =
 -- just under 200 bytes of that. So even if the timestamp is signed with 10
 -- keys it would still only be 2420 bytes. Doubling this amount, an upper bound
 -- of 4kB should definitely be sufficient.
-fileSizeBoundTimestamp :: Int
+fileSizeBoundTimestamp :: Int54
 fileSizeBoundTimestamp = 4096
 
 -- | Bound on the size of the root
@@ -557,7 +558,7 @@ fileSizeBoundTimestamp = 4096
 --
 -- We end up with a bound of about 665,000 bytes. Doubling this amount, an
 -- upper bound of 2MB should definitely be sufficient.
-fileSizeBoundRoot :: Int
+fileSizeBoundRoot :: Int54
 fileSizeBoundRoot = 2 * 1024 * 2014
 
 {-------------------------------------------------------------------------------
@@ -585,7 +586,7 @@ data RemoteConfig = RemoteConfig {
 uriTemplate :: URI -> String
 uriTemplate = takeFileName . uriPath
 
-fileLength' :: Trusted FileInfo -> Int
+fileLength' :: Trusted FileInfo -> Int54
 fileLength' = fileLength . fileInfoLength . trusted
 
 {-------------------------------------------------------------------------------
@@ -611,7 +612,7 @@ data RemoteTemp :: * -> * where
     DownloadedDelta :: {
         deltaTemp     :: Path Absolute
       , deltaExisting :: Path Absolute
-      , deltaSeek     :: Int          -- ^ How much of the existing file to keep
+      , deltaSeek     :: Int54       -- ^ How much of the existing file to keep
       } -> RemoteTemp Binary
 
 instance Pretty (RemoteTemp typ) where
@@ -653,7 +654,7 @@ verifyRemoteFile remoteTemp trustedInfo = do
       then return False
       else withRemoteBS remoteTemp $ knownFileInfoEqual info . fileInfo
   where
-    remoteSize :: RemoteTemp typ -> IO Int
+    remoteSize :: RemoteTemp typ -> IO Int54
     remoteSize DownloadedWhole{..} = getFileSize wholeTemp
     remoteSize DownloadedDelta{..} = do
         deltaSize <- getFileSize deltaTemp

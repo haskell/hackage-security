@@ -16,14 +16,14 @@ import Hackage.Security.JSON
 --
 -- Having verified file length information means we can protect against
 -- endless data attacks and similar.
-newtype FileLength = FileLength { fileLength :: Int }
+newtype FileLength = FileLength { fileLength :: Int54 }
   deriving (Eq, Ord, Show)
 
 -- | Key threshold
 --
 -- The key threshold is the minimum number of keys a document must be signed
 -- with. Key thresholds are specified in 'RoleSpec' or 'DelegationsSpec'.
-newtype KeyThreshold = KeyThreshold Int
+newtype KeyThreshold = KeyThreshold Int54
   deriving (Eq, Ord, Show)
 
 -- | File hash

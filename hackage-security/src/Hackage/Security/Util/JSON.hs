@@ -20,6 +20,7 @@ module Hackage.Security.Util.JSON (
   , mkObject
     -- * Re-exports
   , JSValue(..)
+  , Int54
   ) where
 
 import Control.Monad (liftM)
@@ -109,12 +110,11 @@ instance ReportSchemaErrors m => FromJSON m String where
   fromJSON (JSString str) = return str
   fromJSON val            = expected' "string" val
 
-instance Monad m => ToJSON m Int where
-  -- TODO: runtime-check that 'Int' fits into 'Int32'
-  toJSON = return . JSNum . fromIntegral
+instance Monad m => ToJSON m Int54 where
+  toJSON = return . JSNum
 
-instance ReportSchemaErrors m => FromJSON m Int where
-  fromJSON (JSNum i) = return (fromIntegral i)
+instance ReportSchemaErrors m => FromJSON m Int54 where
+  fromJSON (JSNum i) = return i
   fromJSON val       = expected' "int" val
 
 instance

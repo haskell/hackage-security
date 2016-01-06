@@ -8,6 +8,8 @@ module Hackage.Security.TUF.FileInfo (
   , computeFileInfo
   , knownFileInfoEqual
   , fileInfoSHA256
+    -- ** Re-exports
+  , Int54
   ) where
 
 import Prelude hiding (lookup)

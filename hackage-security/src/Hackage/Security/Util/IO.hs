@@ -18,7 +18,7 @@ import Hackage.Security.Util.Path
   Miscelleneous
 -------------------------------------------------------------------------------}
 
-getFileSize :: FsRoot root => Path root -> IO Int
+getFileSize :: (Num a, FsRoot root) => Path root -> IO a
 getFileSize fp = fromInteger <$> withFile fp ReadMode hFileSize
 
 handleDoesNotExist :: IO a -> IO (Maybe a)

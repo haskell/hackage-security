@@ -20,6 +20,8 @@
   download the compressed index)
 * Path module now works on Windows (#118)
 * Dropped support for ghc 7.2
+* Replaced uses of Int with Int54, to make sure canonical JSON really is
+  canonical (#141).
 
 0.4.0.0
 -------

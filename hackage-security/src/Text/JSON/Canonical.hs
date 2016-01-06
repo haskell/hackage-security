@@ -17,12 +17,13 @@
 -- This implementation is derived from the json parser from the json package,
 -- with simplifications to meet the Canonical JSON grammar.
 --
--- Known bugs/limitations:
+-- TODO: Known bugs/limitations:
 --
 --  * Decoding/encoding Unicode code-points beyond @U+00ff@ is currently broken
 --
 module Text.JSON.Canonical
   ( JSValue(..)
+  , Int54
   , parseCanonicalJSON
   , renderCanonicalJSON
   ) where
@@ -31,21 +32,52 @@ import Text.ParserCombinators.Parsec
          ( CharParser, (<|>), (<?>), many, between, sepBy
          , satisfy, char, string, digit, spaces
          , parse )
+import Data.Bits (Bits, FiniteBits)
 import Data.Char (isDigit, digitToInt)
-import Data.List (foldl', sortBy)
+import Data.Data (Data)
 import Data.Function (on)
-import Data.Int (Int32)
+import Data.Int (Int64)
+import Data.Ix (Ix)
+import Data.List (foldl', sortBy)
+import Foreign.Storable (Storable)
+import Text.Printf (PrintfArg)
 import qualified Data.ByteString.Lazy.Char8 as BS
-
 
 data JSValue
     = JSNull
     | JSBool     !Bool
-    | JSNum      !Int32
+    | JSNum      !Int54
     | JSString   String
     | JSArray    [JSValue]
     | JSObject   [(String, JSValue)]
     deriving (Show, Read, Eq, Ord)
+
+-- | 54-bit integer values
+--
+-- JavaScript can only safely represent numbers between @-(2^53 - 1)@ and
+-- @2^53 - 1@.
+--
+-- TODO: Although we introduce the type here, we don't actually do any bounds
+-- checking and just inherit all type class instance from Int64. We should
+-- probably define `fromInteger` to do bounds checking, give different instances
+-- for type classes such as `Bounded` and `FiniteBits`, etc.
+newtype Int54 = Int54 Int64
+  deriving ( Bounded
+           , Enum
+           , Eq
+           , Integral
+           , Data
+           , Num
+           , Ord
+           , Read
+           , Real
+           , Show
+           , Ix
+           , FiniteBits
+           , Bits
+           , Storable
+           , PrintfArg
+           )
 
 ------------------------------------------------------------------------------
 
@@ -202,16 +234,24 @@ digits:
    digit
    digit digits
 -}
-p_number         :: CharParser () Int
+
+-- | Parse an int
+--
+-- TODO: Currently this allows for a maximum of 15 digits (i.e. a maximum value
+-- of @999,999,999,999,999@) as a crude approximation of the 'Int54' range.
+p_number         :: CharParser () Int54
 p_number          = tok
                       (  (char '-' *> (negate <$> pnat))
                      <|> pnat
                      <|> zero
                       )
-  where pnat      = (\d ds -> strToInt (d:ds)) <$> digit19 <*> manyN 8 digit
+  where pnat      = (\d ds -> strToInt (d:ds)) <$> digit19 <*> manyN 14 digit
         digit19   = satisfy (\c -> isDigit c && c /= '0') <?> "digit"
-        strToInt  = foldl' (\x d -> 10*x + digitToInt d) 0
+        strToInt  = foldl' (\x d -> 10*x + digitToInt54 d) 0
         zero      = 0 <$ char '0'
+
+digitToInt54 :: Char -> Int54
+digitToInt54 = fromIntegral . digitToInt
 
 manyN :: Int -> CharParser () a -> CharParser () [a]
 manyN 0 _ =  pure []

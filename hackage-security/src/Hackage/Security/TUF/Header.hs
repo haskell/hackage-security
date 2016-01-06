@@ -36,7 +36,7 @@ class HasHeader a where
 --
 -- 'Show' and 'Read' instance are defined in terms of the underlying 'Int'
 -- (this is use for example by hackage during the backup process).
-newtype FileVersion = FileVersion Int
+newtype FileVersion = FileVersion Int54
   deriving (Eq, Ord, Typeable)
 
 instance Show FileVersion where

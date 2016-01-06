@@ -37,7 +37,7 @@ get :: forall a. Throws SomeRemoteError
     -> URI
     -> ([HttpResponseHeader] -> BodyReader -> IO a)
     -> IO a
-get InMemRepo{..} requestHeaders uri callback = do
+get InMemRepo{..} _requestHeaders uri callback = do
     Some inMemFile <- inMemRepoGetPath $ castRoot (uriPath uri)
     br <- bodyReaderFromBS $ inMemFileRender inMemFile
     callback [HttpResponseAcceptRangesBytes] br
