@@ -40,8 +40,8 @@ class Throws e where
 type role Throws representational
 #endif
 
-unthrow :: proxy e -> (Throws e => a) -> a
-unthrow _ = unWrap . coerceWrap . Wrap
+unthrow :: forall a e proxy . proxy e -> (Throws e => a) -> a
+unthrow _ x = unWrap (coerceWrap (Wrap x :: Wrap e a))
 
 {-------------------------------------------------------------------------------
   Base exceptions
