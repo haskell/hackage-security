@@ -12,11 +12,17 @@ author:              Edsko de Vries
 maintainer:          edsko@well-typed.com
 copyright:           Copyright 2015 Well-Typed LLP
 category:            Distribution
+homepage:            https://github.com/well-typed/hackage-security
+bug-reports:         https://github.com/well-typed/hackage-security/issues
 build-type:          Simple
 cabal-version:       >=1.10
 
 extra-source-files:
   ChangeLog.md
+
+source-repository head
+  type: git
+  location: https://github.com/well-typed/hackage-security.git
 
 flag use-network-uri
   description: Are we using network-uri?

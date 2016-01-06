@@ -1,3 +1,7 @@
+0.1.1
+-----
+* Update for hackage-security-0.5
+
 0.1.0.1
 -------
 * Add missing module to other-modules (#100)
