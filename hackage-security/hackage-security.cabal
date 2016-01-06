@@ -113,8 +113,8 @@ library
                        -- version 0.4.2.2 contains a crucial bugfix
                        -- version 0.4.4 introduces some more Index functionality
                        tar               >= 0.4.4   && < 0.5,
-                       time              >= 1.2     && < 1.6,
-                       transformers      >= 0.4     && < 0.5,
+                       time              >= 1.2     && < 1.7,
+                       transformers      >= 0.4     && < 0.6,
                        zlib              >= 0.5     && < 0.7,
                        -- whatever versions are bundled with ghc:
                        template-haskell,
