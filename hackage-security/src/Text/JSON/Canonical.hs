@@ -1,3 +1,4 @@
+{-# LANGUAGE CPP #-}
 --------------------------------------------------------------------
 -- |
 -- Module    : Text.JSON.Parsec
@@ -74,7 +75,9 @@ newtype Int54 = Int54 Int64
            , Real
            , Show
            , Ix
+#if MIN_VERSION_base(4,7,0)
            , FiniteBits
+#endif
            , Bits
            , Storable
            , PrintfArg
@@ -166,7 +169,7 @@ p_jvalue          =  (JSNull      <$  p_null)
                  <|> (JSArray     <$> p_array)
                  <|> (JSString    <$> p_string)
                  <|> (JSObject    <$> p_object)
-                 <|> (JSNum . fromIntegral <$> p_number)
+                 <|> (JSNum       <$> p_number)
                  <?> "JSON value"
 
 p_null           :: CharParser () ()
