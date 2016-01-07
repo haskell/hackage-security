@@ -143,7 +143,7 @@ library
                        PackageImports
                        UndecidableInstances
   -- use the new stage1/cross-compile-friendly Quotes subset of TH for new GHCs
-  if impl(ghc >= 800)
+  if impl(ghc >= 8.0)
     -- place holder until Hackage allows to edit in the new extension token
     -- other-extensions: TemplateHaskellQuotes
     other-extensions:
