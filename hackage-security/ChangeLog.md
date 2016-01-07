@@ -1,3 +1,7 @@
+0.5.0.1
+-------
+* Relaxed dependency bounds
+
 0.5.0.0
 -------
 * Treat deserialization errors as verification errors (#108, #75)
