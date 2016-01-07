@@ -144,9 +144,15 @@ library
                        CPP
                        OverlappingInstances
                        PackageImports
-                       QuasiQuotes
-                       TemplateHaskell
                        UndecidableInstances
+  -- use the new stage1/cross-compile-friendly Quotes subset of TH for new GHCs
+  if impl(ghc >= 800)
+    -- place holder until Hackage allows to edit in the new extension token
+    -- other-extensions: TemplateHaskellQuotes
+    other-extensions:
+  else
+    other-extensions: TemplateHaskell
+
   ghc-options:         -Wall
 
   if flag(base48)

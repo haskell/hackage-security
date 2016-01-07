@@ -2,7 +2,12 @@
 --
 -- NOTE: This module was developed to prepare for proper delegation (#39).
 -- It is currently unusued.
+{-# LANGUAGE CPP #-}
+#if __GLASGOW_HASKELL__ >= 800
+{-# LANGUAGE TemplateHaskellQuotes #-}
+#else
 {-# LANGUAGE TemplateHaskell #-}
+#endif
 module Hackage.Security.TUF.Patterns (
     -- * Patterns and replacements
     FileName
@@ -21,7 +26,7 @@ module Hackage.Security.TUF.Patterns (
   ) where
 
 import Control.Monad.Except
-import Language.Haskell.TH
+import Language.Haskell.TH (Q, Exp)
 import System.FilePath
 import qualified Language.Haskell.TH.Syntax as TH
 
