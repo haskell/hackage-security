@@ -1,4 +1,5 @@
 {-# LANGUAGE BangPatterns #-}
+{-# LANGUAGE CPP #-}
 -- | The files we cache from the repository
 --
 -- Both the Local and the Remote repositories make use of this module.
@@ -22,8 +23,13 @@ import Codec.Archive.Tar.Index (TarIndex, IndexBuilder, TarEntryOffset)
 import qualified Codec.Archive.Tar       as Tar
 import qualified Codec.Archive.Tar.Index as TarIndex
 import qualified Codec.Compression.GZip  as GZip
-import qualified Data.ByteString.Builder as BS.Builder
 import qualified Data.ByteString.Lazy    as BS.L
+
+#if MIN_VERSION_bytestring(0,10,2)
+import Data.ByteString.Builder      as BS.Builder
+#else
+import Data.ByteString.Lazy.Builder as BS.Builder
+#endif
 
 import Hackage.Security.Client.Repository
 import Hackage.Security.Client.Formats

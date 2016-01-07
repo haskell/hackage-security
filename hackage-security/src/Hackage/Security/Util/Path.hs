@@ -7,6 +7,7 @@
 --
 -- Note that his module does not import any other modules from Hackage.Security;
 -- everywhere else we use Path instead of FilePath directly.
+{-# LANGUAGE CPP #-}
 module Hackage.Security.Util.Path (
     -- * Paths
     Path(..)
@@ -200,7 +201,19 @@ class FsRoot root where
   toAbsoluteFilePath :: Path root -> IO FilePath
 
 instance FsRoot Relative where
-    toAbsoluteFilePath (Path fp) = Dir.makeAbsolute fp
+    toAbsoluteFilePath (Path fp) = go fp
+      where
+        go :: FilePath -> IO FilePath
+#if MIN_VERSION_directory(1,2,2)
+        go = Dir.makeAbsolute
+#else
+        -- copied implementation from the directory package
+        go = (FP.normalise <$>) . absolutize
+        absolutize path -- avoid the call to `getCurrentDirectory` if we can
+          | FP.isRelative path = (FP.</> path) . FP.addTrailingPathSeparator <$>
+                                 Dir.getCurrentDirectory
+          | otherwise          = return path
+#endif
 
 instance FsRoot Absolute where
     toAbsoluteFilePath (Path fp) = return fp
