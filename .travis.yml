@@ -32,6 +32,7 @@ before_install:
  - export PATH=/opt/ghc/$GHCVER/bin:/opt/cabal/$CABALVER/bin:$PATH
  - TARGETS="hackage-security/ hackage-security-curl/ hackage-security-HTTP/ hackage-root-tool/ hackage-repo-tool/ example-client/ hackage-security-http-client/";
  - CONSTRAINTS="--constraint=\"directory installed\" --constraint=\"bytestring installed\""
+ - echo $CONSTRAINTS
 
 install:
 # Compute install plan (which we use as a travis cache key)
