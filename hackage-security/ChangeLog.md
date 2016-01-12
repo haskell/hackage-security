@@ -1,6 +1,7 @@
 0.5.0.2
 -------
 * Use tar 0.5.0
+* Relax lower bound on directory
 
 0.5.0.1
 -------

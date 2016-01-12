@@ -31,6 +31,7 @@ before_install:
  - unset CC
  - export PATH=/opt/ghc/$GHCVER/bin:/opt/cabal/$CABALVER/bin:$PATH
  - TARGETS="hackage-security/ hackage-security-curl/ hackage-security-HTTP/ hackage-root-tool/ hackage-repo-tool/ example-client/ hackage-security-http-client/";
+ - CONSTRAINTS="--constraint='directory installed' --constraint='bytestring installed'"
 
 install:
 # Compute install plan (which we use as a travis cache key)
@@ -43,7 +44,7 @@ install:
    fi
  - travis_retry cabal update -v
  - sed -i 's/^jobs:/-- jobs:/' ${HOME}/.cabal/config
- - cabal install --only-dependencies --enable-tests --dry -v $TARGETS > installplan.txt
+ - cabal install --only-dependencies --enable-tests --dry -v $CONSTRAINTS $TARGETS > installplan.txt
  - sed -i -e '1,/^Resolving /d' installplan.txt; cat installplan.txt
 
 # check whether current requested install-plan matches cached package-db snapshot
@@ -57,7 +58,7 @@ install:
      echo "cabal build-cache MISS";
      rm -rf $HOME/.cabsnap;
      mkdir -p $HOME/.ghc $HOME/.cabal/lib $HOME/.cabal/share $HOME/.cabal/bin;
-     cabal install --only-dependencies --enable-tests $TARGETS;
+     cabal install --only-dependencies --enable-tests $CONSTRAINTS $TARGETS;
    fi
 
 # snapshot package-db on cache miss
