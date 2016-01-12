@@ -1,3 +1,7 @@
+0.5.0.2
+-------
+* Use tar 0.5.0
+
 0.5.0.1
 -------
 * Relaxed dependency bounds
