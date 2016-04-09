@@ -29,9 +29,10 @@ import Control.Monad
 import Data.Functor.Identity
 import Data.Typeable (Typeable)
 import Text.JSON.Canonical
-import qualified Crypto.Hash          as CH
+import qualified Crypto.Hash.SHA256   as SHA256
 import qualified Crypto.Sign.Ed25519  as Ed25519
 import qualified Data.ByteString      as BS
+import qualified Data.ByteString.Base16 as Base16
 import qualified Data.ByteString.Lazy as BS.L
 
 #if !MIN_VERSION_base(4,7,0)
@@ -160,7 +161,8 @@ class HasKeyId key where
 instance HasKeyId PublicKey where
   keyId = KeyId
         . show
-        . (CH.hashlazy :: BS.L.ByteString -> CH.Digest CH.SHA256)
+        . Base16.encode
+        . SHA256.hashlazy
         . renderCanonicalJSON
         . runIdentity
         . toJSON
