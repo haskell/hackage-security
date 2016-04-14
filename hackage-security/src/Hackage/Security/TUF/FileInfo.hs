@@ -14,8 +14,9 @@ module Hackage.Security.TUF.FileInfo (
 
 import Prelude hiding (lookup)
 import Data.Map (Map)
-import qualified Crypto.Hash          as CH
+import qualified Crypto.Hash.SHA256   as SHA256
 import qualified Data.Map             as Map
+import qualified Data.ByteString.Base16 as Base16
 import qualified Data.ByteString.Lazy as BS.L
 
 import Hackage.Security.JSON
@@ -58,7 +59,7 @@ fileInfo :: BS.L.ByteString -> FileInfo
 fileInfo bs = FileInfo {
       fileInfoLength = FileLength . fromIntegral $ BS.L.length bs
     , fileInfoHashes = Map.fromList [
-          (HashFnSHA256, Hash $ show (CH.hashlazy bs :: CH.Digest CH.SHA256))
+          (HashFnSHA256, Hash $ show $ Base16.encode $ SHA256.hashlazy bs)
         ]
     }
 
