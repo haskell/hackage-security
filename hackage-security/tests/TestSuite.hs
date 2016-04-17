@@ -8,6 +8,7 @@ import Data.Time
 import Network.URI (URI, parseURI)
 import Test.Tasty
 import Test.Tasty.HUnit
+import Test.Tasty.QuickCheck
 import System.IO.Temp (withSystemTempDirectory)
 
 -- hackage-security
@@ -27,6 +28,7 @@ import TestSuite.InMemRepo
 import TestSuite.InMemRepository
 import TestSuite.PrivateKeys
 import TestSuite.Util.StrictMVar
+import TestSuite.JSON as JSON
 
 {-------------------------------------------------------------------------------
   TestSuite driver
@@ -50,6 +52,11 @@ tests = testGroup "hackage-security" [
         , testCase "testHttpMemUpdatesAfterCron"     testHttpMemUpdatesAfterCron
         , testCase "testHttpMemKeyRollover"          testHttpMemKeyRollover
         , testCase "testHttpMemOutdatedTimestamp"    testHttpMemOutdatedTimestamp
+        ]
+    , testGroup "Canonical JSON" [
+          testProperty "prop_roundtrip_canonical" JSON.prop_roundtrip_canonical
+        , testProperty "prop_roundtrip_pretty"    JSON.prop_roundtrip_pretty
+        , testProperty "prop_canonical_pretty"    JSON.prop_canonical_pretty
         ]
   ]
 
