@@ -236,7 +236,7 @@ char:
    \"
 -}
 p_string         :: CharParser () String
-p_string          = between (tok (char '"')) (tok (char '"')) (many p_char)
+p_string          = between (char '"') (tok (char '"')) (many p_char)
   where p_char    =  (char '\\' >> p_esc)
                  <|> (satisfy (\x -> x /= '"' && x /= '\\'))
 
