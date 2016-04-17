@@ -32,6 +32,7 @@ import Text.JSON.Canonical
 import qualified Crypto.Hash.SHA256   as SHA256
 import qualified Crypto.Sign.Ed25519  as Ed25519
 import qualified Data.ByteString      as BS
+import qualified Data.ByteString.Char8 as BS.C8
 import qualified Data.ByteString.Base16 as Base16
 import qualified Data.ByteString.Lazy as BS.L
 
@@ -160,7 +161,7 @@ class HasKeyId key where
 
 instance HasKeyId PublicKey where
   keyId = KeyId
-        . show
+        . BS.C8.unpack
         . Base16.encode
         . SHA256.hashlazy
         . renderCanonicalJSON
