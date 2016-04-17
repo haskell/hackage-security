@@ -18,6 +18,7 @@ import qualified Crypto.Hash.SHA256   as SHA256
 import qualified Data.Map             as Map
 import qualified Data.ByteString.Base16 as Base16
 import qualified Data.ByteString.Lazy as BS.L
+import qualified Data.ByteString.Char8 as BS.C8
 
 import Hackage.Security.JSON
 import Hackage.Security.TUF.Common
@@ -59,7 +60,7 @@ fileInfo :: BS.L.ByteString -> FileInfo
 fileInfo bs = FileInfo {
       fileInfoLength = FileLength . fromIntegral $ BS.L.length bs
     , fileInfoHashes = Map.fromList [
-          (HashFnSHA256, Hash $ show $ Base16.encode $ SHA256.hashlazy bs)
+          (HashFnSHA256, Hash $ BS.C8.unpack $ Base16.encode $ SHA256.hashlazy bs)
         ]
     }
 
