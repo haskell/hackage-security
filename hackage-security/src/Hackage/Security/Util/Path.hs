@@ -85,7 +85,11 @@ import Control.Monad
 import Data.List (isPrefixOf)
 import System.IO (IOMode(..), BufferMode(..), Handle, SeekMode(..))
 import System.IO.Unsafe (unsafeInterleaveIO)
+#if MIN_VERSION_directory(1,2,0)
 import Data.Time (UTCTime)
+#else
+import System.Time (ClockTime)
+#endif
 import qualified Data.ByteString         as BS
 import qualified Data.ByteString.Lazy    as BS.L
 import qualified System.FilePath         as FP
@@ -333,7 +337,11 @@ doesDirectoryExist path = do
     filePath <- toAbsoluteFilePath path
     Dir.doesDirectoryExist filePath
 
+#if MIN_VERSION_directory(1,2,0)
 getModificationTime :: FsRoot root => Path root -> IO UTCTime
+#else
+getModificationTime :: FsRoot root => Path root -> IO ClockTime
+#endif
 getModificationTime path = do
     filePath <- toAbsoluteFilePath path
     Dir.getModificationTime filePath
