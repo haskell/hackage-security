@@ -6,6 +6,7 @@
 * New JSON pretty-printer (not canonical rendering)
 * Round-trip tests for Canonical JSON parser and printers
 * Minor fix for Canonical JSON parser
+* Switch from cryptohash to cryptohash-sha256 to avoid new dependencies
 
 0.5.0.2
 -------
