@@ -46,6 +46,11 @@ flag use-network-uri
   description: Are we using network-uri?
   manual: False
 
+Flag old-directory
+  description: Use directory < 1.2 and old-time
+  manual:      False
+  default:     False
+
 library
   -- Most functionality is exported through the top-level entry points .Client
   -- and .Server; the other exported modules are intended for qualified imports.
@@ -114,6 +119,10 @@ library
                        -- whatever versions are bundled with ghc:
                        template-haskell,
                        ghc-prim
+  if flag(old-directory)
+    build-depends:     directory <  1.2, old-time >= 1 && < 1.2
+  else
+    build-depends:     directory >= 1.2
   hs-source-dirs:      src
   default-language:    Haskell2010
   default-extensions:  DefaultSignatures

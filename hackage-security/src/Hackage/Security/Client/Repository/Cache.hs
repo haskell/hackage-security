@@ -16,6 +16,7 @@ module Hackage.Security.Client.Repository.Cache (
 
 import Control.Exception
 import Control.Monad
+import Data.Maybe
 import Codec.Archive.Tar (Entries(..))
 import Codec.Archive.Tar.Index (TarIndex, IndexBuilder, TarEntryOffset)
 import qualified Codec.Archive.Tar       as Tar
@@ -63,16 +64,43 @@ cacheRemoteFile cache downloaded f isCached = do
     unzipIndex :: typ ~ Binary => IO ()
     unzipIndex = do
         createDirectoryIfMissing True (takeDirectory indexUn)
-        compressed <- readLazyByteString indexGz
-        let uncompressed = GZip.decompress compressed
-        withFile indexUn ReadWriteMode $ \h -> do
-          currentSize <- hFileSize h
-          let seekTo = 0 `max` (currentSize - tarTrailer)
-          hSeek h AbsoluteSeek seekTo
-          BS.L.hPut h $ BS.L.drop (fromInteger seekTo) uncompressed
+        shouldTryIncremenal <- cachedIndexProbablyValid
+        if shouldTryIncremenal
+          then unzipIncremenal
+          else unzipNonIncremenal
       where
-        indexGz = cachedIndexPath cache FGz
-        indexUn = cachedIndexPath cache FUn
+        unzipIncremenal = do
+          compressed <- readLazyByteString indexGz
+          let uncompressed = GZip.decompress compressed
+          withFile indexUn ReadWriteMode $ \h -> do
+            currentSize <- hFileSize h
+            let seekTo = 0 `max` (currentSize - tarTrailer)
+            hSeek h AbsoluteSeek seekTo
+            BS.L.hPut h $ BS.L.drop (fromInteger seekTo) uncompressed
+
+        unzipNonIncremenal = do
+          compressed <- readLazyByteString indexGz
+          let uncompressed = GZip.decompress compressed
+          withFile indexUn WriteMode $ \h ->
+            BS.L.hPut h uncompressed
+
+        -- When we update the 00-index.tar we also update the 00-index.tar.idx
+        -- so the expected state is that the modification time for the tar.idx
+        -- is the same or later than the .tar file. But if someone modified
+        -- the 00-index.tar then the modification times will be reversed. So,
+        -- if the modification times are reversed then we should not do an
+        -- incremental update but should rewrite the whole file.
+        cachedIndexProbablyValid :: IO Bool
+        cachedIndexProbablyValid =
+          fmap (fromMaybe False) $
+          handleDoesNotExist $ do
+            tsUn  <- getModificationTime indexUn
+            tsIdx <- getModificationTime indexIdx
+            return (tsIdx >= tsUn)
+
+        indexGz  = cachedIndexPath cache FGz
+        indexUn  = cachedIndexPath cache FUn
+        indexIdx = cachedIndexIdxPath cache
 
     tarTrailer :: Integer
     tarTrailer = 1024
