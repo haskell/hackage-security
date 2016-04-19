@@ -1,3 +1,12 @@
+0.5.1.0
+-------
+
+* Fix for other local programs corrputing the 00-index.tar. Detect it
+  and do a full rewrite rather than incremental append.
+* New JSON pretty-printer (not canonical rendering)
+* Round-trip tests for Canonical JSON parser and printers
+* Minor fix for Canonical JSON parser
+
 0.5.0.2
 -------
 * Use tar 0.5.0
