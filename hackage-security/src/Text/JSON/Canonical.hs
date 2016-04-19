@@ -9,7 +9,7 @@
 --
 -- <http://wiki.laptop.org/go/Canonical_JSON>
 --
--- A "canonical JSON" format is provided in order to provide meaningful and
+-- A \"canonical JSON\" format is provided in order to provide meaningful and
 -- repeatable hashes of JSON-encoded data. Canonical JSON is parsable with any
 -- full JSON parser, but security-conscious applications will want to verify
 -- that input is in canonical form before authenticating any hash or signature
@@ -27,12 +27,18 @@ module Text.JSON.Canonical
   , Int54
   , parseCanonicalJSON
   , renderCanonicalJSON
+  , prettyCanonicalJSON
   ) where
 
 import Text.ParserCombinators.Parsec
          ( CharParser, (<|>), (<?>), many, between, sepBy
          , satisfy, char, string, digit, spaces
          , parse )
+import Text.PrettyPrint hiding (char)
+import qualified Text.PrettyPrint as Doc
+#if !(MIN_VERSION_base(4,7,0))
+import Control.Applicative ((<$>), (<$), pure, (<*>), (<*), (*>))
+#endif
 import Control.Arrow (first)
 import Data.Bits (Bits)
 #if MIN_VERSION_base(4,7,0)
@@ -68,8 +74,7 @@ data JSValue
 -- probably define `fromInteger` to do bounds checking, give different instances
 -- for type classes such as `Bounded` and `FiniteBits`, etc.
 newtype Int54 = Int54 { int54ToInt64 :: Int64 }
-  deriving ( Bounded
-           , Enum
+  deriving ( Enum
            , Eq
            , Integral
            , Data
@@ -86,6 +91,10 @@ newtype Int54 = Int54 { int54ToInt64 :: Int64 }
            , Typeable
            )
 
+instance Bounded Int54 where
+  maxBound = Int54 (  2^(53 :: Int) - 1)
+  minBound = Int54 (-(2^(53 :: Int) - 1))
+
 instance Show Int54 where
   show = show . int54ToInt64
 
@@ -93,8 +102,13 @@ instance Read Int54 where
   readsPrec p = map (first Int54) . readsPrec p
 
 ------------------------------------------------------------------------------
+-- rendering flat
+--
 
--- | Encode as \"Canonical\" JSON.
+-- | Render a JSON value in canonical form. This rendered form is canonical
+-- and so allows repeatable hashes.
+--
+-- For pretty printing, see prettyCanonicalJSON.
 --
 -- NB: Canonical JSON's string escaping rules deviate from RFC 7159
 -- JSON which requires
@@ -111,6 +125,7 @@ instance Read Int54 where
 -- parser"
 --
 -- Consequently, Canonical JSON is not a proper subset of RFC 7159.
+--
 renderCanonicalJSON :: JSValue -> BS.ByteString
 renderCanonicalJSON v = BS.pack (s_value v [])
 
@@ -149,7 +164,15 @@ s_object ((k0,v0):kvs0)   = showChar '{' . s_string k0
                           . showl kvs
 
 ------------------------------------------------------------------------------
+-- parsing
+--
 
+-- | Parse a canonical JSON format string as a JSON value. The input string
+-- does not have to be in canonical form, just in the \"canonical JSON\"
+-- format.
+--
+-- Use 'renderCanonicalJSON' to convert into canonical form.
+--
 parseCanonicalJSON :: BS.ByteString -> Either String JSValue
 parseCanonicalJSON = either (Left . show) Right
                    . parse p_value ""
@@ -213,7 +236,7 @@ char:
    \"
 -}
 p_string         :: CharParser () String
-p_string          = between (tok (char '"')) (tok (char '"')) (many p_char)
+p_string          = between (char '"') (tok (char '"')) (many p_char)
   where p_char    =  (char '\\' >> p_esc)
                  <|> (satisfy (\x -> x /= '"' && x /= '\\'))
 
@@ -270,3 +293,63 @@ manyN :: Int -> CharParser () a -> CharParser () [a]
 manyN 0 _ =  pure []
 manyN n p =  ((:) <$> p <*> manyN (n-1) p)
          <|> pure []
+
+------------------------------------------------------------------------------
+-- rendering nicely
+--
+
+-- | Render a JSON value in a reasonable human-readable form. This rendered
+-- form is /not the canonical form/ used for repeatable hashes, use
+-- 'renderCanonicalJSON' for that.
+
+-- It is suitable however as an external form as any canonical JSON parser can
+-- read it and convert it into the form used for repeatable hashes.
+--
+prettyCanonicalJSON :: JSValue -> String
+prettyCanonicalJSON = render . jvalue
+
+jvalue :: JSValue -> Doc
+jvalue JSNull         = text "null"
+jvalue (JSBool False) = text "false"
+jvalue (JSBool True)  = text "true"
+jvalue (JSNum n)      = integer (fromIntegral (int54ToInt64 n))
+jvalue (JSString s)   = jstring s
+jvalue (JSArray vs)   = jarray  vs
+jvalue (JSObject fs)  = jobject fs
+
+jstring :: String -> Doc
+jstring = doubleQuotes . hcat . map jchar
+
+jchar :: Char -> Doc
+jchar '"'   = Doc.char '\\' <> Doc.char '"'
+jchar '\\'  = Doc.char '\\' <> Doc.char '\\'
+jchar c     = Doc.char c
+
+jarray :: [JSValue] -> Doc
+jarray = sep . punctuate' lbrack comma rbrack
+       . map jvalue
+
+jobject :: [(String, JSValue)] -> Doc
+jobject = sep . punctuate' lbrace comma rbrace
+        . map (\(k,v) -> sep [jstring k <> colon, nest 2 (jvalue v)])
+
+
+-- | Punctuate in this style:
+--
+-- > [ foo, bar ]
+--
+-- if it fits, or vertically otherwise:
+--
+-- > [ foo
+-- > , bar
+-- > ]
+--
+punctuate' :: Doc -> Doc -> Doc -> [Doc] -> [Doc]
+punctuate' l _ r []     = [l <> r]
+punctuate' l _ r [x]    = [l <+> x <+> r]
+punctuate' l p r (x:xs) = l <+> x : go xs
+  where
+    go []     = []
+    go [y]    = [p <+> y, r]
+    go (y:ys) = (p <+> y) : go ys
+
