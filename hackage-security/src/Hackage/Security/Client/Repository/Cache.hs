@@ -59,7 +59,8 @@ cacheRemoteFile cache downloaded f isCached = do
       downloadedCopyTo downloaded fp
 
     -- Whether or not we downloaded the compressed index incrementally, we can
-    -- always update the uncompressed index incrementally.
+    -- update the uncompressed index incrementally (assuming the local files
+    -- have not been corrupted).
     -- NOTE: This assumes we already updated the compressed file.
     unzipIndex :: typ ~ Binary => IO ()
     unzipIndex = do
@@ -83,6 +84,8 @@ cacheRemoteFile cache downloaded f isCached = do
           let uncompressed = GZip.decompress compressed
           withFile indexUn WriteMode $ \h ->
             BS.L.hPut h uncompressed
+          void . handleDoesNotExist $
+            removeFile indexIdx -- Force a full rebuild of the index too
 
         -- When we update the 00-index.tar we also update the 00-index.tar.idx
         -- so the expected state is that the modification time for the tar.idx
