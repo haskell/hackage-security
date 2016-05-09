@@ -29,6 +29,7 @@ import Hackage.Security.Util.Path
 -------------------------------------------------------------------------------}
 
 data HashFn = HashFnSHA256
+            | HashFnMD5
   deriving (Show, Eq, Ord)
 
 -- | File information
@@ -87,9 +88,11 @@ fileInfoSHA256 FileInfo{..} = Map.lookup HashFnSHA256 fileInfoHashes
 
 instance Monad m => ToObjectKey m HashFn where
   toObjectKey HashFnSHA256 = return "sha256"
+  toObjectKey HashFnMD5    = return "md5"
 
 instance ReportSchemaErrors m => FromObjectKey m HashFn where
   fromObjectKey "sha256" = return (Just HashFnSHA256)
+  fromObjectKey "md5"    = return (Just HashFnMD5)
   fromObjectKey _        = return Nothing
 
 instance Monad m => ToJSON m FileInfo where
