@@ -8,7 +8,7 @@ import Data.Time
 import Network.URI (URI, parseURI)
 import Test.Tasty
 import Test.Tasty.HUnit
-import Test.Tasty.QuickCheck
+import Test.Tasty.QuickCheck hiding (label)
 import System.IO.Temp (withSystemTempDirectory)
 
 -- hackage-security

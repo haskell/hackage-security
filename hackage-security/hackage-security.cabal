@@ -214,9 +214,11 @@ library
 test-suite TestSuite
   type:                exitcode-stdio-1.0
   main-is:             TestSuite.hs
-  other-modules:       TestSuite.InMemCache
+  other-modules:       TestSuite.HttpMem
+                       TestSuite.InMemCache
                        TestSuite.InMemRepo
                        TestSuite.InMemRepository
+                       TestSuite.JSON
                        TestSuite.PrivateKeys
                        TestSuite.Util.StrictMVar
   build-depends:       base,

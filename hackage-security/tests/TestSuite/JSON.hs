@@ -1,3 +1,4 @@
+{-# OPTIONS_GHC -fno-warn-orphans #-}
 module TestSuite.JSON (
     prop_roundtrip_canonical,
     prop_roundtrip_pretty,
