@@ -299,24 +299,25 @@ withMirror HttpLib{..}
 
 -- | Download method (downloading or updating)
 data DownloadMethod :: * -> * -> * where
-    -- | Download this file (we never attempt to update this type of file)
+    -- Download this file (we never attempt to update this type of file)
     NeverUpdated :: {
         neverUpdatedFormat :: HasFormat fs f
       } -> DownloadMethod fs typ
 
-    -- | Download this file (we cannot update this file right now)
+    -- Download this file (we cannot update this file right now)
     CannotUpdate :: {
         cannotUpdateFormat :: HasFormat fs f
       , cannotUpdateReason :: UpdateFailure
       } -> DownloadMethod fs Binary
 
-    -- | Attempt an (incremental) update of this file
+    -- Attempt an (incremental) update of this file
     Update :: {
         updateFormat :: HasFormat fs f
       , updateInfo   :: Trusted FileInfo
       , updateLocal  :: Path Absolute
       , updateTail   :: Int54
       } -> DownloadMethod fs Binary
+--TODO: ^^ older haddock doesn't support GADT doc comments :-(
 
 pickDownloadMethod :: forall fs typ. RemoteConfig
                    -> AttemptNr
@@ -598,15 +599,16 @@ data RemoteTemp :: * -> * where
         wholeTemp :: Path Absolute
       } -> RemoteTemp a
 
-    -- | If we download only the delta, we record both the path to where the
+    -- If we download only the delta, we record both the path to where the
     -- "old" file is stored and the path to the temp file containing the delta.
     -- Then:
     --
-    -- * When we verify the file, we need both of these paths if we compute
+    --   When we verify the file, we need both of these paths if we compute
     --   the hash from scratch, or only the path to the delta if we attempt
     --   to compute the hash incrementally (TODO: incremental verification
     --   not currently implemented).
-    -- * When we copy a file over, we are additionally given a destination
+    --
+    --   When we copy a file over, we are additionally given a destination
     --   path. In this case, we expect that destination path to be equal to
     --   the path to the old file (and assert this to be the case).
     DownloadedDelta :: {
@@ -614,6 +616,8 @@ data RemoteTemp :: * -> * where
       , deltaExisting :: Path Absolute
       , deltaSeek     :: Int54       -- ^ How much of the existing file to keep
       } -> RemoteTemp Binary
+--TODO: ^^ older haddock doesn't support GADT doc comments :-(
+--      and add the '*' bullet points back in
 
 instance Pretty (RemoteTemp typ) where
     pretty DownloadedWhole{..} = intercalate " " $ [

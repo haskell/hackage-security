@@ -45,14 +45,15 @@ data IndexLayout = IndexLayout  {
 -- the global preferred-versions file. But supporting legacy Hackage will
 -- probably require more work anyway..
 data IndexFile :: * -> * where
-    -- | Package-specific metadata (@targets.json@)
+    -- Package-specific metadata (@targets.json@)
     IndexPkgMetadata :: PackageIdentifier -> IndexFile (Signed Targets)
 
-    -- | Cabal file for a package
+    -- Cabal file for a package
     IndexPkgCabal :: PackageIdentifier -> IndexFile ()
 
-    -- | Preferred versions a package
+    -- Preferred versions a package
     IndexPkgPrefs :: PackageName -> IndexFile ()
+--TODO: ^^ older haddock doesn't support GADT doc comments :-(
 
 deriving instance Show (IndexFile dec)
 

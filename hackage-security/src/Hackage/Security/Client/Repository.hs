@@ -403,17 +403,17 @@ remoteRepoPath' repoLayout file format =
 
 -- | Is a particular remote file cached?
 data IsCached :: * -> * where
-    -- | This remote file should be cached, and we ask for it by name
+    -- This remote file should be cached, and we ask for it by name
     CacheAs :: CachedFile -> IsCached Metadata
 
-    -- | We don't cache this remote file
+    -- We don't cache this remote file
     --
     -- This doesn't mean a Repository should not feel free to cache the file
     -- if desired, but it does mean the generic algorithms will never ask for
     -- this file from the cache.
     DontCache :: IsCached Binary
 
-    -- | The index is somewhat special: it should be cached, but we never
+    -- The index is somewhat special: it should be cached, but we never
     -- ask for it directly.
     --
     -- Instead, we will ask the Repository for files _from_ the index, which it
@@ -422,6 +422,7 @@ data IsCached :: * -> * where
     -- keep an index tarball index for quick access, others may scan the tarball
     -- linearly, etc.
     CacheIndex :: IsCached Binary
+--TODO: ^^ older haddock doesn't support GADT doc comments :-(
 
 deriving instance Eq   (IsCached typ)
 deriving instance Show (IsCached typ)
