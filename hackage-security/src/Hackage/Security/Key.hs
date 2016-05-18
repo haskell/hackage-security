@@ -153,7 +153,7 @@ instance Monad m => ToObjectKey m KeyId where
   toObjectKey = return . keyIdString
 
 instance Monad m => FromObjectKey m KeyId where
-  fromObjectKey = return . KeyId
+  fromObjectKey = return . Just . KeyId
 
 -- | Compute the key ID of a key
 class HasKeyId key where

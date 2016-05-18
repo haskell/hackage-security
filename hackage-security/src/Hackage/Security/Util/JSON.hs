@@ -24,6 +24,7 @@ module Hackage.Security.Util.JSON (
   ) where
 
 import Control.Monad (liftM)
+import Data.Maybe (catMaybes)
 import Data.Map (Map)
 import Data.Time
 import Text.JSON.Canonical
@@ -54,7 +55,7 @@ class ToObjectKey m a where
 
 -- | Used in the 'FromJSON' instance for 'Map'
 class FromObjectKey m a where
-  fromObjectKey :: String -> m a
+  fromObjectKey :: String -> m (Maybe a)
 
 -- | Monads in which we can report schema errors
 class (Applicative m, Monad m) => ReportSchemaErrors m where
@@ -85,13 +86,13 @@ instance Monad m => ToObjectKey m String where
   toObjectKey = return
 
 instance Monad m => FromObjectKey m String where
-  fromObjectKey = return
+  fromObjectKey = return . Just
 
 instance Monad m => ToObjectKey m (Path root) where
   toObjectKey (Path fp) = return fp
 
 instance Monad m => FromObjectKey m (Path root) where
-  fromObjectKey = liftM Path . fromObjectKey
+  fromObjectKey = liftM (fmap Path) . fromObjectKey
 
 {-------------------------------------------------------------------------------
   ToJSON and FromJSON instances
@@ -162,10 +163,13 @@ instance ( ReportSchemaErrors m
          ) => FromJSON m (Map k a) where
   fromJSON enc = do
       obj <- fromJSObject enc
-      Map.fromList <$> mapM aux obj
+      Map.fromList . catMaybes <$> mapM aux obj
     where
-      aux :: (String, JSValue) -> m (k, a)
-      aux (k, a) = (,) <$> fromObjectKey k <*> fromJSON a
+      aux :: (String, JSValue) -> m (Maybe (k, a))
+      aux (k, a) = knownKeys <$> fromObjectKey k <*> fromJSON a
+      knownKeys :: Maybe k -> a -> Maybe (k, a)
+      knownKeys Nothing  _ = Nothing
+      knownKeys (Just k) a = Just (k, a)
 
 instance Monad m => ToJSON m URI where
   toJSON = toJSON . show

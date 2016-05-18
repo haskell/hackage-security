@@ -89,8 +89,8 @@ instance Monad m => ToObjectKey m HashFn where
   toObjectKey HashFnSHA256 = return "sha256"
 
 instance ReportSchemaErrors m => FromObjectKey m HashFn where
-  fromObjectKey "sha256" = return HashFnSHA256
-  fromObjectKey str      = expected "valid hash function" (Just str)
+  fromObjectKey "sha256" = return (Just HashFnSHA256)
+  fromObjectKey _        = return Nothing
 
 instance Monad m => ToJSON m FileInfo where
   toJSON FileInfo{..} = mkObject [
