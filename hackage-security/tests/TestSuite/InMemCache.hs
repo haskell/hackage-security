@@ -8,8 +8,13 @@ import Control.Exception
 import qualified Codec.Compression.GZip as GZip
 import qualified Data.ByteString.Lazy   as BS.L
 
+-- tar
+import qualified Codec.Archive.Tar       as Tar
+import qualified Codec.Archive.Tar.Index as TarIndex
+import           Codec.Archive.Tar.Index   (TarIndex)
+
 -- hackage-security
-import Hackage.Security.Client
+import Hackage.Security.Client hiding (withIndex)
 import Hackage.Security.Client.Formats
 import Hackage.Security.Client.Repository
 import Hackage.Security.JSON
@@ -20,20 +25,25 @@ import TestSuite.Util.StrictMVar
 import TestSuite.InMemRepo
 
 data InMemCache = InMemCache {
-      inMemCacheGet     :: CachedFile -> IO (Maybe (Path Absolute))
-    , inMemCacheGetRoot :: IO (Path Absolute)
-    , inMemCacheClear   :: IO ()
-    , inMemCachePut     :: forall f typ. InMemFile typ -> Format f -> IsCached typ -> IO ()
+      inMemCacheGet         :: CachedFile -> IO (Maybe (Path Absolute))
+    , inMemCacheGetRoot     :: IO (Path Absolute)
+    , inMemCacheWithIndex   :: forall a. (Handle -> IO a) -> IO a
+    , inMemCacheGetIndexIdx :: IO TarIndex
+    , inMemCacheClear       :: IO ()
+    , inMemCachePut         :: forall f typ. InMemFile typ -> Format f
+                                          -> IsCached  typ -> IO ()
     }
 
 newInMemCache :: Path Absolute -> RepoLayout -> IO InMemCache
 newInMemCache tempDir layout = do
     state <- newMVar $ initLocalState layout
     return InMemCache {
-        inMemCacheGet     = get     state tempDir
-      , inMemCacheGetRoot = getRoot state tempDir
-      , inMemCacheClear   = clear   state
-      , inMemCachePut     = put     state
+        inMemCacheGet         = get         state tempDir
+      , inMemCacheGetRoot     = getRoot     state tempDir
+      , inMemCacheWithIndex   = withIndex   state tempDir
+      , inMemCacheGetIndexIdx = getIndexIdx state
+      , inMemCacheClear       = clear       state
+      , inMemCachePut         = put         state
       }
 
 {-------------------------------------------------------------------------------
@@ -105,6 +115,26 @@ get state cacheTempDir cachedFile =
 getRoot :: MVar LocalState -> Path Absolute -> IO (Path Absolute)
 getRoot state cacheTempDir =
     needRoot `fmap` get state cacheTempDir CachedRoot
+
+withIndex :: MVar LocalState -> Path Absolute -> (Handle -> IO a) -> IO a
+withIndex state cacheTempDir action = do
+    st <- readMVar state
+    case cachedIndex st of
+      Nothing -> error "InMemCache.withIndex: Could not read index."
+      Just bs -> do
+        (_, h) <- openTempFile' cacheTempDir "01-index.tar"
+        BS.L.hPut h bs
+        hSeek  h AbsoluteSeek 0
+        x <- action h
+        hClose h
+        return x
+
+getIndexIdx :: MVar LocalState -> IO TarIndex
+getIndexIdx state = do
+    st <- readMVar state
+    case cachedIndex st of
+      Nothing    -> error "InMemCache.getIndexIdx: Could not read index."
+      Just index -> either throwIO return . TarIndex.build . Tar.read $ index
 
 -- | Clear all cached data
 clear :: MVar LocalState -> IO ()

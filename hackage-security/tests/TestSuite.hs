@@ -1,3 +1,4 @@
+{-# LANGUAGE RecordWildCards, GADTs #-}
 module Main (main) where
 
 -- stdlib
@@ -10,6 +11,11 @@ import Test.Tasty
 import Test.Tasty.HUnit
 import Test.Tasty.QuickCheck hiding (label)
 import System.IO.Temp (withSystemTempDirectory)
+import qualified Codec.Archive.Tar.Entry    as Tar
+import qualified Data.ByteString.Lazy.Char8 as BS
+
+-- Cabal
+import Distribution.Package (PackageName(..))
 
 -- hackage-security
 import Hackage.Security.Client
@@ -17,6 +23,7 @@ import Hackage.Security.Client.Repository
 import Hackage.Security.JSON (DeserializationError(..))
 import Hackage.Security.Util.Checked
 import Hackage.Security.Util.Path
+import Hackage.Security.Util.Some
 import Hackage.Security.Util.Pretty
 import qualified Hackage.Security.Client.Repository.Remote as Remote
 import qualified Hackage.Security.Client.Repository.Cache  as Cache
@@ -45,6 +52,7 @@ tests = testGroup "hackage-security" [
         , testCase "testInMemUpdatesAfterCron"     testInMemUpdatesAfterCron
         , testCase "testInMemKeyRollover"          testInMemKeyRollover
         , testCase "testInMemOutdatedTimestamp"    testInMemOutdatedTimestamp
+        , testCase "testInMemIndex"                testInMemIndex
         ]
     , testGroup "HttpMem" [
           testCase "testHttpMemInitialHasForUpdates" testHttpMemInitialHasUpdates
@@ -52,6 +60,7 @@ tests = testGroup "hackage-security" [
         , testCase "testHttpMemUpdatesAfterCron"     testHttpMemUpdatesAfterCron
         , testCase "testHttpMemKeyRollover"          testHttpMemKeyRollover
         , testCase "testHttpMemOutdatedTimestamp"    testHttpMemOutdatedTimestamp
+        , testCase "testHttpMemIndex"                testHttpMemIndex
         ]
     , testGroup "Canonical JSON" [
           testProperty "prop_roundtrip_canonical" JSON.prop_roundtrip_canonical
@@ -131,6 +140,10 @@ testInMemOutdatedTimestamp = inMemTest $ \_inMemRepo logMsgs repo -> do
       withAssertLog "C" logMsgs [] $ do
         assertEqual "C.1" HasUpdates =<< checkForUpdates repo fourDaysLater
 
+testInMemIndex :: Assertion
+testInMemIndex = inMemTest $ \inMemRepo _logMsgs repo ->
+    testRepoIndex inMemRepo repo
+
 {-------------------------------------------------------------------------------
   Same tests, but going through the "real" Remote repository and Cache, though
   still using an in-memory repository (with a HttpLib bridge)
@@ -201,6 +214,57 @@ testHttpMemOutdatedTimestamp = httpMemTest $ \_inMemRepo logMsgs repo -> do
     catchVerificationLoop msgs $ do
       withAssertLog "C" logMsgs [] $ do
         assertEqual "C.1" HasUpdates =<< checkForUpdates repo fourDaysLater
+
+testHttpMemIndex :: Assertion
+testHttpMemIndex = httpMemTest $ \inMemRepo _logMsgs repo ->
+    testRepoIndex inMemRepo repo
+
+{-------------------------------------------------------------------------------
+  Identical tests between the two variants
+-------------------------------------------------------------------------------}
+
+testRepoIndex :: (Throws SomeRemoteError, Throws VerificationError)
+              => InMemRepo -> Repository down -> IO ()
+testRepoIndex inMemRepo repo = do
+    assertEqual "A" HasUpdates =<< checkForUpdates repo =<< checkExpiry
+    dir1 <- getDirectory repo
+    directoryFirst dir1  @?= DirectoryEntry 0
+    directoryNext  dir1  @?= DirectoryEntry 0
+    length (directoryEntries dir1) @?= 0
+
+    now <- getCurrentTime
+    inMemRepoSetIndex inMemRepo now [testEntry1]
+
+    assertEqual "B" HasUpdates =<< checkForUpdates repo =<< checkExpiry
+    dir2 <- getDirectory repo
+    directoryFirst dir2  @?= DirectoryEntry 0
+    directoryNext  dir2  @?= DirectoryEntry 2
+    length (directoryEntries dir2) @?= 1
+    directoryLookup dir2 testEntryIndexFile @?= Just (DirectoryEntry 0)
+    withIndex repo $ \IndexCallbacks{..} -> do
+      (sentry, next) <- indexLookupEntry (DirectoryEntry 0)
+      next @?= Nothing
+      case sentry of Some entry -> checkIndexEntry entry
+  where
+    checkIndexEntry :: IndexEntry dec -> Assertion
+    checkIndexEntry entry = do
+       toUnrootedFilePath (unrootPath (indexEntryPath entry))
+         @?= "foo/preferred-versions"
+       indexEntryContent entry @?= testEntrycontent
+       case indexEntryPathParsed entry of
+         Just (IndexPkgPrefs pkgname) -> do
+           pkgname @?= PackageName "foo"
+           case indexEntryContentParsed entry of
+             Right () -> return ()
+             _        -> fail "unexpected index entry content"
+         _ -> fail "unexpected index path"
+
+    testEntry1 = Tar.fileEntry path testEntrycontent
+      where
+        Right path = Tar.toTarPath False "foo/preferred-versions"
+    testEntrycontent   = BS.pack "foo >= 1"
+    testEntryIndexFile = IndexPkgPrefs (PackageName "foo")
+
 
 {-------------------------------------------------------------------------------
   Log messages we expect when using the Remote repository

@@ -72,6 +72,9 @@ data InMemRepo = InMemRepo {
 
     -- | Rollover the timestamp and snapshot keys
   , inMemRepoKeyRollover :: UTCTime -> IO ()
+
+    -- | Set the content of the repo tar index and resign
+  , inMemRepoSetIndex :: UTCTime -> [Tar.Entry] -> IO ()
   }
 
 newInMemRepo :: RepoLayout
@@ -86,6 +89,7 @@ newInMemRepo layout root now keys = do
       , inMemRepoGetPath     = getPath     state
       , inMemRepoCron        = cron        state
       , inMemRepoKeyRollover = keyRollover state
+      , inMemRepoSetIndex    = setIndex    state
       }
 
 {-------------------------------------------------------------------------------
@@ -213,6 +217,41 @@ cron state now = modifyMVar_ state $ \st@RemoteState{..} -> do
     return st {
         remoteTimestamp = signedTimestamp
       , remoteSnapshot  = signedSnapshot
+      }
+
+setIndex :: MVar RemoteState -> UTCTime -> [Tar.Entry] -> IO ()
+setIndex state now entries = modifyMVar_ state $ \st@RemoteState{..} -> do
+    let snapshot, snapshot' :: Snapshot
+        snapshot  = signed remoteSnapshot
+        snapshot' = snapshot {
+            snapshotVersion   = versionIncrement $ snapshotVersion snapshot
+          , snapshotExpires   = expiresInDays now 3
+          , snapshotInfoTarGz = fileInfo $ newTarGz
+          , snapshotInfoTar   = Just $ fileInfo newTar
+          }
+
+        newTar :: BS.L.ByteString
+        newTar = Tar.write entries
+
+        newTarGz :: BS.L.ByteString
+        newTarGz = GZip.compress newTar
+
+        timestamp, timestamp' :: Timestamp
+        timestamp  = signed remoteTimestamp
+        timestamp' = Timestamp {
+            timestampVersion      = versionIncrement $ timestampVersion timestamp
+          , timestampExpires      = expiresInDays now 3
+          , timestampInfoSnapshot = fileInfo $ renderJSON remoteLayout signedSnapshot
+          }
+
+        signedTimestamp = withSignatures remoteLayout [privateTimestamp remoteKeys] timestamp'
+        signedSnapshot  = withSignatures remoteLayout [privateSnapshot  remoteKeys] snapshot'
+
+    return st {
+        remoteTimestamp = signedTimestamp
+      , remoteSnapshot  = signedSnapshot
+      , remoteTar       = newTar
+      , remoteTarGz     = newTarGz
       }
 
 keyRollover :: MVar RemoteState -> UTCTime -> IO ()
