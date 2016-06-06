@@ -802,7 +802,9 @@ withIndex rep@Repository{..} callback = do
         }
   where
     indexPath :: Tar.Entry -> IndexPath
-    indexPath = rootPath . fromUnrootedFilePath . Tar.entryPath
+    indexPath = rootPath . fromUnrootedFilePath
+              . Tar.fromTarPathToPosixPath
+              . Tar.entryTarPath
 
     indexFile :: IndexPath -> Maybe (Some IndexFile)
     indexFile = indexFileFromPath repIndexLayout
