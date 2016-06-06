@@ -9,8 +9,6 @@ module Hackage.Security.TUF.Layout.Index (
   , indexLayoutPkgPrefs
   ) where
 
-import qualified System.FilePath as FP
-
 import Distribution.Package
 import Distribution.Text
 
@@ -69,7 +67,7 @@ instance SomePretty IndexFile where somePretty = DictPretty
 hackageIndexLayout :: IndexLayout
 hackageIndexLayout = IndexLayout {
       indexFileToPath   = toPath
-    , indexFileFromPath = fromPath . toUnrootedFilePath . unrootPath
+    , indexFileFromPath = fromPath
     }
   where
     toPath :: IndexFile dec -> IndexPath
@@ -91,16 +89,16 @@ hackageIndexLayout = IndexLayout {
     fromFragments :: [String] -> IndexPath
     fromFragments = rootPath . joinFragments
 
-    fromPath :: FilePath -> Maybe (Some IndexFile)
-    fromPath fp = case FP.splitPath fp of
-      [pkg, version, file] -> do
-        pkgId <- simpleParse (init pkg ++ "-" ++ init version)
-        case FP.takeExtension file of
+    fromPath :: IndexPath -> Maybe (Some IndexFile)
+    fromPath fp = case splitFragments (unrootPath fp) of
+      [pkg, version, _file] -> do
+        pkgId <- simpleParse (pkg ++ "-" ++ version)
+        case takeExtension fp of
           ".cabal"   -> return $ Some $ IndexPkgCabal    pkgId
           ".json"    -> return $ Some $ IndexPkgMetadata pkgId
           _otherwise -> Nothing
       [pkg, "preferred-versions"] ->
-        Some . IndexPkgPrefs <$> simpleParse (init pkg)
+        Some . IndexPkgPrefs <$> simpleParse pkg
       _otherwise -> Nothing
 
 {-------------------------------------------------------------------------------
