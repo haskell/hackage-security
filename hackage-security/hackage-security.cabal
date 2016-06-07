@@ -1,5 +1,5 @@
 name:                hackage-security
-version:             0.5.1.0
+version:             0.5.2.0
 synopsis:            Hackage security library
 description:         The hackage security library provides both server and
                      client utilities for securing the Hackage package server
@@ -18,13 +18,11 @@ description:         The hackage security library provides both server and
                      clients (the typical example being @cabal@), and
                      "Hackage.Security.Server" is the main entry point for
                      servers (the typical example being @hackage-server@).
-                     .
-                     This is a beta release.
 license:             BSD3
 license-file:        LICENSE
 author:              Edsko de Vries
 maintainer:          edsko@well-typed.com
-copyright:           Copyright 2015 Well-Typed LLP
+copyright:           Copyright 2015-2016 Well-Typed LLP
 category:            Distribution
 homepage:            https://github.com/well-typed/hackage-security
 bug-reports:         https://github.com/well-typed/hackage-security/issues
