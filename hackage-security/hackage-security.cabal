@@ -1,5 +1,5 @@
 name:                hackage-security
-version:             0.5.2.0
+version:             0.5.2.1
 synopsis:            Hackage security library
 description:         The hackage security library provides both server and
                      client utilities for securing the Hackage package server

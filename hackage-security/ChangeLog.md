@@ -1,3 +1,8 @@
+0.5.2.1
+-------
+
+* Fix accidental breakage with GHC 8
+
 0.5.2.0
 -------
 
