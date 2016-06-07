@@ -17,6 +17,7 @@ module Hackage.Security.Util.Path (
   , takeFileName
   , (<.>)
   , splitExtension
+  , takeExtension
     -- * Unrooted paths
   , Unrooted
   , (</>)
@@ -26,6 +27,7 @@ module Hackage.Security.Util.Path (
   , fromUnrootedFilePath
   , fragment
   , joinFragments
+  , splitFragments
   , isPathPrefixOf
     -- * File-system paths
   , Relative
@@ -92,7 +94,8 @@ import System.Time (ClockTime)
 #endif
 import qualified Data.ByteString         as BS
 import qualified Data.ByteString.Lazy    as BS.L
-import qualified System.FilePath         as FP
+import qualified System.FilePath         as FP.Native
+import qualified System.FilePath.Posix   as FP.Posix
 import qualified System.IO               as IO
 import qualified System.Directory        as Dir
 import qualified Codec.Archive.Tar       as Tar
@@ -115,8 +118,20 @@ import Hackage.Security.Util.Pretty
 -- make sense to append two absolute paths together; instead, we can only append
 -- an unrooted path to another path. It also means we avoid bugs where we use
 -- one kind of path where we expect another.
-newtype Path a = Path { unPath :: FilePath }
+newtype Path a = Path FilePath -- always a Posix style path internally
   deriving (Show, Eq, Ord)
+
+mkPathNative :: FilePath -> Path a
+mkPathNative = Path . FP.Posix.joinPath . FP.Native.splitDirectories
+
+unPathNative :: Path a -> FilePath
+unPathNative (Path fp) = FP.Native.joinPath . FP.Posix.splitDirectories $ fp
+
+mkPathPosix :: FilePath -> Path a
+mkPathPosix = Path
+
+unPathPosix :: Path a -> FilePath
+unPathPosix (Path fp) = fp
 
 -- | Reinterpret the root of a path
 --
@@ -129,18 +144,21 @@ castRoot (Path fp) = Path fp
 -------------------------------------------------------------------------------}
 
 takeDirectory :: Path a -> Path a
-takeDirectory = liftFP FP.takeDirectory
+takeDirectory = liftFP FP.Posix.takeDirectory
 
 takeFileName :: Path a -> String
-takeFileName = liftFromFP FP.takeFileName
+takeFileName = liftFromFP FP.Posix.takeFileName
 
 (<.>) :: Path a -> String -> Path a
-fp <.> ext = liftFP (FP.<.> ext) fp
+fp <.> ext = liftFP (FP.Posix.<.> ext) fp
 
 splitExtension :: Path a -> (Path a, String)
 splitExtension (Path fp) = (Path fp', ext)
   where
-    (fp', ext) = FP.splitExtension fp
+    (fp', ext) = FP.Posix.splitExtension fp
+
+takeExtension :: Path a -> String
+takeExtension (Path fp) = FP.Posix.takeExtension fp
 
 {-------------------------------------------------------------------------------
   Unrooted paths
@@ -155,7 +173,7 @@ instance Pretty (Path Unrooted) where
   pretty (Path fp) = fp
 
 (</>) :: Path a -> Path Unrooted -> Path a
-(</>) = liftFP2 (FP.</>)
+(</>) = liftFP2 (FP.Posix.</>)
 
 -- | Reinterpret an unrooted path
 --
@@ -169,18 +187,29 @@ rootPath (Path fp) = Path fp
 unrootPath :: Path root -> Path Unrooted
 unrootPath (Path fp) = Path fp
 
+-- | Convert a relative\/unrooted Path to a FilePath (using POSIX style
+-- directory separators).
+--
+-- See also 'toAbsoluteFilePath'
+--
 toUnrootedFilePath :: Path Unrooted -> FilePath
-toUnrootedFilePath = unPath
+toUnrootedFilePath = unPathPosix
 
+-- | Convert from a relative\/unrooted FilePath (using POSIX style directory
+-- separators).
+--
 fromUnrootedFilePath :: FilePath -> Path Unrooted
-fromUnrootedFilePath = Path
+fromUnrootedFilePath = mkPathPosix
 
 -- | A path fragment (like a single directory or filename)
 fragment :: String -> Path Unrooted
-fragment = fromUnrootedFilePath
+fragment = Path
 
 joinFragments :: [String] -> Path Unrooted
-joinFragments = liftToFP FP.joinPath
+joinFragments = liftToFP FP.Posix.joinPath
+
+splitFragments :: Path Unrooted -> [String]
+splitFragments (Path fp) = FP.Posix.splitDirectories fp
 
 isPathPrefixOf :: Path Unrooted -> Path Unrooted -> Bool
 isPathPrefixOf = liftFromFP2 isPrefixOf
@@ -204,30 +233,34 @@ instance Pretty (Path HomeDir) where
 
 -- | A file system root can be interpreted as an (absolute) FilePath
 class FsRoot root where
+  -- | Convert a Path to an absolute FilePath (using native style directory separators).
+  --
   toAbsoluteFilePath :: Path root -> IO FilePath
 
 instance FsRoot Relative where
-    toAbsoluteFilePath (Path fp) = go fp
+    toAbsoluteFilePath p = go (unPathNative p)
       where
         go :: FilePath -> IO FilePath
 #if MIN_VERSION_directory(1,2,2)
         go = Dir.makeAbsolute
 #else
         -- copied implementation from the directory package
-        go = (FP.normalise <$>) . absolutize
+        go = (FP.Native.normalise <$>) . absolutize
         absolutize path -- avoid the call to `getCurrentDirectory` if we can
-          | FP.isRelative path = (FP.</> path) . FP.addTrailingPathSeparator <$>
-                                 Dir.getCurrentDirectory
-          | otherwise          = return path
+          | FP.Native.isRelative path
+                      = (FP.Native.</> path)
+                      . FP.Native.addTrailingPathSeparator <$>
+                        Dir.getCurrentDirectory
+          | otherwise = return path
 #endif
 
 instance FsRoot Absolute where
-    toAbsoluteFilePath (Path fp) = return fp
+    toAbsoluteFilePath = return . unPathNative
 
 instance FsRoot HomeDir where
-    toAbsoluteFilePath (Path fp) = do
+    toAbsoluteFilePath p = do
       home <- Dir.getHomeDirectory
-      return $ home FP.</> fp
+      return $ home FP.Native.</> unPathNative p
 
 -- | Abstract over a file system root
 --
@@ -239,29 +272,29 @@ data FsPath = forall root. FsRoot root => FsPath (Path root)
 -------------------------------------------------------------------------------}
 
 toFilePath :: Path Absolute -> FilePath
-toFilePath (Path fp) = fp
+toFilePath = unPathNative
 
 fromFilePath :: FilePath -> FsPath
 fromFilePath fp
-    | FP.isAbsolute      fp = FsPath (Path fp  :: Path Absolute)
-    | Just fp' <- atHome fp = FsPath (Path fp' :: Path HomeDir)
-    | otherwise             = FsPath (Path fp  :: Path Relative)
+    | FP.Native.isAbsolute fp = FsPath (mkPathNative fp  :: Path Absolute)
+    | Just fp' <- atHome fp   = FsPath (mkPathNative fp' :: Path HomeDir)
+    | otherwise               = FsPath (mkPathNative fp  :: Path Relative)
   where
     -- TODO: I don't know if there a standard way that Windows users refer to
     -- their home directory. For now, we'll only interpret '~'. Everybody else
     -- can specify an absolute path if this doesn't work.
     atHome :: FilePath -> Maybe FilePath
     atHome "~" = Just ""
-    atHome ('~':sep:fp') | FP.isPathSeparator sep = Just fp'
+    atHome ('~':sep:fp') | FP.Native.isPathSeparator sep = Just fp'
     atHome _otherwise = Nothing
 
 makeAbsolute :: FsPath -> IO (Path Absolute)
-makeAbsolute (FsPath p) = Path <$> toAbsoluteFilePath p
+makeAbsolute (FsPath p) = mkPathNative <$> toAbsoluteFilePath p
 
 fromAbsoluteFilePath :: FilePath -> Path Absolute
 fromAbsoluteFilePath fp
-  | FP.isAbsolute fp = Path fp
-  | otherwise        = error "fromAbsoluteFilePath: not an absolute path"
+  | FP.Native.isAbsolute fp = mkPathNative fp
+  | otherwise               = error "fromAbsoluteFilePath: not an absolute path"
 
 {-------------------------------------------------------------------------------
   Wrappers around System.IO
@@ -363,7 +396,7 @@ getDirectoryContents path = do
     fragments <$> Dir.getDirectoryContents filePath
   where
     fragments :: [String] -> [Path Unrooted]
-    fragments = map fromUnrootedFilePath . filter (not . skip)
+    fragments = map fragment . filter (not . skip)
 
     skip :: String -> Bool
     skip "."  = True
@@ -389,7 +422,7 @@ getRecursiveContents root = go emptyPath
                        else return [path]
 
     emptyPath :: Path Unrooted
-    emptyPath = Path (FP.joinPath [])
+    emptyPath = joinFragments []
 
 renameFile :: (FsRoot root, FsRoot root')
            => Path root  -- ^ Old
@@ -431,7 +464,7 @@ tarAppend tarFile baseDir contents = do
     Tar.append tarFile' baseDir' contents'
   where
     contents' :: [FilePath]
-    contents' = map (toUnrootedFilePath . unrootPath) contents
+    contents' = map (unPathNative . unrootPath) contents
 
 {-------------------------------------------------------------------------------
   Wrappers around Network.URI

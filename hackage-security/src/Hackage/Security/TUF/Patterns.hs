@@ -27,7 +27,7 @@ module Hackage.Security.TUF.Patterns (
 
 import Control.Monad.Except
 import Language.Haskell.TH (Q, Exp)
-import System.FilePath
+import System.FilePath.Posix
 import qualified Language.Haskell.TH.Syntax as TH
 
 import Hackage.Security.JSON
