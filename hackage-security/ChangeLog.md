@@ -1,3 +1,15 @@
+0.5.2.0
+-------
+
+* Change path handling to work on Windows (#162).
+* Add new MD5 hash type (#163). This is not for security (only SHA256 is
+  used for verification) but to provide as metadata to help with other
+  services like mirroring (e.g. HTTP & S3 use MD5 checksum headers).
+* Adjust reading of JSON maps to ignore unknown keys. This allows adding
+  e.g. new hash types in future without breaking existing clients.
+* Fix build warnings on GHC 8
+
+
 0.5.1.0
 -------
 
