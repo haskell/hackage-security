@@ -37,7 +37,7 @@ type RepoPath = Path RepoRoot
 instance Pretty (Path RepoRoot) where
   pretty (Path fp) = "<repo>/" ++ fp
 
-anchorRepoPathLocally :: FsRoot root => Path root -> RepoPath -> Path root
+anchorRepoPathLocally :: Path root -> RepoPath -> Path root
 anchorRepoPathLocally localRoot repoPath = localRoot </> unrootPath repoPath
 
 anchorRepoPathRemotely :: Path Web -> RepoPath -> Path Web
@@ -68,5 +68,5 @@ instance Pretty (Path CacheRoot) where
     pretty (Path fp) = "<cache>/" ++ fp
 
 -- | Anchor a cache path to the location of the cache
-anchorCachePath :: FsRoot root => Path root -> CachePath -> Path root
+anchorCachePath :: Path root -> CachePath -> Path root
 anchorCachePath cacheRoot cachePath = cacheRoot </> unrootPath cachePath

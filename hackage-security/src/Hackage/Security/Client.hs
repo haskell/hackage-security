@@ -110,8 +110,7 @@ checkForUpdates rep@Repository{..} mNow =
     -- root information and start over. However, in order to prevent DoS attacks
     -- we limit how often we go round this loop.
     -- See als <https://github.com/theupdateframework/tuf/issues/287>.
-    limitIterations :: (Throws VerificationError, Throws SomeRemoteError)
-                    => VerificationHistory -> IO HasUpdates
+    limitIterations :: VerificationHistory -> IO HasUpdates
     limitIterations history | length history >= maxNumIterations =
         throwChecked $ VerificationErrorLoop (reverse history)
     limitIterations history = do

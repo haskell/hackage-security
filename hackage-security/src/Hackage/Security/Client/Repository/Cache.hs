@@ -62,7 +62,7 @@ cacheRemoteFile cache downloaded f isCached = do
     -- update the uncompressed index incrementally (assuming the local files
     -- have not been corrupted).
     -- NOTE: This assumes we already updated the compressed file.
-    unzipIndex :: typ ~ Binary => IO ()
+    unzipIndex :: IO ()
     unzipIndex = do
         createDirectoryIfMissing True (takeDirectory indexUn)
         shouldTryIncremenal <- cachedIndexProbablyValid

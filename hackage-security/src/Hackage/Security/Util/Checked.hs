@@ -1,5 +1,8 @@
 {-# LANGUAGE CPP #-}
 {-# OPTIONS_GHC -fno-warn-unused-binds #-}
+#if __GLASGOW_HASKELL__ >= 800
+{-# OPTIONS_GHC -wredundant-constraints #-}
+#endif
 
 #if __GLASGOW_HASKELL__ >= 708
 {-# LANGUAGE RoleAnnotations     #-}

@@ -363,8 +363,7 @@ getFile :: forall fs typ. Throws SomeRemoteError
 getFile cfg@RemoteConfig{..} attemptNr remoteFile method =
     go method
   where
-    go :: Throws SomeRemoteError
-       => DownloadMethod fs typ -> Verify (Some (HasFormat fs), RemoteTemp typ)
+    go :: DownloadMethod fs typ -> Verify (Some (HasFormat fs), RemoteTemp typ)
     go NeverUpdated{..} = do
         cfgLogger $ LogDownloading remoteFile
         download neverUpdatedFormat
@@ -380,8 +379,7 @@ getFile cfg@RemoteConfig{..} attemptNr remoteFile method =
     headers = httpRequestHeaders cfg attemptNr
 
     -- Get any file from the server, without using incremental updates
-    download :: Throws SomeRemoteError => HasFormat fs f
-             -> Verify (Some (HasFormat fs), RemoteTemp typ)
+    download :: HasFormat fs f -> Verify (Some (HasFormat fs), RemoteTemp typ)
     download format = do
         (tempPath, h) <- openTempFile (Cache.cacheRoot cfgCache) (uriTemplate uri)
         liftIO $ do
