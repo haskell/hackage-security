@@ -92,8 +92,6 @@ verifyLocalFile :: LocalFile typ -> Trusted FileInfo -> IO Bool
 verifyLocalFile (LocalFile fp) trustedInfo = do
     -- Verify the file size before comparing the entire file info
     sz <- FileLength <$> getFileSize fp
-    if sz /= fileInfoLength
+    if sz /= fileInfoLength (trusted trustedInfo)
       then return False
-      else knownFileInfoEqual info <$> computeFileInfo fp
-  where
-    info@FileInfo{..} = trusted trustedInfo
+      else compareTrustedFileInfo (trusted trustedInfo) <$> computeFileInfo fp

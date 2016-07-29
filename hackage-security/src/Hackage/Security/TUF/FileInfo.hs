@@ -6,6 +6,7 @@ module Hackage.Security.TUF.FileInfo (
     -- * Utility
   , fileInfo
   , computeFileInfo
+  , compareTrustedFileInfo
   , knownFileInfoEqual
   , fileInfoSHA256
     -- ** Re-exports
@@ -61,6 +62,9 @@ fileInfo :: BS.L.ByteString -> FileInfo
 fileInfo bs = FileInfo {
       fileInfoLength = FileLength . fromIntegral $ BS.L.length bs
     , fileInfoHashes = Map.fromList [
+          -- Note: if you add or change hash functions here and you want to
+          -- make them compulsory then you also need to update
+          -- 'compareTrustedFileInfo' below.
           (HashFnSHA256, Hash $ BS.C8.unpack $ Base16.encode $ SHA256.hashlazy bs)
         ]
     }
@@ -69,11 +73,34 @@ fileInfo bs = FileInfo {
 computeFileInfo :: FsRoot root => Path root -> IO FileInfo
 computeFileInfo fp = fileInfo <$> readLazyByteString fp
 
--- | Compare known file info
+-- | Compare the expected trusted file info against the actual file info of a
+-- target file.
 --
--- This should be used only when the FileInfo is already known. If we want to
--- compare known FileInfo against a file on disk we should delay until we know
--- have confirmed that the file lengths don't match (see 'verifyFileInfo').
+-- This should be used only when the 'FileInfo' is already known. If we want
+-- to compare known 'FileInfo' against a file on disk we should delay until we
+-- have confirmed that the file lengths match (see 'downloadedVerify').
+--
+compareTrustedFileInfo :: FileInfo -- ^ expected (from trusted TUF files)
+                       -> FileInfo -- ^ actual (from 'fileInfo' on target file)
+                       -> Bool
+compareTrustedFileInfo expectedInfo actualInfo =
+    -- The expected trusted file info may have hashes for several hash
+    -- functions, including ones we do not care about and do not want to
+    -- check. In particular the file info may have an md5 hash, but this
+    -- is not one that we want to check.
+    --
+    -- Our current policy is to check sha256 only and ignore md5:
+    sameLength expectedInfo actualInfo
+ && sameSHA256 expectedInfo actualInfo
+  where
+    sameLength a b = fileInfoLength a
+                  == fileInfoLength b
+
+    sameSHA256 a b = case (fileInfoSHA256 a,
+                           fileInfoSHA256 b) of
+                       (Just ha, Just hb) -> ha == hb
+                       _                  -> False
+
 knownFileInfoEqual :: FileInfo -> FileInfo -> Bool
 knownFileInfoEqual a b = (==) (fileInfoLength a, fileInfoHashes a)
                               (fileInfoLength b, fileInfoHashes b)

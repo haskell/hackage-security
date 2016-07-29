@@ -652,9 +652,10 @@ instance DownloadedFile RemoteTemp where
 verifyRemoteFile :: RemoteTemp typ -> Trusted FileInfo -> IO Bool
 verifyRemoteFile remoteTemp trustedInfo = do
     sz <- FileLength <$> remoteSize remoteTemp
-    if sz /= fileInfoLength
+    if sz /= fileInfoLength (trusted trustedInfo)
       then return False
-      else withRemoteBS remoteTemp $ knownFileInfoEqual info . fileInfo
+      else withRemoteBS remoteTemp $
+             compareTrustedFileInfo (trusted trustedInfo) . fileInfo
   where
     remoteSize :: RemoteTemp typ -> IO Int54
     remoteSize DownloadedWhole{..} = getFileSize wholeTemp
@@ -678,8 +679,6 @@ verifyRemoteFile remoteTemp trustedInfo = do
                 BS.L.take (fromIntegral deltaSeek) existing
               , temp
               ]
-
-    info@FileInfo{..} = trusted trustedInfo
 
 {-------------------------------------------------------------------------------
   Auxiliary: multiple exit points
