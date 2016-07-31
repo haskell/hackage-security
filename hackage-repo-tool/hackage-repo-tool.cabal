@@ -45,7 +45,7 @@ executable hackage-repo-tool
                        filepath             >= 1.2  && < 1.5,
                        optparse-applicative >= 0.11 && < 0.13,
                        tar                  >= 0.4  && < 0.6,
-                       time                 >= 1.2  && < 1.6,
+                       time                 >= 1.2  && < 1.7,
                        unix                 >= 2.5  && < 2.8,
                        zlib                 >= 0.5  && < 0.7,
                        hackage-security     >= 0.5  && < 0.6
