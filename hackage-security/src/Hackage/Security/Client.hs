@@ -332,7 +332,13 @@ cachedVersion CachedInfo{..} remoteFile =
       DontCache  -> Nothing
 
 -- | Get all cached info (if any)
-getCachedInfo :: (Applicative m, MonadIO m) => Repository down -> m CachedInfo
+getCachedInfo ::
+#if __GLASGOW_HASKELL__ < 800
+                 (Applicative m, MonadIO m)
+#else
+                 MonadIO m
+#endif
+              => Repository down -> m CachedInfo
 getCachedInfo rep = do
     (cachedRoot, cachedKeyEnv) <- readLocalRoot rep
     cachedTimestamp <- readLocalFile rep cachedKeyEnv CachedTimestamp
@@ -353,8 +359,10 @@ readLocalRoot rep = do
                     readCachedJSON rep KeyEnv.empty cachedPath
     return (trustLocalFile signedRoot, rootKeys (signed signedRoot))
 
-readLocalFile :: ( FromJSON ReadJSON_Keys_Layout (Signed a)
-                 , MonadIO m, Applicative m
+readLocalFile :: ( FromJSON ReadJSON_Keys_Layout (Signed a), MonadIO m
+#if __GLASGOW_HASKELL__ < 800
+                 , Applicative m
+#endif
                  )
               => Repository down -> KeyEnv -> CachedFile -> m (Maybe (Trusted a))
 readLocalFile rep cachedKeyEnv file = do
