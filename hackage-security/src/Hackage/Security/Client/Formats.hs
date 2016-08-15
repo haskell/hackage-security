@@ -113,4 +113,3 @@ formatsLookup (HFZ FGz) (FsGz     a) = a
 formatsLookup (HFS hf)  (FsUn   _  ) = hasFormatAbsurd hf
 formatsLookup (HFS hf)  (FsGz     _) = hasFormatAbsurd hf
 formatsLookup (HFS hf)  (FsUnGz _ a) = formatsLookup hf (FsGz a)
-formatsLookup _         _            = error "inaccessible"
