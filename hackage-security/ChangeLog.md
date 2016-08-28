@@ -1,3 +1,10 @@
+0.5.2.2
+-------
+
+* Fix client in case where server provides MD5 hashes
+  (ignore them, use only SHA256)
+* Fix warnings with GHC 8
+
 0.5.2.1
 -------
 
