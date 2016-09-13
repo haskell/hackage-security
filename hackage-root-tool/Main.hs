@@ -32,6 +32,10 @@ main = do
         file' <- makeAbsolute (fromFilePath file)
         signFile key' file'
 
+      GetKeyId key -> do
+        key'  <- makeAbsolute (fromFilePath key)
+        getKeyId key'
+
 -- | Top-level exception handler that uses 'displayException'
 --
 -- Although base 4.8 introduces 'displayException', the top-level exception
@@ -91,6 +95,17 @@ signFile keyLoc fp = do
     writeJSON_NoLayout (fp <.> "sig") newSig
 
 {-------------------------------------------------------------------------------
+  Retrieving the key id of a key
+-------------------------------------------------------------------------------}
+
+getKeyId :: KeyLoc -> IO ()
+getKeyId keyLoc = do
+    pubkey :: Some PublicKey <-
+      throwErrors =<< readJSON_NoKeys_NoLayout keyLoc
+    let keyid = keyIdString (someKeyId pubkey)
+    logInfo $ "The keyid of this key is:\n  " ++ keyid
+
+{-------------------------------------------------------------------------------
   Logging
 -------------------------------------------------------------------------------}
 
@@ -123,6 +138,9 @@ data Command =
     -- | Sign an individual file
   | Sign FilePath FilePath
 
+    -- | Get the key id of a key file
+  | GetKeyId FilePath
+
 type KeyLoc = Path Absolute
 
 {-------------------------------------------------------------------------------
@@ -145,6 +163,10 @@ parseSign = Sign
   <$> argument str (metavar "KEY")
   <*> argument str (metavar "FILE")
 
+parseGetKeyId :: Parser Command
+parseGetKeyId = GetKeyId
+  <$> argument str (metavar "KEY")
+
 -- | Global options
 --
 -- TODO: Make repo and keys layout configurable
@@ -156,4 +178,6 @@ parseGlobalOptions =
             progDesc "Create keys"
         , command "sign" $ info (helper <*> parseSign) $
             progDesc "Sign a file"
+        , command "keyid" $ info (helper <*> parseGetKeyId) $
+            progDesc "Get the KeyId of a key file"
         ])
