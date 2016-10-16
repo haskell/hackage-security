@@ -445,6 +445,12 @@ getFile cfg@RemoteConfig{..} attemptNr remoteFile method =
                                 (mustCache remoteFile)
         return (Some format, remoteTemp)
 
+    httpGetRange :: forall a. Throws SomeRemoteError
+                 => [HttpRequestHeader]
+                 -> URI
+                 -> (Int, Int)
+                 -> (HttpStatus -> [HttpResponseHeader] -> BodyReader -> IO a)
+                 -> IO a
     HttpLib{..} = cfgHttpLib
 
 {-------------------------------------------------------------------------------
