@@ -101,7 +101,6 @@ library
                        bytestring        >= 0.9     && < 0.11,
                        Cabal             >= 1.14    && < 1.26,
                        containers        >= 0.4     && < 0.6,
-                       directory         >= 1.1.0.2 && < 1.3,
                        ed25519           >= 0.0     && < 0.1,
                        filepath          >= 1.2     && < 1.5,
                        mtl               >= 2.2     && < 2.3,
@@ -118,9 +117,10 @@ library
                        template-haskell,
                        ghc-prim
   if flag(old-directory)
-    build-depends:     directory <  1.2, old-time >= 1 && < 1.2
+    build-depends:     directory >= 1.1.0.2 && < 1.2,
+                       old-time  >= 1 &&       < 1.2
   else
-    build-depends:     directory >= 1.2
+    build-depends:     directory >= 1.2 && < 1.4
   hs-source-dirs:      src
   default-language:    Haskell2010
   default-extensions:  DefaultSignatures
