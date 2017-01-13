@@ -1,3 +1,4 @@
+{-# LANGUAGE CPP #-}
 {-# LANGUAGE OverloadedStrings #-}
 module Hackage.Security.Client.Repository.HttpLib.HttpClient (
     withClient
@@ -6,8 +7,8 @@ module Hackage.Security.Client.Repository.HttpLib.HttpClient (
   ) where
 
 import Control.Exception
+import Control.Monad (void)
 import Data.ByteString (ByteString)
-import Data.Default.Class (def)
 import Network.URI
 import Network.HTTP.Client (Manager)
 import qualified Data.ByteString              as BS
@@ -15,6 +16,10 @@ import qualified Data.ByteString.Char8        as BS.C8
 import qualified Network.HTTP.Client          as HttpClient
 import qualified Network.HTTP.Client.Internal as HttpClient
 import qualified Network.HTTP.Types           as HttpClient
+
+#if !MIN_VERSION_http_client(0,4,30)
+import Data.Default.Class (def)
+#endif
 
 import Hackage.Security.Client hiding (Header)
 import Hackage.Security.Client.Repository.HttpLib
@@ -55,7 +60,11 @@ get :: Throws SomeRemoteError
 get manager reqHeaders uri callback = wrapCustomEx $ do
     -- TODO: setUri fails under certain circumstances; in particular, when
     -- the URI contains URL auth. Not sure if this is a concern.
+#if MIN_VERSION_http_client(0,4,30)
+    request' <- HttpClient.setUri HttpClient.defaultRequest uri
+#else
     request' <- HttpClient.setUri def uri
+#endif
     let request = setRequestHeaders reqHeaders
                 $ request'
     checkHttpException $ HttpClient.withResponse request manager $ \response -> do
@@ -68,7 +77,11 @@ getRange :: Throws SomeRemoteError
          -> (HttpStatus -> [HttpResponseHeader] -> BodyReader -> IO a)
          -> IO a
 getRange manager reqHeaders uri (from, to) callback = wrapCustomEx $ do
+#if MIN_VERSION_http_client(0,4,30)
+    request' <- HttpClient.setUri HttpClient.defaultRequest uri
+#else
     request' <- HttpClient.setUri def uri
+#endif
     let request = setRange from to
                 $ setRequestHeaders reqHeaders
                 $ request'
@@ -80,10 +93,18 @@ getRange manager reqHeaders uri (from, to) callback = wrapCustomEx $ do
          () | HttpClient.responseStatus response == HttpClient.ok200 ->
            callback HttpStatus200OK (getResponseHeaders response) br
          _otherwise ->
-           throwChecked $ HttpClient.StatusCodeException
-                            (HttpClient.responseStatus    response)
-                            (HttpClient.responseHeaders   response)
-                            (HttpClient.responseCookieJar response)
+           throwChecked $
+#if MIN_VERSION_http_client(0,5,0)
+             HttpClient.HttpExceptionRequest request' $
+               HttpClient.StatusCodeException
+                 (void response)
+                 BS.empty
+#else
+             HttpClient.StatusCodeException
+               (HttpClient.responseStatus    response)
+               (HttpClient.responseHeaders   response)
+               (HttpClient.responseCookieJar response)
+#endif
 
 -- | Wrap custom exceptions
 --
