@@ -1,13 +1,13 @@
 {-# LANGUAGE OverloadedStrings #-}
 module Hackage.Security.Client.Repository.HttpLib.HttpClient (
     withClient
+  , makeHttpLib
     -- ** Re-exports
   , Manager -- opaque
   ) where
 
 import Control.Exception
 import Data.ByteString (ByteString)
-import Data.Default.Class (def)
 import Network.URI
 import Network.HTTP.Client (Manager)
 import qualified Data.ByteString              as BS
@@ -32,16 +32,20 @@ import qualified Hackage.Security.Util.Lens as Lens
 withClient :: ProxyConfig HttpClient.Proxy -> (Manager -> HttpLib -> IO a) -> IO a
 withClient proxyConfig callback = do
     manager <- HttpClient.newManager (setProxy HttpClient.defaultManagerSettings)
-    callback manager HttpLib {
-        httpGet      = get      manager
-      , httpGetRange = getRange manager
-      }
+    callback manager $ makeHttpLib manager
   where
     setProxy = HttpClient.managerSetProxy $
       case proxyConfig of
         ProxyConfigNone  -> HttpClient.noProxy
         ProxyConfigUse p -> HttpClient.useProxy p
         ProxyConfigAuto  -> HttpClient.proxyEnvironment Nothing
+
+-- | Create an 'HttpLib' value from a preexisting 'Manager'.
+makeHttpLib :: Manager -> HttpLib
+makeHttpLib manager = HttpLib
+    { httpGet      = get      manager
+    , httpGetRange = getRange manager
+    }
 
 {-------------------------------------------------------------------------------
   Individual methods
@@ -55,7 +59,7 @@ get :: Throws SomeRemoteError
 get manager reqHeaders uri callback = wrapCustomEx $ do
     -- TODO: setUri fails under certain circumstances; in particular, when
     -- the URI contains URL auth. Not sure if this is a concern.
-    request' <- HttpClient.setUri def uri
+    request' <- HttpClient.setUri HttpClient.defaultRequest uri
     let request = setRequestHeaders reqHeaders
                 $ request'
     checkHttpException $ HttpClient.withResponse request manager $ \response -> do
@@ -68,7 +72,7 @@ getRange :: Throws SomeRemoteError
          -> (HttpStatus -> [HttpResponseHeader] -> BodyReader -> IO a)
          -> IO a
 getRange manager reqHeaders uri (from, to) callback = wrapCustomEx $ do
-    request' <- HttpClient.setUri def uri
+    request' <- HttpClient.setUri HttpClient.defaultRequest uri
     let request = setRange from to
                 $ setRequestHeaders reqHeaders
                 $ request'
@@ -80,10 +84,8 @@ getRange manager reqHeaders uri (from, to) callback = wrapCustomEx $ do
          () | HttpClient.responseStatus response == HttpClient.ok200 ->
            callback HttpStatus200OK (getResponseHeaders response) br
          _otherwise ->
-           throwChecked $ HttpClient.StatusCodeException
-                            (HttpClient.responseStatus    response)
-                            (HttpClient.responseHeaders   response)
-                            (HttpClient.responseCookieJar response)
+           throwChecked $ HttpClient.HttpExceptionRequest request
+                        $ HttpClient.StatusCodeException (fmap (const ()) response) ""
 
 -- | Wrap custom exceptions
 --
