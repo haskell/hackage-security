@@ -73,10 +73,8 @@ getRange :: Throws SomeRemoteError
          -> (HttpStatus -> [HttpResponseHeader] -> BodyReader -> IO a)
          -> IO a
 getRange manager reqHeaders uri (from, to) callback = wrapCustomEx $ do
-    request' <- HttpClient.setUri HttpClient.defaultRequest uri
-    let request = setRange from to
-                $ setRequestHeaders reqHeaders
-                $ request'
+    request <- (setRange from to . setRequestHeaders reqHeaders)
+            `fmap` HttpClient.setUri HttpClient.defaultRequest uri
     checkHttpException $ HttpClient.withResponse request manager $ \response -> do
       let br = wrapCustomEx $ HttpClient.responseBody response
       case () of
@@ -86,7 +84,7 @@ getRange manager reqHeaders uri (from, to) callback = wrapCustomEx $ do
            callback HttpStatus200OK (getResponseHeaders response) br
          _otherwise ->
            throwChecked $
-             HttpClient.HttpExceptionRequest request' $
+             HttpClient.HttpExceptionRequest request $
                HttpClient.StatusCodeException (void response) BS.empty
 
 -- | Wrap custom exceptions
