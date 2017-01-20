@@ -1,6 +1,7 @@
 {-# LANGUAGE OverloadedStrings #-}
 module Hackage.Security.Client.Repository.HttpLib.HttpClient (
     withClient
+  , makeHttpLib
     -- ** Re-exports
   , Manager -- opaque
   ) where
@@ -32,16 +33,20 @@ import qualified Hackage.Security.Util.Lens as Lens
 withClient :: ProxyConfig HttpClient.Proxy -> (Manager -> HttpLib -> IO a) -> IO a
 withClient proxyConfig callback = do
     manager <- HttpClient.newManager (setProxy HttpClient.defaultManagerSettings)
-    callback manager HttpLib {
-        httpGet      = get      manager
-      , httpGetRange = getRange manager
-      }
+    callback manager $ makeHttpLib manager
   where
     setProxy = HttpClient.managerSetProxy $
       case proxyConfig of
         ProxyConfigNone  -> HttpClient.noProxy
         ProxyConfigUse p -> HttpClient.useProxy p
         ProxyConfigAuto  -> HttpClient.proxyEnvironment Nothing
+
+-- | Create an 'HttpLib' value from a preexisting 'Manager'.
+makeHttpLib :: Manager -> HttpLib
+makeHttpLib manager = HttpLib
+    { httpGet      = get      manager
+    , httpGetRange = getRange manager
+    }
 
 {-------------------------------------------------------------------------------
   Individual methods
@@ -82,9 +87,7 @@ getRange manager reqHeaders uri (from, to) callback = wrapCustomEx $ do
          _otherwise ->
            throwChecked $
              HttpClient.HttpExceptionRequest request' $
-               HttpClient.StatusCodeException
-                 (void response)
-                 BS.empty
+               HttpClient.StatusCodeException (void response) BS.empty
 
 -- | Wrap custom exceptions
 --
