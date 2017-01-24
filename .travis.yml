@@ -44,6 +44,13 @@ install:
 # Here starts the actual work to be performed for the package under test;
 # any command which exits with a non-zero exit code causes the build to fail.
 script:
+ - read -a PKGS <<< "hackage-security hackage-security-http-client hackage-security-curl hackage-security-HTTP hackage-security hackage-root-tool hackage-repo-tool example-client"
+ - rm -rf sdists; mkdir sdists
+ - cp -v cabal.project sdists/
+ - for PKG in "${PKGS[@]}"; do
+     cd "$PKG"; cabal sdist --output-directory="../sdists/$PKG" || break; cd ..;
+   done
+ - cd sdists/
  - cabal new-build
  - ./dist-newstyle/build/*/ghc-*/hackage-security-*/c/TestSuite/build/TestSuite/TestSuite
 
