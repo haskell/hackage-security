@@ -1,0 +1,15 @@
+-- See http://cabal.readthedocs.io/en/latest/nix-local-build-overview.html
+
+packages: hackage-security
+          hackage-security-http-client
+          example-client
+          hackage-security-curl
+          hackage-root-tool
+          hackage-repo-tool
+          hackage-security-HTTP
+
+package hackage-security
+  tests: true
+
+-- FIXME/TODO
+-- packages: precompute-fileinfo
