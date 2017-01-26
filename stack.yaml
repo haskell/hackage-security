@@ -1,13 +1,12 @@
-resolver: lts-3.4
+resolver: lts-7.14
 packages:
-- hackage-security
-- precompute-fileinfo
-- hackage-security-http-client
 - example-client
-- hackage-security-curl
-- hackage-root-tool
 - hackage-repo-tool
+- hackage-root-tool
+- hackage-security
 - hackage-security-HTTP
+- hackage-security-curl
+- hackage-security-http-client
+- precompute-fileinfo
 extra-deps:
-- ed25519-0.0.2.0
-- zlib-0.6.1.1
+- http-client-0.5.5
