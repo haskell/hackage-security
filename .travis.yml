@@ -51,10 +51,18 @@ script:
  - for PKG in "${PKGS[@]}"; do
      cd "$PKG"; cabal sdist --output-directory="../sdists/$PKG" || break; cd ..;
    done
- - cp -v cabal.project sdists/
  - cd sdists/
-# build all packages and run testsuite
+
+ # first build just hackage-security with installed constraints, with and without tests.
+ # silly yaml, seeing : colon
+ - "echo packages: hackage-security > cabal.project"
+ - cabal new-build --disable-tests --constraint "directory installed" --constraint "bytestring installed"
+ - cabal new-build --enable-tests --constraint "directory installed" --constraint "bytestring installed"
+ - $(find dist-newstyle -type f -executable -name TestSuite | head -n 1)
+
+ # build all packages and run testsuite
+ - cp -v ../cabal.project ./
  - cabal new-build -j1
- - ./dist-newstyle/build/*/ghc-*/hackage-security-*/c/TestSuite/build/TestSuite/TestSuite
+ - $(find dist-newstyle -type f -executable -name TestSuite | head -n 1)
 
 # EOF
