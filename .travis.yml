@@ -40,7 +40,7 @@ install:
  - cabal --version
  - echo "$(${HC} --version) [$(${HC} --print-project-git-commit-id 2> /dev/null || echo '?')]"
  - travis_retry cabal update -v
- - cabal new-build -w ${HC} --dep
+ - cabal new-build -w ${HC} --dep all
 
 # Here starts the actual work to be performed for the package under test;
 # any command which exits with a non-zero exit code causes the build to fail.
@@ -56,13 +56,13 @@ script:
  # first build just hackage-security with installed constraints, with and without tests.
  # silly yaml, seeing : colon
  - "echo packages: hackage-security > cabal.project"
- - cabal new-build --disable-tests --constraint "directory installed" --constraint "bytestring installed"
- - cabal new-build --enable-tests --constraint "directory installed" --constraint "bytestring installed"
+ - cabal new-build --disable-tests --constraint "directory installed" --constraint "bytestring installed" all
+ - cabal new-build --enable-tests --constraint "directory installed" --constraint "bytestring installed" all
  - $(find dist-newstyle -type f -executable -name TestSuite | head -n 1)
 
  # build all packages and run testsuite
  - cp -v ../cabal.project ./
- - cabal new-build -j1
+ - cabal new-build -j1 all
  - $(find dist-newstyle -type f -executable -name TestSuite | head -n 1)
 
 # EOF
