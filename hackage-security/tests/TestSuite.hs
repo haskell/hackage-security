@@ -1,4 +1,4 @@
-{-# LANGUAGE RecordWildCards, GADTs #-}
+{-# LANGUAGE CPP, RecordWildCards, GADTs #-}
 module Main (main) where
 
 -- stdlib
@@ -15,7 +15,11 @@ import qualified Codec.Archive.Tar.Entry    as Tar
 import qualified Data.ByteString.Lazy.Char8 as BS
 
 -- Cabal
-import Distribution.Package (PackageName(..))
+#if MIN_VERSION_Cabal(2,0,0)
+import Distribution.Package (mkPackageName)
+#else
+import Distribution.Package (PackageName(PackageName))
+#endif
 
 -- hackage-security
 import Hackage.Security.Client
@@ -253,7 +257,7 @@ testRepoIndex inMemRepo repo = do
        indexEntryContent entry @?= testEntrycontent
        case indexEntryPathParsed entry of
          Just (IndexPkgPrefs pkgname) -> do
-           pkgname @?= PackageName "foo"
+           pkgname @?= mkPackageName "foo"
            case indexEntryContentParsed entry of
              Right () -> return ()
              _        -> fail "unexpected index entry content"
@@ -263,7 +267,7 @@ testRepoIndex inMemRepo repo = do
       where
         Right path = Tar.toTarPath False "foo/preferred-versions"
     testEntrycontent   = BS.pack "foo >= 1"
-    testEntryIndexFile = IndexPkgPrefs (PackageName "foo")
+    testEntryIndexFile = IndexPkgPrefs (mkPackageName "foo")
 
 
 {-------------------------------------------------------------------------------
@@ -503,3 +507,9 @@ inMemURI = fromJust (parseURI "inmem://")
 -- | Return @Just@ the current time
 checkExpiry :: IO (Maybe UTCTime)
 checkExpiry = Just `fmap` getCurrentTime
+
+#if !MIN_VERSION_Cabal(2,0,0)
+-- | Emulate Cabal2's @mkPackageName@ constructor-function
+mkPackageName :: String -> PackageName
+mkPackageName = PackageName
+#endif
