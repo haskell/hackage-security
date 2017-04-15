@@ -147,11 +147,10 @@ library
                        OverlappingInstances
                        PackageImports
                        UndecidableInstances
+
   -- use the new stage1/cross-compile-friendly Quotes subset of TH for new GHCs
   if impl(ghc >= 8.0)
-    -- place holder until Hackage allows to edit in the new extension token
-    -- other-extensions: TemplateHaskellQuotes
-    other-extensions:
+    other-extensions: TemplateHaskellQuotes
   else
     other-extensions: TemplateHaskell
 
@@ -160,7 +159,7 @@ library
   if flag(base48)
     build-depends: base >= 4.8
   else
-    build-depends: old-locale >= 1.0
+    build-depends: base < 4.8, old-locale == 1.0.*
 
   -- The URI type got split out off the network package after version 2.5, and
   -- moved to a separate network-uri package. Since we don't need the rest of
