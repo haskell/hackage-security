@@ -12,16 +12,13 @@ module Hackage.Security.RepoTool.Util.IO (
 
 import Control.Exception
 import Data.Typeable
+import Data.Time.Clock.POSIX
 import System.IO.Error
+import qualified System.Directory as Directory
 import qualified Codec.Archive.Tar       as Tar
 import qualified Codec.Archive.Tar.Entry as Tar
 import qualified Codec.Compression.GZip  as GZip
 import qualified Data.ByteString.Lazy    as BS.L
-
--- Unlike the hackage-security library properly,
--- this currently works on unix systems only
-import System.Posix.Types (EpochTime)
-import qualified System.Posix.Files as Posix
 
 -- hackage-security
 import Hackage.Security.Util.Path
@@ -31,13 +28,23 @@ import Hackage.Security.RepoTool.Options
 import Hackage.Security.RepoTool.Layout
 import Hackage.Security.RepoTool.Paths
 
+import System.Posix.Types (EpochTime)
+#ifndef mingw32_HOST_OS
+import qualified System.Posix.Files as Posix
+#endif
+
 -- | Get the modification time of the specified file
 --
 -- Returns 0 if the file does not exist .
 getFileModTime :: GlobalOpts -> RepoLoc -> TargetPath' -> IO EpochTime
 getFileModTime opts repoLoc targetPath =
     handle handler $
-      Posix.modificationTime <$> Posix.getFileStatus (toFilePath fp)
+      -- Underlying implementation of 'Directory.getModificationTime' converts
+      -- from POSIX seconds, so there shouldn't be loss of precision.
+      -- NB: Apparently, this has low clock resolution on GHC < 7.8.
+      -- I don't think we care.
+      fromInteger . floor . utcTimeToPOSIXSeconds
+        <$> Directory.getModificationTime (toFilePath fp)
   where
     fp :: Path Absolute
     fp = anchorTargetPath' opts repoLoc targetPath
@@ -62,10 +69,16 @@ createSymbolicLink :: (FsRoot root, FsRoot root')
                    -> Path root' -- ^ Link location
                    -> IO ()
 createSymbolicLink linkTarget linkLoc = do
+#ifndef mingw32_HOST_OS
     createDirectoryIfMissing True (takeDirectory linkLoc)
     linkTarget' <- toAbsoluteFilePath linkTarget
     linkLoc'    <- toAbsoluteFilePath linkLoc
     Posix.createSymbolicLink linkTarget' linkLoc'
+#else
+    error $ "Cannot create symbolic links on Windows"
+  where
+    _ = (linkTarget, linkLoc) -- -Wall suppression
+#endif
 
 {-------------------------------------------------------------------------------
   Working with tar archives
