@@ -57,12 +57,11 @@ script:
  # silly yaml, seeing : colon
  - "echo packages: hackage-security > cabal.project"
  - cabal new-build --disable-tests --constraint "directory installed" --constraint "bytestring installed" all
- - cabal new-build --enable-tests --constraint "directory installed" --constraint "bytestring installed" all
- - $(find dist-newstyle -type f -executable -name TestSuite | head -n 1)
+ - cabal new-test  --enable-tests  --constraint "directory installed" --constraint "bytestring installed" all
 
  # build all packages and run testsuite
  - cp -v ../cabal.project ./
  - cabal new-build -j1 all
- - $(find dist-newstyle -type f -executable -name TestSuite | head -n 1)
+ - cabal new-test  -j1 all
 
 # EOF
