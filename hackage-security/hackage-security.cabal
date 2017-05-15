@@ -110,7 +110,7 @@ library
                        -- 0.4.2 introduces TarIndex, 0.4.4 introduces more
                        -- functionality, 0.5.0 changes type of serialise
                        tar               >= 0.5     && < 0.6,
-                       time              >= 1.2     && < 1.7,
+                       time              >= 1.2     && < 1.9,
                        transformers      >= 0.4     && < 0.6,
                        zlib              >= 0.5     && < 0.7,
                        -- whatever versions are bundled with ghc:
