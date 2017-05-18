@@ -37,9 +37,7 @@ before_install:
  - HC=${CC}
  - unset CC
  - PATH=/opt/ghc/bin:/opt/ghc-ppa-tools/bin:$PATH
- # temporary workaround
- - if [ "${HC}" = "ghc-8.2.1" ]; then XCABFLAGS="--allow-newer=HTTP:base"; else XCABFLAGS=""; fi
-
+  
 install:
  - cabal --version
  - echo "$(${HC} --version) [$(${HC} --print-project-git-commit-id 2> /dev/null || echo '?')]"
