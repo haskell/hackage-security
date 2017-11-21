@@ -321,8 +321,8 @@ jstring :: String -> Doc
 jstring = doubleQuotes . hcat . map jchar
 
 jchar :: Char -> Doc
-jchar '"'   = Doc.char '\\' <> Doc.char '"'
-jchar '\\'  = Doc.char '\\' <> Doc.char '\\'
+jchar '"'   = Doc.char '\\' Doc.<> Doc.char '"'
+jchar '\\'  = Doc.char '\\' Doc.<> Doc.char '\\'
 jchar c     = Doc.char c
 
 jarray :: [JSValue] -> Doc
@@ -331,7 +331,7 @@ jarray = sep . punctuate' lbrack comma rbrack
 
 jobject :: [(String, JSValue)] -> Doc
 jobject = sep . punctuate' lbrace comma rbrace
-        . map (\(k,v) -> sep [jstring k <> colon, nest 2 (jvalue v)])
+        . map (\(k,v) -> sep [jstring k Doc.<> colon, nest 2 (jvalue v)])
 
 
 -- | Punctuate in this style:
@@ -345,7 +345,7 @@ jobject = sep . punctuate' lbrace comma rbrace
 -- > ]
 --
 punctuate' :: Doc -> Doc -> Doc -> [Doc] -> [Doc]
-punctuate' l _ r []     = [l <> r]
+punctuate' l _ r []     = [l Doc.<> r]
 punctuate' l _ r [x]    = [l <+> x <+> r]
 punctuate' l p r (x:xs) = l <+> x : go xs
   where
