@@ -229,7 +229,7 @@ test-suite TestSuite
                        tasty,
                        tasty-hunit,
                        tasty-quickcheck,
-                       QuickCheck,
+                       QuickCheck < 2.10,
                        temporary,
                        time,
                        zlib
