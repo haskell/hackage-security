@@ -16,6 +16,7 @@ module Hackage.Security.Client.Repository.Cache (
 
 import Control.Exception
 import Control.Monad
+import Control.Monad.IO.Class
 import Data.Maybe
 import Codec.Archive.Tar (Entries(..))
 import Codec.Archive.Tar.Index (TarIndex, IndexBuilder, TarEntryOffset)
@@ -29,6 +30,7 @@ import Hackage.Security.Client.Repository
 import Hackage.Security.Client.Formats
 import Hackage.Security.TUF
 import Hackage.Security.Util.Checked
+import Hackage.Security.Util.Exit
 import Hackage.Security.Util.IO
 import Hackage.Security.Util.Path
 
@@ -65,21 +67,47 @@ cacheRemoteFile cache downloaded f isCached = do
     unzipIndex :: IO ()
     unzipIndex = do
         createDirectoryIfMissing True (takeDirectory indexUn)
-        shouldTryIncremenal <- cachedIndexProbablyValid
-        if shouldTryIncremenal
-          then unzipIncremenal
-          else unzipNonIncremenal
+        shouldTryIncremental <- cachedIndexProbablyValid
+        if shouldTryIncremental
+          then do
+            success <- unzipIncremental
+            unless success unzipNonIncremental
+          else unzipNonIncremental
       where
-        unzipIncremenal = do
+        unzipIncremental = do
           compressed <- readLazyByteString indexGz
           let uncompressed = GZip.decompress compressed
-          withFile indexUn ReadWriteMode $ \h -> do
-            currentSize <- hFileSize h
-            let seekTo = 0 `max` (currentSize - tarTrailer)
-            hSeek h AbsoluteSeek seekTo
-            BS.L.hPut h $ BS.L.drop (fromInteger seekTo) uncompressed
 
-        unzipNonIncremenal = do
+          -- compare prefix of old index with prefix of new index to
+          -- ensure that it's safe to incrementally append
+          (seekTo',newTail') <- withFile indexUn ReadMode $ \h ->
+                                multipleExitPoints $ do
+            currentSize <- liftIO $ hFileSize h
+            let seekTo = 0 `max` (currentSize - tarTrailer)
+                (newPrefix,newTail) = BS.L.splitAt (fromInteger seekTo)
+                                      uncompressed
+
+            (oldPrefix,oldTrailer) <- BS.L.splitAt (fromInteger seekTo) <$>
+                                      liftIO (BS.L.hGetContents h)
+
+            unless (oldPrefix == newPrefix) $
+              exit (0,mempty) -- corrupted index.tar prefix
+
+            -- sanity check: verify there's a 1KiB zero-filled trailer
+            unless (oldTrailer == tarTrailerBs) $
+              exit (0,mempty) -- corrupted .tar trailer
+
+            return (seekTo,newTail)
+
+          if seekTo' <= 0
+          then return False -- fallback to non-incremental update
+          else withFile indexUn ReadWriteMode $ \h -> do
+            -- everything seems fine; append the new data
+            liftIO $ hSeek h AbsoluteSeek seekTo'
+            liftIO $ BS.L.hPut h newTail'
+            return True
+
+        unzipNonIncremental = do
           compressed <- readLazyByteString indexGz
           let uncompressed = GZip.decompress compressed
           withFile indexUn WriteMode $ \h ->
@@ -107,6 +135,8 @@ cacheRemoteFile cache downloaded f isCached = do
 
     tarTrailer :: Integer
     tarTrailer = 1024
+
+    tarTrailerBs = BS.L.replicate (fromInteger tarTrailer) 0x00
 
 -- | Rebuild the tarball index
 --
