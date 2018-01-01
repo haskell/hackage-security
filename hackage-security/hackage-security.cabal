@@ -93,6 +93,7 @@ library
                        Hackage.Security.Util.JSON
                        Hackage.Security.Util.Stack
                        Hackage.Security.Util.TypedEmbedded
+                       Hackage.Security.Util.Exit
                        Prelude
   -- We support ghc 7.4 (bundled with Cabal 1.14) and up
   build-depends:       base              >= 4.5     && < 5,
