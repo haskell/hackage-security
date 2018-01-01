@@ -30,7 +30,6 @@ module Hackage.Security.Client.Repository.Remote (
 import Control.Concurrent
 import Control.Exception
 import Control.Monad.Cont
-import Control.Monad.Except
 import Data.List (nub, intercalate)
 import Data.Typeable
 import Network.URI hiding (uriPath, path)
@@ -50,6 +49,7 @@ import Hackage.Security.Util.IO
 import Hackage.Security.Util.Path
 import Hackage.Security.Util.Pretty
 import Hackage.Security.Util.Some
+import Hackage.Security.Util.Exit
 import qualified Hackage.Security.Client.Repository.Cache as Cache
 
 {-------------------------------------------------------------------------------
@@ -686,39 +686,3 @@ verifyRemoteFile remoteTemp trustedInfo = do
               , temp
               ]
 
-{-------------------------------------------------------------------------------
-  Auxiliary: multiple exit points
--------------------------------------------------------------------------------}
-
--- | Multiple exit points
---
--- We can simulate the imperative code
---
--- > if (cond1)
--- >   return exp1;
--- > if (cond2)
--- >   return exp2;
--- > if (cond3)
--- >   return exp3;
--- > return exp4;
---
--- as
---
--- > multipleExitPoints $ do
--- >   when (cond1) $
--- >     exit exp1
--- >   when (cond) $
--- >     exit exp2
--- >   when (cond)
--- >     exit exp3
--- >   return exp4
-multipleExitPoints :: Monad m => ExceptT a m a -> m a
-multipleExitPoints = liftM aux . runExceptT
-  where
-    aux :: Either a a -> a
-    aux (Left  a) = a
-    aux (Right a) = a
-
--- | Function exit point (see 'multipleExitPoints')
-exit :: Monad m => e -> ExceptT e m a
-exit = throwError

@@ -16,6 +16,7 @@ module Hackage.Security.Client.Repository.Cache (
 
 import Control.Exception
 import Control.Monad
+import Control.Monad.IO.Class
 import Data.Maybe
 import Codec.Archive.Tar (Entries(..))
 import Codec.Archive.Tar.Index (TarIndex, IndexBuilder, TarEntryOffset)
@@ -29,6 +30,7 @@ import Hackage.Security.Client.Repository
 import Hackage.Security.Client.Formats
 import Hackage.Security.TUF
 import Hackage.Security.Util.Checked
+import Hackage.Security.Util.Exit
 import Hackage.Security.Util.IO
 import Hackage.Security.Util.Path
 
@@ -65,21 +67,50 @@ cacheRemoteFile cache downloaded f isCached = do
     unzipIndex :: IO ()
     unzipIndex = do
         createDirectoryIfMissing True (takeDirectory indexUn)
-        shouldTryIncremenal <- cachedIndexProbablyValid
-        if shouldTryIncremenal
-          then unzipIncremenal
-          else unzipNonIncremenal
+        shouldTryIncremental <- cachedIndexProbablyValid
+        if shouldTryIncremental
+          then do
+            success <- unzipIncremental
+            unless success unzipNonIncremental
+          else unzipNonIncremental
       where
-        unzipIncremenal = do
+        unzipIncremental = do
           compressed <- readLazyByteString indexGz
           let uncompressed = GZip.decompress compressed
-          withFile indexUn ReadWriteMode $ \h -> do
-            currentSize <- hFileSize h
+          withFile indexUn ReadWriteMode $ \h -> multipleExitPoints $ do
+            currentSize <- liftIO $ hFileSize h
             let seekTo = 0 `max` (currentSize - tarTrailer)
-            hSeek h AbsoluteSeek seekTo
-            BS.L.hPut h $ BS.L.drop (fromInteger seekTo) uncompressed
+                seekToSuffix = 0 `max` (currentSize - suffixVerifySize
+                                                    - tarTrailer)
+                suffixActualSize = seekTo - seekToSuffix
 
-        unzipNonIncremenal = do
+            -- sanity check: verify there's a 1KiB zero-filled trailer
+            liftIO $ hSeek h AbsoluteSeek seekTo
+            tarTrailerDat <- liftIO $ BS.hGet h (fromInteger tarTrailer)
+            unless (tarTrailerDat == BS.replicate (fromInteger tarTrailer) 0x00) $
+              exit False -- corrupted .tar trailer
+
+            -- compare suffix of old index with new index;
+            -- NB: this implicitly also detects whether the new index
+            -- is smaller than the old one (with a little fuzziness
+            -- due to the .tar trailer)
+            let (suffixNew,uncompressedNew) =
+                  BS.L.splitAt (fromInteger suffixActualSize) $
+                  BS.L.drop (fromInteger seekToSuffix) uncompressed
+            liftIO $ hSeek h AbsoluteSeek seekToSuffix
+            suffixOld <- liftIO $ BS.L.hGet h (fromInteger suffixActualSize)
+            unless (suffixOld == suffixNew) $
+              exit False -- corrupted index.tar suffix
+
+            when (BS.L.null uncompressedNew) $
+              exit False -- should never happen
+
+            -- finally append the new data
+            liftIO $ hSeek h AbsoluteSeek seekTo
+            liftIO $ BS.L.hPut h uncompressedNew
+            return True
+
+        unzipNonIncremental = do
           compressed <- readLazyByteString indexGz
           let uncompressed = GZip.decompress compressed
           withFile indexUn WriteMode $ \h ->
@@ -107,6 +138,13 @@ cacheRemoteFile cache downloaded f isCached = do
 
     tarTrailer :: Integer
     tarTrailer = 1024
+
+    -- Suffix of old 01-index.tar (sans the tar-trailer) to compare
+    -- with new index; keeping this reasonably large improves the
+    -- heuristic for detecting mutating/corrupted indices
+    suffixVerifySize :: Integer
+    suffixVerifySize = 524288 -- 512KiB
+
 
 -- | Rebuild the tarball index
 --
