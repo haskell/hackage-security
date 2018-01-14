@@ -27,7 +27,7 @@ executable hackage-root-tool
   main-is:             Main.hs
   build-depends:       base                 >= 4.4  && < 5,
                        filepath             >= 1.2  && < 1.5,
-                       optparse-applicative >= 0.11 && < 0.14,
+                       optparse-applicative >= 0.11 && < 0.15,
                        hackage-security     >= 0.5  && < 0.6
   default-language:    Haskell2010
   other-extensions:    CPP, ScopedTypeVariables, RecordWildCards
