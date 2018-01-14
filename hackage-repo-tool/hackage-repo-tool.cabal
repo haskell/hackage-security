@@ -43,7 +43,7 @@ executable hackage-repo-tool
                        bytestring           >= 0.9  && < 0.11,
                        directory            >= 1.1  && < 1.4,
                        filepath             >= 1.2  && < 1.5,
-                       optparse-applicative >= 0.11 && < 0.14,
+                       optparse-applicative >= 0.11 && < 0.15,
                        tar                  >= 0.4  && < 0.6,
                        time                 >= 1.2  && < 1.9,
                        unix                 >= 2.5  && < 2.8,
