@@ -68,9 +68,6 @@ isAsync e =
    in case () of
         ()
           | Just (_ :: Base.AsyncException) <- Base.fromException se -> True
-          | Just (_ :: Base.Deadlock) <- Base.fromException se -> True
-          | Just (_ :: Base.BlockedIndefinitelyOnSTM) <- Base.fromException se -> True
-          | Just (_ :: Base.BlockedIndefinitelyOnMVar) <- Base.fromException se -> True
           | show e == "<<timeout>>" -> True
           | otherwise -> False
 #endif
