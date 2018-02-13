@@ -1,0 +1,12 @@
+took shared lock
+took shared lock
+lock not available
+took shared lock
+released shared lock
+released shared lock
+released shared lock
+took exclusive lock
+released exclusive lock
+took shared lock
+released shared lock
+lock was available
