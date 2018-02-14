@@ -4,3 +4,5 @@ prototype-state/server/
 prototype-state/offline/
 .stack-work/
 dist-newstyle
+.ghc.environment.*
+cabal.project.local
