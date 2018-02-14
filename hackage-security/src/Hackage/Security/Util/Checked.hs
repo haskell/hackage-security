@@ -9,6 +9,8 @@
 {-# LANGUAGE IncoherentInstances #-}
 #endif
 
+{-# LANGUAGE DeriveDataTypeable#-}
+
 -- | Checked exceptions
 module Hackage.Security.Util.Checked (
     Throws
@@ -25,6 +27,7 @@ module Hackage.Security.Util.Checked (
 
 import Control.Exception (Exception, IOException)
 import qualified Control.Exception as Base
+import Data.Typeable (Typeable)
 
 #if __GLASGOW_HASKELL__ >= 708
 import GHC.Prim (coerce)
@@ -50,14 +53,48 @@ unthrow _ x = unWrap (coerceWrap (Wrap x :: Wrap e a))
   Base exceptions
 -------------------------------------------------------------------------------}
 
+-- | Determine if an exception is asynchronous, based on its type.
+isAsync :: Exception e => e -> Bool
+#if MIN_VERSION_base(4, 7, 0)
+isAsync e =
+  case Base.fromException $ Base.toException e of
+    Just Base.SomeAsyncException{} -> True
+    Nothing -> False
+#else
+-- Earlier versions of GHC had no SomeAsyncException. We have to
+-- instead make up a list of async exceptions.
+isAsync e =
+  let se = Base.toException e
+   in case () of
+        ()
+          | Just (_ :: Base.AsyncException) <- Base.fromException se -> True
+          | show e == "<<timeout>>" -> True
+          | otherwise -> False
+#endif
+
+-- | 'Base.catch', but immediately rethrows asynchronous exceptions
+-- (as determined by 'isAsync').
+catchSync :: Exception e => IO a -> (e -> IO a) -> IO a
+catchSync act onErr = act `Base.catch` \e ->
+  if isAsync e
+    then Base.throwIO e
+    else onErr e
+
+-- | Wraps up an async exception as a synchronous exception.
+newtype SyncException = SyncException Base.SomeException
+  deriving (Show, Typeable)
+instance Exception SyncException
+
 -- | Throw a checked exception
 throwChecked :: (Exception e, Throws e) => e -> IO a
-throwChecked = Base.throwIO
+throwChecked e
+  | isAsync e = Base.throwIO $ SyncException $ Base.toException e
+  | otherwise = Base.throwIO e
 
 -- | Catch a checked exception
 catchChecked :: forall a e. Exception e
              => (Throws e => IO a) -> (e -> IO a) -> IO a
-catchChecked act = Base.catch (unthrow (Proxy :: Proxy e) act)
+catchChecked act = catchSync (unthrow (Proxy :: Proxy e) act)
 
 -- | 'catchChecked' with the arguments reversed
 handleChecked :: Exception e => (e -> IO a) -> (Throws e => IO a) -> IO a
