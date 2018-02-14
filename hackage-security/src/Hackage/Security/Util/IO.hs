@@ -11,7 +11,6 @@ import Control.Exception
 import Data.Time
 import System.IO hiding (openTempFile, withFile)
 import System.IO.Error
-import qualified System.FileLock as FL
 
 import Hackage.Security.Util.Path
 
@@ -31,19 +30,22 @@ handleDoesNotExist act =
         then return Nothing
         else throwIO e
 
--- | Attempt to create a filesystem lock in the specified directory.
+-- | Attempt to create a filesystem lock in the specified directory
 --
--- This will use OS-specific file locking primitives, and throw an
--- exception if the lock is already present.
+-- Given a file @/path/to@, we do this by attempting to create the directory
+-- @//path/to/hackage-security-lock@, and deleting the directory again
+-- afterwards. Creating a directory that already exists will throw an exception
+-- on most OSs (certainly Linux, OSX and Windows) and is a reasonably common way
+-- to implement a lock file.
 withDirLock :: Path Absolute -> IO a -> IO a
-withDirLock dir act = do
-    res <- FL.withTryFileLock lock FL.Exclusive (const act)
-    case res of
-        Just a -> return a
-        Nothing -> error $ "withFileLock: lock already exists: " ++ lock
+withDirLock dir = bracket_ takeLock releaseLock
   where
-    lock :: FilePath
-    lock = toFilePath $ dir </> fragment "hackage-security-lock"
+    lock :: Path Absolute
+    lock = dir </> fragment "hackage-security-lock"
+
+    takeLock, releaseLock :: IO ()
+    takeLock    = createDirectory lock
+    releaseLock = removeDirectory lock
 
 {-------------------------------------------------------------------------------
   Debugging
