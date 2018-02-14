@@ -10,3 +10,4 @@ packages:
 - precompute-fileinfo
 extra-deps:
 - http-client-0.5.5
+- filelock-0.1.1.2
