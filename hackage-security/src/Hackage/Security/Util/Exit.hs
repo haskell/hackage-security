@@ -23,9 +23,9 @@ import Control.Monad.Except
 -- > multipleExitPoints $ do
 -- >   when (cond1) $
 -- >     exit exp1
--- >   when (cond) $
+-- >   when (cond2) $
 -- >     exit exp2
--- >   when (cond)
+-- >   when (cond3) $
 -- >     exit exp3
 -- >   return exp4
 multipleExitPoints :: Monad m => ExceptT a m a -> m a
