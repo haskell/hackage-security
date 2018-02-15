@@ -23,4 +23,6 @@ install:
 build: off
 
 test_script:
+ - sed -i "s/hackage-repo-tool/--disabled/" cabal.project
+ - cat cabal.project
  - "cabal --http-transport=plain-http --store-dir=C:\\SR new-test -j1 hackage-security:tests"
