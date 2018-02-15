@@ -1,7 +1,5 @@
 {-# LANGUAGE CPP #-}
 {-# LANGUAGE InterruptibleFFI #-}
-{-# LANGUAGE LambdaCase #-}
-{-# LANGUAGE MultiWayIf #-}
 {-# LANGUAGE DeriveDataTypeable #-}
 
 -- | This compat module can be removed once base-4.10 (ghc-8.2) is the minimum
@@ -142,12 +140,12 @@ lockImpl h ctx mode block = do
     -- not an error", however e.g. Windows 10 doesn't accept maximum possible
     -- value (a pair of MAXDWORDs) for mysterious reasons. Work around that by
     -- trying 2^32-1.
-    fix $ \retry -> c_LockFileEx wh flags 0 0xffffffff 0x0 ovrlpd >>= \case
+    fix $ \retry -> c_LockFileEx wh flags 0 0xffffffff 0x0 ovrlpd >>= \b -> case b of
       True  -> return True
-      False -> getLastError >>= \err -> if
-        | not block && err == #{const ERROR_LOCK_VIOLATION} -> return False
-        | err == #{const ERROR_OPERATION_ABORTED} -> retry
-        | otherwise -> failWith ctx err
+      False -> getLastError >>= \err -> case () of
+        () | not block && err == #{const ERROR_LOCK_VIOLATION} -> return False
+           | err == #{const ERROR_OPERATION_ABORTED} -> retry
+           | otherwise -> failWith ctx err
   where
     sizeof_OVERLAPPED = #{size OVERLAPPED}
 
@@ -169,12 +167,12 @@ lockImpl :: Handle -> String -> LockMode -> Bool -> IO Bool
 lockImpl h ctx mode block = do
   FD{fdFD = fd} <- handleToFd h
   let flags = cmode .|. (if block then 0 else #{const LOCK_NB})
-  fix $ \retry -> c_flock fd flags >>= \case
+  fix $ \retry -> c_flock fd flags >>= \n -> case n of
     0 -> return True
-    _ -> getErrno >>= \errno -> if
-      | not block && errno == eWOULDBLOCK -> return False
-      | errno == eINTR -> retry
-      | otherwise -> ioException $ errnoToIOError ctx errno (Just h) Nothing
+    _ -> getErrno >>= \errno -> case () of
+      () | not block && errno == eWOULDBLOCK -> return False
+         | errno == eINTR -> retry
+         | otherwise -> ioException $ errnoToIOError ctx errno (Just h) Nothing
   where
     cmode = case mode of
       SharedLock    -> #{const LOCK_SH}
