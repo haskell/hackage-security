@@ -1,28 +1,26 @@
 clone_folder: "c:\\WORK"
 
+environment:
+  global:
+    CABOPTS:  "--store-dir=C:\\SR --http-transport=plain-http"
+  matrix:
+    - GHCVER: "8.2.2"
+    - GHCVER: "8.0.2"
+
 cache:
- - "C:\\SR" 
+ - "C:\\SR"
 
 install:
- - "if not exist C:\\SR mkdir C:\\SR"
  - "set PATH=C:\\Program Files\\Git\\mingw64\\bin;%PATH%"
- - "mkdir C:\\Haskell\\cabal\\bin"
- - "cd C:\\Haskell"
- - appveyor DownloadFile "https://downloads.haskell.org/~ghc/8.2.2/ghc-8.2.2-x86_64-unknown-mingw32.tar.xz" -FileName ghc.tar.xz
- - "7z x ghc.tar.xz -so | tar -xf -"
- - "cd cabal\\bin"
- - appveyor DownloadFile "https://www.haskell.org/cabal/release/cabal-install-2.0.0.1/cabal-install-2.0.0.1-x86_64-unknown-mingw32.zip" -FileName cabal.zip
- - "7z x cabal.zip"
- - "set PATH=C:\\Haskell\\ghc-8.2.2\\bin;C:\\Haskell\\cabal\\bin;%PATH%"
- - "cd C:\\WORK"
- - "ls -lrt"
- - "ghc --version"
+ - "choco install -y ghc --version %GHCVER%"
+ - "refreshenv"
  - "cabal --version"
- - "cabal --http-transport=plain-http update -v"
+ - "ghc   --version"
+ - "cabal %CABOPTS% update -v"
 
 build: off
 
 test_script:
  - sed -i "s/hackage-repo-tool/--disabled/" cabal.project
  - cat cabal.project
- - "cabal --http-transport=plain-http --store-dir=C:\\SR new-test -j1 hackage-security:tests"
+ - "cabal %CABOPTS% new-test -j1 hackage-security:tests"
