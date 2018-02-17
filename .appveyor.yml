@@ -6,16 +6,17 @@ environment:
   matrix:
     - GHCVER: "8.2.2"
     - GHCVER: "8.0.2"
+    - GHCVER: "7.10.3.2"
 
 cache:
  - "C:\\SR"
 
 install:
- - "set PATH=C:\\Program Files\\Git\\mingw64\\bin;%PATH%"
  - "choco install -y ghc --version %GHCVER%"
  - "refreshenv"
+ - "set PATH=C:\\msys64\\mingw64\\bin;C:\\msys64\\usr\\bin;%PATH%"
  - "cabal --version"
- - "ghc   --version"
+ - "ghc --version"
  - "cabal %CABOPTS% update -v"
 
 build: off
@@ -23,4 +24,5 @@ build: off
 test_script:
  - sed -i "s/hackage-repo-tool/--disabled/" cabal.project
  - cat cabal.project
- - "cabal %CABOPTS% new-test -j1 hackage-security:tests"
+ - "cabal %CABOPTS% new-build -j1 -vnormal+nowrap all"
+ - "cabal %CABOPTS% new-test  -j1 -vnormal+nowrap all"
