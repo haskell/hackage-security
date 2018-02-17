@@ -1,3 +1,4 @@
+version: "{build}"
 clone_folder: "c:\\WORK"
 
 environment:
@@ -6,21 +7,27 @@ environment:
   matrix:
     - GHCVER: "8.2.2"
     - GHCVER: "8.0.2"
+# temporarily disabled until https://github.com/snoyberg/http-client/issues/327 is resolved
+#   - GHCVER: "7.10.3.2"
+#   - GHCVER: "7.8.4"
 
 cache:
  - "C:\\SR"
 
 install:
- - "set PATH=C:\\Program Files\\Git\\mingw64\\bin;%PATH%"
  - "choco install -y ghc --version %GHCVER%"
  - "refreshenv"
+ - "set PATH=C:\\msys64\\mingw64\\bin;C:\\msys64\\usr\\bin;%PATH%"
  - "cabal --version"
- - "ghc   --version"
- - "cabal %CABOPTS% update -v"
+ - "ghc --version"
+ - "cabal %CABOPTS% update -vverbose+nowrap"
 
 build: off
 
 test_script:
  - sed -i "s/hackage-repo-tool/--disabled/" cabal.project
- - cat cabal.project
- - "cabal %CABOPTS% new-test -j1 hackage-security:tests"
+# - cat cabal.project
+ - "cabal %CABOPTS% new-build -j1 -vnormal+nowrap --dry all"
+ - ps: Push-AppveyorArtifact dist-newstyle\cache\plan.json
+ - "cabal %CABOPTS% new-build -j1 -vnormal+nowrap all"
+ - "cabal %CABOPTS% new-test  -j1 -vnormal+nowrap all"
