@@ -4,7 +4,9 @@ module Hackage.Security.RepoTool.Util.IO (
     -- * Miscellaneous
     compress
   , getFileModTime
+#ifndef mingw32_HOST_OS
   , createSymbolicLink
+#endif
     -- * Tar archives
   , TarGzError
   , tarExtractFile
@@ -58,6 +60,7 @@ compress src dst =
     withFile dst WriteMode $ \h ->
       BS.L.hPut h =<< GZip.compress <$> readLazyByteString src
 
+#ifndef mingw32_HOST_OS
 -- | Create a symbolic link (unix only)
 --
 -- Create the directory for the target if it does not exist.
@@ -69,15 +72,10 @@ createSymbolicLink :: (FsRoot root, FsRoot root')
                    -> Path root' -- ^ Link location
                    -> IO ()
 createSymbolicLink linkTarget linkLoc = do
-#ifndef mingw32_HOST_OS
     createDirectoryIfMissing True (takeDirectory linkLoc)
     linkTarget' <- toAbsoluteFilePath linkTarget
     linkLoc'    <- toAbsoluteFilePath linkLoc
     Posix.createSymbolicLink linkTarget' linkLoc'
-#else
-    error $ "Cannot create symbolic links on Windows"
-  where
-    _ = (linkTarget, linkLoc) -- -Wall suppression
 #endif
 
 {-------------------------------------------------------------------------------
