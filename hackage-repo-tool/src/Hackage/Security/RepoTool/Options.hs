@@ -1,3 +1,4 @@
+{-# LANGUAGE CPP #-}
 module Hackage.Security.RepoTool.Options (
     GlobalOpts(..)
   , Command(..)
@@ -60,8 +61,10 @@ data Command =
     -- | Create mirrors metadata
   | CreateMirrors KeysLoc (Path Absolute) [URI]
 
+#ifndef mingw32_HOST_OS
     -- | Create a directory with symlinks in cabal-local-rep layout
   | SymlinkCabalLocalRepo RepoLoc RepoLoc
+#endif
 
     -- | Sign an individual file
   | Sign [KeyLoc] DeleteExistingSignatures (Path Absolute)
@@ -123,6 +126,7 @@ parseCreateMirrors = CreateMirrors
         ])
   <*> (many $ argument (str >>= readURI) (metavar "MIRROR"))
 
+#ifndef mingw32_HOST_OS
 parseSymlinkCabalLocalRepo :: Parser Command
 parseSymlinkCabalLocalRepo = SymlinkCabalLocalRepo
   <$> parseRepoLoc
@@ -130,6 +134,7 @@ parseSymlinkCabalLocalRepo = SymlinkCabalLocalRepo
           long "cabal-repo"
         , help "Location of the cabal repo"
         ])
+#endif
 
 parseSign :: Parser Command
 parseSign = Sign
@@ -181,8 +186,10 @@ parseGlobalOptions = GlobalOpts
             progDesc "Create root metadata"
         , command "create-mirrors" $ info (helper <*> parseCreateMirrors) $
             progDesc "Create mirrors metadata. All MIRRORs specified on the command line will be written to the file."
+#ifndef mingw32_HOST_OS
         , command "symlink-cabal-local-repo" $ info (helper <*> parseSymlinkCabalLocalRepo) $
             progDesc "Create a directory in cabal-local-repo layout with symlinks to the specified repository."
+#endif
         , command "sign" $ info (helper <*> parseSign) $
             progDesc "Sign a file"
         ])

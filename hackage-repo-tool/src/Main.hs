@@ -9,9 +9,12 @@ import Data.Time
 import GHC.Conc.Sync (setUncaughtExceptionHandler)
 import Network.URI (URI)
 import System.Exit
-import System.IO.Error (isAlreadyExistsError)
 import qualified Data.ByteString.Lazy as BS.L
 import qualified System.FilePath      as FilePath
+
+#ifndef mingw32_HOST_OS
+import System.IO.Error (isAlreadyExistsError)
+#endif
 
 -- Cabal
 import Distribution.Package
@@ -54,8 +57,10 @@ main = do
         createRoot opts keysLoc rootLoc
       CreateMirrors keysLoc mirrorsLoc mirrors ->
         createMirrors opts keysLoc mirrorsLoc mirrors
+#ifndef mingw32_HOST_OS
       SymlinkCabalLocalRepo repoLoc cabalRepoLoc ->
         symlinkCabalLocalRepo opts repoLoc cabalRepoLoc
+#endif
       Sign keys deleteExisting file ->
         signFile keys deleteExisting file
 
@@ -597,6 +602,7 @@ checkRepoLayout opts repoLoc = liftM and . mapM checkPackage
         expectedTarGz :: TargetPath'
         expectedTarGz = InRepPkg repoLayoutPkgTarGz pkgId
 
+#ifndef mingw32_HOST_OS
 {-------------------------------------------------------------------------------
   Creating Cabal-local-repo
 -------------------------------------------------------------------------------}
@@ -621,6 +627,7 @@ symlinkCabalLocalRepo opts@GlobalOpts{..} repoLoc cabalRepoLoc = do
         target = anchorRepoPath opts  repoLoc      file
         loc    = anchorRepoPath opts' cabalRepoLoc file
         opts'  = opts { globalRepoLayout = cabalLocalRepoLayout }
+#endif
 
 {-------------------------------------------------------------------------------
   Signing individual files

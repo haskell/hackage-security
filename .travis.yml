@@ -30,14 +30,14 @@ matrix:
       addons: {apt: {packages: [ghc-ppa-tools,cabal-install-head,ghc-8.0.1], sources: [hvr-ghc]}}
     - compiler: "ghc-8.0.2"
       addons: {apt: {packages: [ghc-ppa-tools,cabal-install-head,ghc-8.0.2], sources: [hvr-ghc]}}
-    - compiler: "ghc-8.2.1"
-      addons: {apt: {packages: [ghc-ppa-tools,cabal-install-head,ghc-8.2.1], sources: [hvr-ghc]}}
+    - compiler: "ghc-8.2.2"
+      addons: {apt: {packages: [ghc-ppa-tools,cabal-install-head,ghc-8.2.2], sources: [hvr-ghc]}}
 
 before_install:
  - HC=${CC}
  - unset CC
  - PATH=/opt/ghc/bin:/opt/ghc-ppa-tools/bin:$PATH
-  
+
 install:
  - cabal --version
  - echo "$(${HC} --version) [$(${HC} --print-project-git-commit-id 2> /dev/null || echo '?')]"
