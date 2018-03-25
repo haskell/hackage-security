@@ -1,5 +1,7 @@
+cabal-version:       1.12
 name:                hackage-security
-version:             0.5.2.2
+version:             0.5.3.0
+
 synopsis:            Hackage security library
 description:         The hackage security library provides both server and
                      client utilities for securing the Hackage package server
@@ -21,13 +23,12 @@ description:         The hackage security library provides both server and
 license:             BSD3
 license-file:        LICENSE
 author:              Edsko de Vries
-maintainer:          edsko@well-typed.com
+maintainer:          cabal-devel@haskell.org
 copyright:           Copyright 2015-2016 Well-Typed LLP
 category:            Distribution
 homepage:            https://github.com/haskell/hackage-security
 bug-reports:         https://github.com/haskell/hackage-security/issues
 build-type:          Simple
-cabal-version:       >=1.10
 
 extra-source-files:
   ChangeLog.md
@@ -37,15 +38,15 @@ source-repository head
   location: https://github.com/haskell/hackage-security.git
 
 flag base48
-  description: Are we using base 4.8 or later?
+  description: Are we using @base@ 4.8 or later?
   manual: False
 
 flag use-network-uri
-  description: Are we using network-uri?
+  description: Are we using @network-uri@?
   manual: False
 
-Flag old-directory
-  description: Use directory < 1.2 and old-time
+flag old-directory
+  description: Use @directory@ < 1.2 and @old-time@
   manual:      False
   default:     False
 
@@ -97,7 +98,7 @@ library
                        Hackage.Security.Util.TypedEmbedded
                        Prelude
   -- We support ghc 7.4 (bundled with Cabal 1.14) and up
-  build-depends:       base              >= 4.5     && < 5,
+  build-depends:       base              >= 4.5     && < 4.12,
                        base16-bytestring >= 0.1.1   && < 0.2,
                        base64-bytestring >= 1.0     && < 1.1,
                        bytestring        >= 0.9     && < 0.11,
@@ -124,6 +125,7 @@ library
   else
     build-depends:     directory >= 1.2 && < 1.4
   build-tool-depends:  hsc2hs:hsc2hs >= 0.67 && <0.69
+
   hs-source-dirs:      src
   default-language:    Haskell2010
   default-extensions:  DefaultSignatures
@@ -207,9 +209,7 @@ library
 
   if impl(ghc >= 7.10)
      other-extensions: AllowAmbiguousTypes
---                       StaticPointers
--- ^^^ Temporarily disabled because Hackage doesn't know yet about this
--- extension and will therefore reject this package.
+                       StaticPointers
 
 test-suite TestSuite
   type:                exitcode-stdio-1.0
@@ -221,21 +221,25 @@ test-suite TestSuite
                        TestSuite.JSON
                        TestSuite.PrivateKeys
                        TestSuite.Util.StrictMVar
-  build-depends:       base,
+
+  -- inherited constraints from lib:hackage-security component
+  build-depends:       hackage-security,
+                       base,
                        Cabal,
                        containers,
-                       HUnit,
                        bytestring,
-                       hackage-security,
                        network-uri,
                        tar,
-                       tasty,
-                       tasty-hunit,
-                       tasty-quickcheck,
-                       QuickCheck < 2.10,
-                       temporary,
                        time,
                        zlib
+
+  -- dependencies exclusive to test-suite
+  build-depends:       tasty            == 1.0.*,
+                       tasty-hunit      == 0.10.*,
+                       tasty-quickcheck == 0.10.*,
+                       QuickCheck       == 2.9.*,
+                       temporary        == 1.2.*
+
   hs-source-dirs:      tests
   default-language:    Haskell2010
   default-extensions:  FlexibleContexts

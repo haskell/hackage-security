@@ -1,3 +1,12 @@
+0.5.3.0
+-------
+
+* Use `flock(2)`-based locking where available
+  (compat-shim taken from `cabal-install`'s code-base) (#207)
+* Improve handling of async exceptions (#187)
+* Detect & recover from local corruption of uncompressed index tarball (#196)
+* Support `base-4.11`
+
 0.5.2.2
 -------
 
