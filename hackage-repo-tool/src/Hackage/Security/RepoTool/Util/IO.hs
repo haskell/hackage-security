@@ -12,27 +12,32 @@ module Hackage.Security.RepoTool.Util.IO (
   , tarExtractFile
   ) where
 
-import Control.Exception
-import Data.Typeable
-import Data.Time.Clock.POSIX
-import System.IO.Error
-import qualified System.Directory as Directory
-import qualified Codec.Archive.Tar       as Tar
-import qualified Codec.Archive.Tar.Entry as Tar
-import qualified Codec.Compression.GZip  as GZip
-import qualified Data.ByteString.Lazy    as BS.L
+import qualified Codec.Archive.Tar                 as Tar
+import qualified Codec.Archive.Tar.Entry           as Tar
+import qualified Codec.Compression.GZip            as GZip
+import           Control.Exception
+import qualified Data.ByteString.Lazy              as BS.L
+import           Data.Typeable
+import qualified System.Directory                  as Directory
+import           System.IO.Error
 
 -- hackage-security
-import Hackage.Security.Util.Path
+import           Hackage.Security.Util.Path
 
 -- hackage-repo-tool
-import Hackage.Security.RepoTool.Options
-import Hackage.Security.RepoTool.Layout
-import Hackage.Security.RepoTool.Paths
+import           Hackage.Security.RepoTool.Layout
+import           Hackage.Security.RepoTool.Options
+import           Hackage.Security.RepoTool.Paths
 
-import System.Posix.Types (EpochTime)
+import           System.Posix.Types                (EpochTime)
 #ifndef mingw32_HOST_OS
-import qualified System.Posix.Files as Posix
+import qualified System.Posix.Files                as Posix
+#endif
+
+#if MIN_VERSION_directory(1,2,0)
+import           Data.Time.Clock.POSIX             (utcTimeToPOSIXSeconds)
+#else
+import           System.Time                       (ClockTime (TOD))
 #endif
 
 -- | Get the modification time of the specified file
@@ -45,8 +50,13 @@ getFileModTime opts repoLoc targetPath =
       -- from POSIX seconds, so there shouldn't be loss of precision.
       -- NB: Apparently, this has low clock resolution on GHC < 7.8.
       -- I don't think we care.
+#if MIN_VERSION_directory(1,2,0)
       fromInteger . floor . utcTimeToPOSIXSeconds
         <$> Directory.getModificationTime (toFilePath fp)
+#else
+      Directory.getModificationTime (toFilePath fp) >>= \(TOD s _) ->
+        return (fromInteger s)
+#endif
   where
     fp :: Path Absolute
     fp = anchorTargetPath' opts repoLoc targetPath
