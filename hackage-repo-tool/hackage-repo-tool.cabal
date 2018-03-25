@@ -3,12 +3,15 @@ name:                hackage-repo-tool
 version:             0.1.1.1
 
 synopsis:            Utility to manage secure file-based package repositories
-description:         This utility can be used to manage secure file-based
-                     repositories (creating TUF metadata as well as a Hackage
-                     index tarball). Currently it also provides various
-                     lower level utilities for creating and signing TUF files.
+description:         This utility can be used to manage secure file-based package
+                     repositories (creating [TUF](https://theupdateframework.github.io/)
+                     metadata as well as a Hackage index tarball) which can be used by
+                     clients such as [cabal-install](http://hackage.haskell.org/package/cabal-install).
+                     Currently it also provides various lower level utilities for creating
+                     and signing TUF files.
                      .
-                     This is part of the [Hackage Security](https://github.com/haskell/hackage-security#readme) infrastructure.
+                     This is part of the [Hackage Security](https://github.com/haskell/hackage-security#readme)
+                     infrastructure.
 license:             BSD3
 license-file:        LICENSE
 author:              Edsko de Vries
@@ -45,7 +48,7 @@ executable hackage-repo-tool
                        Prelude
 
   build-depends:       base                 >= 4.5  && < 5,
-                       Cabal                >= 1.14 && < 2.3,
+                       Cabal                >= 1.14 && < 2.4,
                        bytestring           >= 0.9  && < 0.11,
                        directory            >= 1.1  && < 1.4,
                        filepath             >= 1.2  && < 1.5,
