@@ -70,6 +70,7 @@ tests = testGroup "hackage-security" [
           testProperty "prop_roundtrip_canonical" JSON.prop_roundtrip_canonical
         , testProperty "prop_roundtrip_pretty"    JSON.prop_roundtrip_pretty
         , testProperty "prop_canonical_pretty"    JSON.prop_canonical_pretty
+        , testProperty "prop_aeson_canonical"     JSON.prop_aeson_canonical
         ]
   ]
 
