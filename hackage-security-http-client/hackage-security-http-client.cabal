@@ -34,6 +34,6 @@ library
   -- see comments in hackage-security.cabal
   if flag(use-network-uri)
     build-depends: network-uri >= 2.6 && < 2.7,
-                   network     >= 2.6 && < 2.7
+                   network     >= 2.6 && < 2.8
   else
     build-depends: network     >= 2.5 && < 2.6
