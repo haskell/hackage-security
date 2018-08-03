@@ -494,7 +494,7 @@ data WhenWrite =
 -- version number) we don't overwrite it and return Nothing; otherwise we
 -- increment the version number, write the file, and (if it's in the index)
 -- copy it to the unpacked index directory.
-updateFile :: forall a. (ToJSON WriteJSON (Signed a), HasHeader a)
+updateFile :: forall a. (ToJSON WriteJSON a, HasHeader a)
            => GlobalOpts
            -> RepoLoc
            -> WhenWrite
