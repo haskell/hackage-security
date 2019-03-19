@@ -18,12 +18,12 @@ import Test.QuickCheck
 import Text.JSON.Canonical
 
 -- aeson
-import Data.Aeson (Value (..), eitherDecode, FromJSON (..))
+import Data.Aeson (Value (..), eitherDecode)
 import Data.String (fromString)
 import qualified Data.Vector as V
 import qualified Data.HashMap.Strict as HM
 
-prop_roundtrip_canonical, prop_roundtrip_pretty, prop_canonical_pretty
+prop_aeson_canonical, prop_roundtrip_canonical, prop_roundtrip_pretty, prop_canonical_pretty
   :: JSValue -> Bool
 
 prop_roundtrip_canonical jsval =
