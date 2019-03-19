@@ -200,7 +200,7 @@ library
   -- dependency in network is not redundant.)
   if flag(use-network-uri)
     build-depends: network-uri >= 2.6 && < 2.7,
-                   network     >= 2.6 && < 2.9
+                   network     >= 2.6 && < 3.1
   else
     build-depends: network     >= 2.5 && < 2.6
 
@@ -234,7 +234,7 @@ test-suite TestSuite
                        zlib
 
   -- dependencies exclusive to test-suite
-  build-depends:       tasty            == 1.0.*,
+  build-depends:       tasty            == 1.2.*,
                        tasty-hunit      == 0.10.*,
                        tasty-quickcheck == 0.10.*,
                        QuickCheck       == 2.11.*,
