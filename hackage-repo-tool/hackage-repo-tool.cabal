@@ -2,15 +2,18 @@ cabal-version:       1.12
 name:                hackage-repo-tool
 version:             0.1.1.1
 
-synopsis:            Utility to manage secure file-based package repositories
+synopsis:            Manage secure file-based package repositories
 description:         This utility can be used to manage secure file-based package
-                     repositories (creating [TUF](https://theupdateframework.github.io/)
-                     metadata as well as a Hackage index tarball) which can be used by
-                     clients such as [cabal-install](http://hackage.haskell.org/package/cabal-install).
-                     Currently it also provides various lower level utilities for creating
-                     and signing TUF files.
+                     repositories (creating
+                     [TUF](https://theupdateframework.github.io/)
+                     metadata as well as a Hackage index tarball) which can be used
+                     by clients such as
+                     [cabal-install](http://hackage.haskell.org/package/cabal-install).
+                     Currently it also provides various lower level utilities
+                     for creating and signing TUF files.
                      .
-                     This is part of the [Hackage Security](https://github.com/haskell/hackage-security#readme)
+                     This is part of the
+                     [Hackage Security](https://github.com/haskell/hackage-security#readme)
                      infrastructure.
 license:             BSD3
 license-file:        LICENSE
@@ -21,6 +24,8 @@ category:            Distribution
 homepage:            https://github.com/haskell/hackage-security
 bug-reports:         https://github.com/haskell/hackage-security/issues
 build-type:          Simple
+tested-with:         GHC==8.6.4, GHC==8.4.4, GHC==8.2.2, GHC==8.0.2, GHC==7.10.3,
+                     GHC==7.8.4, GHC==7.6.3, GHC==7.4.2
 
 extra-source-files:
   ChangeLog.md

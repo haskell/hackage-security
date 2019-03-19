@@ -1,6 +1,10 @@
 name:                precompute-fileinfo
 version:             0.1.0.0
 synopsis:            Precompute fileinfo for faster Hackage migration
+description:         Utility for precomputing fileinfo
+                     for faster Hackage migration.
+                     .
+                     This is part of the Hackage Security infrastructure.
 license:             BSD3
 license-file:        LICENSE
 author:              Edsko de Vries
@@ -9,6 +13,8 @@ copyright:           Copyright 2015 Well-Typed LLP
 category:            Distribution
 build-type:          Simple
 cabal-version:       >=1.10
+tested-with:         GHC==8.6.4, GHC==8.4.4, GHC==8.2.2, GHC==8.0.2, GHC==7.10.3,
+                     GHC==7.8.4, GHC==7.6.3, GHC==7.4.2
 
 executable precompute-fileinfo
   main-is:             Main.hs
