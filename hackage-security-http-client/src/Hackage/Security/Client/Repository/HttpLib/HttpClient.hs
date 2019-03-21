@@ -1,3 +1,4 @@
+{-# LANGUAGE CPP               #-}
 {-# LANGUAGE OverloadedStrings #-}
 module Hackage.Security.Client.Repository.HttpLib.HttpClient (
     withClient
@@ -84,8 +85,15 @@ getRange manager reqHeaders uri (from, to) callback = wrapCustomEx $ do
            callback HttpStatus200OK (getResponseHeaders response) br
          _otherwise ->
            throwChecked $
+#if MIN_VERSION_http_client(0,5,0)
              HttpClient.HttpExceptionRequest request $
                HttpClient.StatusCodeException (void response) BS.empty
+#else
+             HttpClient.StatusCodeException
+               (HttpClient.responseStatus response)
+               (HttpClient.responseHeaders response)
+               (HttpClient.responseCookieJar response)
+#endif
 
 -- | Wrap custom exceptions
 --
