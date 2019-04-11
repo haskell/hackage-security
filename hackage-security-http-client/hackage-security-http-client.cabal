@@ -1,6 +1,9 @@
 name:                hackage-security-http-client
 version:             0.1.1
-synopsis:            Hackage security bindings for the http-client library
+synopsis:            hackage-security bindings for http-client
+description:         hackage-security bindings for the http-client library.
+                     .
+                     This is part of the Hackage Security infrastructure.
 homepage:            http://github.com/well-typed/hackage-security/
 license:             BSD3
 license-file:        LICENSE
@@ -10,6 +13,8 @@ copyright:           Copyright 2015 Well-Typed LLP
 category:            Distribution
 build-type:          Simple
 cabal-version:       >=1.10
+tested-with:         GHC==8.6.4, GHC==8.4.4, GHC==8.2.2, GHC==8.0.2, GHC==7.10.3,
+                     GHC==7.8.4, GHC==7.6.3, GHC==7.4.2
 
 flag use-network-uri
   description: Are we using network-uri?
@@ -17,10 +22,10 @@ flag use-network-uri
 
 library
   exposed-modules:     Hackage.Security.Client.Repository.HttpLib.HttpClient
-  build-depends:       base               >= 4.4,
+  build-depends:       base               >= 4.5 && < 4.13,
                        bytestring         >= 0.9,
                        data-default-class >= 0.0,
-                       http-client        >= 0.5 && < 0.6,
+                       http-client        >= 0.4 && < 0.6,
                        http-types         >= 0.8,
                        hackage-security   >= 0.5 && < 0.6
   hs-source-dirs:      src
@@ -34,6 +39,6 @@ library
   -- see comments in hackage-security.cabal
   if flag(use-network-uri)
     build-depends: network-uri >= 2.6 && < 2.7,
-                   network     >= 2.6 && < 2.8
+                   network     >= 2.6 && < 3.1
   else
     build-depends: network     >= 2.5 && < 2.6

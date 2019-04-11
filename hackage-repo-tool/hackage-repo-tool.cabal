@@ -2,15 +2,18 @@ cabal-version:       1.12
 name:                hackage-repo-tool
 version:             0.1.1.1
 
-synopsis:            Utility to manage secure file-based package repositories
+synopsis:            Manage secure file-based package repositories
 description:         This utility can be used to manage secure file-based package
-                     repositories (creating [TUF](https://theupdateframework.github.io/)
-                     metadata as well as a Hackage index tarball) which can be used by
-                     clients such as [cabal-install](http://hackage.haskell.org/package/cabal-install).
-                     Currently it also provides various lower level utilities for creating
-                     and signing TUF files.
+                     repositories (creating
+                     [TUF](https://theupdateframework.github.io/)
+                     metadata as well as a Hackage index tarball) which can be used
+                     by clients such as
+                     [cabal-install](http://hackage.haskell.org/package/cabal-install).
+                     Currently it also provides various lower level utilities
+                     for creating and signing TUF files.
                      .
-                     This is part of the [Hackage Security](https://github.com/haskell/hackage-security#readme)
+                     This is part of the
+                     [Hackage Security](https://github.com/haskell/hackage-security#readme)
                      infrastructure.
 license:             BSD3
 license-file:        LICENSE
@@ -21,6 +24,8 @@ category:            Distribution
 homepage:            https://github.com/haskell/hackage-security
 bug-reports:         https://github.com/haskell/hackage-security/issues
 build-type:          Simple
+tested-with:         GHC==8.6.4, GHC==8.4.4, GHC==8.2.2, GHC==8.0.2, GHC==7.10.3,
+                     GHC==7.8.4, GHC==7.6.3, GHC==7.4.2
 
 extra-source-files:
   ChangeLog.md
@@ -48,13 +53,13 @@ executable hackage-repo-tool
                        Prelude
 
   build-depends:       base                 >= 4.5  && < 5,
-                       Cabal                >= 1.14 && < 2.4,
+                       Cabal                >= 1.14 && < 2.6,
                        bytestring           >= 0.9  && < 0.11,
                        directory            >= 1.1  && < 1.4,
                        filepath             >= 1.2  && < 1.5,
                        optparse-applicative >= 0.11 && < 0.15,
                        tar                  >= 0.4  && < 0.6,
-                       time                 >= 1.2  && < 1.9,
+                       time                 >= 1.2  && < 1.10,
                        zlib                 >= 0.5  && < 0.7,
                        hackage-security     >= 0.5  && < 0.6
   if !os(windows)
@@ -69,7 +74,7 @@ executable hackage-repo-tool
   -- see comments in hackage-security.cabal
   if flag(use-network-uri)
     build-depends: network-uri >= 2.6 && < 2.7,
-                   network     >= 2.6 && < 2.8
+                   network     >= 2.6 && < 3.1
   else
     build-depends: network     >= 2.5 && < 2.6
 

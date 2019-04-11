@@ -15,6 +15,8 @@ homepage:            https://github.com/haskell/hackage-security
 bug-reports:         https://github.com/haskell/hackage-security/issues
 build-type:          Simple
 cabal-version:       >=1.10
+tested-with:         GHC==8.6.4, GHC==8.4.4, GHC==8.2.2, GHC==8.0.2, GHC==7.10.3,
+                     GHC==7.8.4, GHC==7.6.3, GHC==7.4.2
 
 extra-source-files:
   ChangeLog.md
@@ -32,7 +34,7 @@ library
   build-depends:       base             >= 4.4       && < 5,
                        bytestring       >= 0.9       && < 0.11,
                        HTTP             >= 4000.2.19 && < 4000.4,
-                       mtl              >= 2.2       && < 2.3,
+                       mtl              >= 2.1       && < 2.3,
                        zlib             >= 0.5       && < 0.7,
                        hackage-security >= 0.5       && < 0.6
   hs-source-dirs:      src
@@ -49,6 +51,6 @@ library
   -- See comments in hackage-security.cabal
   if flag(use-network-uri)
     build-depends: network-uri >= 2.6 && < 2.7,
-                   network     >= 2.6 && < 2.8
+                   network     >= 2.6 && < 3.1
   else
     build-depends: network     >= 2.5 && < 2.6
