@@ -106,7 +106,7 @@ library
                        Hackage.Security.Util.TypedEmbedded
                        Prelude
   -- We support ghc 7.4 (bundled with Cabal 1.14) and up
-  build-depends:       base              >= 4.5     && < 4.13,
+  build-depends:       base              >= 4.5     && < 4.14,
                        base16-bytestring >= 0.1.1   && < 0.2,
                        base64-bytestring >= 1.0     && < 1.1,
                        bytestring        >= 0.9     && < 0.11,
@@ -119,7 +119,7 @@ library
                        cryptohash-sha256 >= 0.11    && < 0.12,
                        -- 0.4.2 introduces TarIndex, 0.4.4 introduces more
                        -- functionality, 0.5.0 changes type of serialise
-                       tar               >= 0.5     && < 0.6,
+                       tar               >= 0.5     && < 0.7,
                        time              >= 1.2     && < 1.10,
                        transformers      >= 0.3     && < 0.6,
                        zlib              >= 0.5     && < 0.7,
@@ -214,7 +214,7 @@ library
   -- dependency in network is not redundant.)
   if flag(use-network-uri)
     build-depends: network-uri >= 2.6 && < 2.7,
-                   network     >= 2.6 && < 3.1
+                   network     >= 2.6 && < 3.2
   else
     build-depends: network     >= 2.5 && < 2.6
 
