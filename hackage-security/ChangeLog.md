@@ -1,7 +1,7 @@
 unreleased
 ----------
 
-* Allow `network-3.0.0.0`
+* Allow `network-3.1.0.0`
 * Allow `aeson-1.4.0.0`
 
 0.5.3.0
