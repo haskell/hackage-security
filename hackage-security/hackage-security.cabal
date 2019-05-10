@@ -214,7 +214,7 @@ library
   -- dependency in network is not redundant.)
   if flag(use-network-uri)
     build-depends: network-uri >= 2.6 && < 2.7,
-                   network     >= 2.6 && < 3.1
+                   network     >= 2.6 && < 3.2
   else
     build-depends: network     >= 2.5 && < 2.6
 
