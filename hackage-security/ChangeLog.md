@@ -1,8 +1,12 @@
-unreleased
-----------
+See also http://pvp.haskell.org/faq
 
-* Allow `network-3.1.0.0`
-* Allow `aeson-1.4.0.0`
+0.6.0.0
+-------
+
+* Remove `Hackage.Security.TUF.FileMap.lookupM`
+* Report missing keys in `.meta` objects more appropriately as
+  `ReportSchemaErrors(expected)` instead of via `Monad(fail)`
+* Add support for GHC 8.8 / base-4.13
 
 0.5.3.0
 -------

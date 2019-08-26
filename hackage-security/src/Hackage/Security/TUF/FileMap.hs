@@ -13,8 +13,6 @@ module Hackage.Security.TUF.FileMap (
   , (!)
   , insert
   , fromList
-    -- * Convenience accessors
-  , lookupM
     -- * Comparing file maps
   , FileChange(..)
   , fileMapChanges
@@ -70,16 +68,6 @@ insert fp nfo = FileMap . Map.insert fp nfo . fileMap
 
 fromList :: [(TargetPath, FileInfo)] -> FileMap
 fromList = FileMap . Map.fromList
-
-{-------------------------------------------------------------------------------
-  Convenience accessors
--------------------------------------------------------------------------------}
-
-lookupM :: Monad m => FileMap -> TargetPath -> m FileInfo
-lookupM m fp =
-    case lookup fp m of
-      Nothing  -> fail $ "No entry for " ++ pretty fp ++ " in filemap"
-      Just nfo -> return nfo
 
 {-------------------------------------------------------------------------------
   Comparing filemaps

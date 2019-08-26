@@ -13,6 +13,7 @@ import Hackage.Security.TUF.FileMap
 import Hackage.Security.TUF.Layout.Repo
 import Hackage.Security.TUF.Signed
 import qualified Hackage.Security.TUF.FileMap as FileMap
+import Hackage.Security.Util.Pretty (pretty)
 
 {-------------------------------------------------------------------------------
   Datatypes
@@ -76,9 +77,12 @@ instance ( MonadReader RepoLayout m
     snapshotVersion     <- fromJSField enc "version"
     snapshotExpires     <- fromJSField enc "expires"
     snapshotMeta        <- fromJSField enc "meta"
-    snapshotInfoRoot    <- FileMap.lookupM snapshotMeta (pathRoot       repoLayout)
-    snapshotInfoMirrors <- FileMap.lookupM snapshotMeta (pathMirrors    repoLayout)
-    snapshotInfoTarGz   <- FileMap.lookupM snapshotMeta (pathIndexTarGz repoLayout)
+    let lookupMeta k = case FileMap.lookup k snapshotMeta of
+          Nothing -> expected ("\"" ++ pretty k ++ "\" entry in .meta object") Nothing
+          Just v  -> pure v
+    snapshotInfoRoot    <- lookupMeta (pathRoot       repoLayout)
+    snapshotInfoMirrors <- lookupMeta (pathMirrors    repoLayout)
+    snapshotInfoTarGz   <- lookupMeta (pathIndexTarGz repoLayout)
     let snapshotInfoTar = FileMap.lookup (pathIndexTar repoLayout) snapshotMeta
     return Snapshot{..}
 

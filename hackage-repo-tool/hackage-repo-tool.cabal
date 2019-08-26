@@ -61,7 +61,7 @@ executable hackage-repo-tool
                        tar                  >= 0.4  && < 0.6,
                        time                 >= 1.2  && < 1.10,
                        zlib                 >= 0.5  && < 0.7,
-                       hackage-security     >= 0.5  && < 0.6
+                       hackage-security     >= 0.5  && < 0.7
   if !os(windows)
     build-depends:     unix                 >= 2.5  && < 2.8
 

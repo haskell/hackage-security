@@ -13,6 +13,7 @@ import Hackage.Security.TUF.Header
 import Hackage.Security.TUF.Layout.Repo
 import Hackage.Security.TUF.Signed
 import qualified Hackage.Security.TUF.FileMap as FileMap
+import Hackage.Security.Util.Pretty (pretty)
 
 {-------------------------------------------------------------------------------
   Datatypes
@@ -56,7 +57,10 @@ instance ( MonadReader RepoLayout m
     timestampVersion      <- fromJSField enc "version"
     timestampExpires      <- fromJSField enc "expires"
     timestampMeta         <- fromJSField enc "meta"
-    timestampInfoSnapshot <- FileMap.lookupM timestampMeta (pathSnapshot repoLayout)
+    let lookupMeta k = case FileMap.lookup k timestampMeta of
+          Nothing -> expected ("\"" ++ pretty k ++ "\" entry in .meta object") Nothing
+          Just v  -> pure v
+    timestampInfoSnapshot <- lookupMeta (pathSnapshot repoLayout)
     return Timestamp{..}
 
 instance (MonadKeys m, MonadReader RepoLayout m) => FromJSON m (Signed Timestamp) where
