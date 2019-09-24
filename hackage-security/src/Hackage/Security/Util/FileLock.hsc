@@ -132,7 +132,7 @@ lockImpl h ctx mode block = do
   FD{fdFD = fd} <- handleToFd h
   wh <- throwErrnoIf (== iNVALID_HANDLE_VALUE) ctx $ c_get_osfhandle fd
   allocaBytes sizeof_OVERLAPPED $ \ovrlpd -> do
-    fillBytes ovrlpd (fromIntegral sizeof_OVERLAPPED) 0
+    fillBytes ovrlpd 0 sizeof_OVERLAPPED
     let flags = cmode .|. (if block then 0 else #{const LOCKFILE_FAIL_IMMEDIATELY})
     -- We want to lock the whole file without looking up its size to be
     -- consistent with what flock does. According to documentation of LockFileEx
@@ -147,6 +147,7 @@ lockImpl h ctx mode block = do
            | err == #{const ERROR_OPERATION_ABORTED} -> retry
            | otherwise -> failWith ctx err
   where
+    sizeof_OVERLAPPED :: Int
     sizeof_OVERLAPPED = #{size OVERLAPPED}
 
     cmode = case mode of
