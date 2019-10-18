@@ -7,6 +7,7 @@ module Hackage.Security.Util.IO (
   , timedIO
   ) where
 
+import Control.Concurrent (threadDelay)
 import Control.Monad (unless)
 import Control.Exception
 import Data.Time
@@ -14,7 +15,7 @@ import System.IO hiding (openTempFile, withFile)
 import System.IO.Error
 
 import Hackage.Security.Util.Path
-import Hackage.Security.Util.FileLock (hTryLock, LockMode(ExclusiveLock), FileLockingNotSupported)
+import Hackage.Security.Util.FileLock (hLock, LockMode(ExclusiveLock), FileLockingNotSupported)
 
 {-------------------------------------------------------------------------------
   Miscelleneous
@@ -37,7 +38,7 @@ handleDoesNotExist act =
 -- This will use OS-specific file locking primitives: "GHC.IO.Handle.Lock" with
 -- @base-4.10" and later or a shim for @base@ versions.
 --
--- Throws an exception if the lock is already present.
+-- Blocks if the lock is already present.
 --
 -- May fallback to locking via creating a directory:
 -- Given a file @/path/to@, we do this by attempting to create the directory
@@ -56,24 +57,33 @@ withDirLock dir = bracket takeLock releaseLock . const
 
     takeLock = do
         h <- openFile lock' ReadWriteMode
-        handle (takeDirLock h) $ do
-            gotlock <- hTryLock h ExclusiveLock
-            unless gotlock $
-                fail $ "hTryLock: lock already exists: " ++ lock'
+        handle (fallbackToDirLock h) $ do
+            hLock h ExclusiveLock
             return (Just h)
 
-    takeDirLock :: Handle -> FileLockingNotSupported -> IO (Maybe Handle)
-    takeDirLock h _ = do
-        -- We fallback to directory locking
-        -- so we need to cleanup lock file first: close and remove
-        hClose h
-        handle onIOError (removeFile lock)
-        createDirectory lock
-        return Nothing
+    -- If file locking isn't supported then we fallback to directory locking,
+    -- polling if necessary.
+    fallbackToDirLock :: Handle -> FileLockingNotSupported -> IO (Maybe Handle)
+    fallbackToDirLock h _ = takeDirLock >> return Nothing
+      where
+        takeDirLock :: IO ()
+        takeDirLock = do
+            -- We fallback to directory locking
+            -- so we need to cleanup lock file first: close and remove
+            hClose h
+            handle onIOError (removeFile lock)
+            handle onCreateDirError (createDirectory lock)
 
-    onIOError :: IOError -> IO ()
-    onIOError _ = hPutStrLn stderr
-        "withDirLock: cannot remove lock file before directory lock fallback"
+        onCreateDirError :: IOError -> IO ()
+        onCreateDirError ioe
+          | isAlreadyExistsError ioe = threadDelay (1*1000*1000) >> takeDirLock
+          | otherwise = fail (me++"error creating directory lock: "++show ioe)
+
+        onIOError :: IOError -> IO ()
+        onIOError _ = hPutStrLn stderr
+            (me++"cannot remove lock file before directory lock fallback")
+
+    me = "Hackage.Security.Util.IO.withDirLock: "
 
     releaseLock (Just h) = hClose h
     releaseLock Nothing  = removeDirectory lock
