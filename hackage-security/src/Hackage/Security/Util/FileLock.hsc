@@ -1,6 +1,8 @@
 {-# LANGUAGE CPP #-}
 {-# LANGUAGE InterruptibleFFI #-}
 {-# LANGUAGE DeriveDataTypeable #-}
+{-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE MultiWayIf #-}
 
 -- | This compat module can be removed once base-4.10 (ghc-8.2) is the minimum
 -- required version. Though note that the locking functionality is not in
@@ -12,6 +14,7 @@ module Hackage.Security.Util.FileLock (
   , LockMode(..)
   , hLock
   , hTryLock
+  , hUnlock
   ) where
 
 #if MIN_VERSION_base(4,10,0)
@@ -19,7 +22,6 @@ module Hackage.Security.Util.FileLock (
 import GHC.IO.Handle.Lock
 
 #else
-
 -- The remainder of this file is a modified copy
 -- of GHC.IO.Handle.Lock from ghc-8.2.x
 --
@@ -29,28 +31,20 @@ import GHC.IO.Handle.Lock
 -- instead since those are known major Unix platforms lacking @flock()@ or
 -- having broken one.
 
-import Control.Exception (Exception)
-import Data.Typeable
-
+-- N.B. ideally we would make this condition a #define but sadly this breaks
+-- older hsc2hs versions.
 #if defined(solaris2_HOST_OS) || defined(aix_HOST_OS)
 
-import Control.Exception (throwIO)
-import System.IO (Handle)
-
-#else
+#include <sys/file.h>
 
 import Data.Bits
 import Data.Function
-import Control.Concurrent.MVar
-
 import Foreign.C.Error
 import Foreign.C.Types
-
-import GHC.IO.Handle.Types
 import GHC.IO.FD
-import GHC.IO.Exception
+import GHC.IO.Handle.FD
 
-#if defined(mingw32_HOST_OS)
+#elif defined(mingw32_HOST_OS)
 
 #if defined(i386_HOST_ARCH)
 ## define WINDOWS_CCONV stdcall
@@ -62,19 +56,30 @@ import GHC.IO.Exception
 
 #include <windows.h>
 
+import Data.Bits
+import Data.Function
+import Foreign.C.Error
+import Foreign.C.Types
 import Foreign.Marshal.Alloc
 import Foreign.Marshal.Utils
-import Foreign.Ptr
+import GHC.IO.FD
+import GHC.IO.Handle.FD
+import GHC.Ptr
 import GHC.Windows
 
-#else /* !defined(mingw32_HOST_OS), so assume unix with flock() */
+#else
 
-#include <sys/file.h>
+import GHC.IO (throwIO)
 
-#endif /* !defined(mingw32_HOST_OS) */
+#endif /* HAVE_FLOCK */
 
-#endif /* !(defined(solaris2_HOST_OS) || defined(aix_HOST_OS)) */
-
+import Control.Monad (void)
+import Data.Functor
+import GHC.Base
+import GHC.Exception
+import GHC.IO.Handle.Types
+import GHC.Show
+import Data.Typeable
 
 -- | Exception thrown by 'hLock' on non-Windows platforms that don't support
 -- 'flock'.
@@ -82,7 +87,6 @@ data FileLockingNotSupported = FileLockingNotSupported
   deriving (Typeable, Show)
 
 instance Exception FileLockingNotSupported
-
 
 -- | Indicates a mode in which a file should be locked.
 data LockMode = SharedLock | ExclusiveLock
@@ -107,7 +111,7 @@ data LockMode = SharedLock | ExclusiveLock
 --
 -- @since 4.10.0.0
 hLock :: Handle -> LockMode -> IO ()
-hLock h mode = lockImpl h "hLock" mode True >> return ()
+hLock h mode = void $ lockImpl h "hLock" mode True
 
 -- | Non-blocking version of 'hLock'.
 --
@@ -115,17 +119,108 @@ hLock h mode = lockImpl h "hLock" mode True >> return ()
 hTryLock :: Handle -> LockMode -> IO Bool
 hTryLock h mode = lockImpl h "hTryLock" mode False
 
+-- | Release a lock taken with 'hLock' or 'hTryLock'.
+hUnlock :: Handle -> IO ()
+hUnlock = unlockImpl
+
 ----------------------------------------
 
-#if defined(solaris2_HOST_OS) || defined(aix_HOST_OS)
+#if HAVE_OFD_LOCKING
+-- Linux open file descriptor locking.
+--
+-- We prefer this over BSD locking (e.g. flock) since the latter appears to
+-- break in some NFS configurations. Note that we intentionally do not try to
+-- use ordinary POSIX file locking due to its peculiar semantics under
+-- multi-threaded environments.
 
--- | No-op implementation.
+foreign import ccall interruptible "fcntl"
+  c_fcntl :: CInt -> CInt -> Ptr () -> IO CInt
+
+data FLock  = FLock { l_type   :: CShort
+                    , l_whence :: CShort
+                    , l_start  :: COff
+                    , l_len    :: COff
+                    , l_pid    :: CPid
+                    }
+
+instance Storable FLock where
+    sizeOf _ = #{size flock}
+    alignment _ = #{alignment flock}
+    poke ptr x = do
+        fillBytes ptr 0 (sizeOf x)
+        #{poke flock, l_type}   ptr (l_type x)
+        #{poke flock, l_whence} ptr (l_whence x)
+        #{poke flock, l_start}  ptr (l_start x)
+        #{poke flock, l_len}    ptr (l_len x)
+        #{poke flock, l_pid}    ptr (l_pid x)
+    peek ptr = do
+        FLock <$> #{peek flock, l_type}   ptr
+              <*> #{peek flock, l_whence} ptr
+              <*> #{peek flock, l_start}  ptr
+              <*> #{peek flock, l_len}    ptr
+              <*> #{peek flock, l_pid}    ptr
+
 lockImpl :: Handle -> String -> LockMode -> Bool -> IO Bool
-lockImpl _ _ _ _ = throwIO FileLockingNotSupported
+lockImpl h ctx mode block = do
+  FD{fdFD = fd} <- handleToFd h
+  with flock $ \flock_ptr -> fix $ \retry -> do
+      ret <- with flock $ fcntl fd mode flock_ptr
+      case ret of
+        0 -> return True
+        _ -> getErrno >>= \errno -> if
+          | not block && errno == eWOULDBLOCK -> return False
+          | errno == eINTR -> retry
+          | otherwise -> ioException $ errnoToIOError ctx errno (Just h) Nothing
+  where
+    flock = FLock { l_type = case mode of
+                               SharedLock -> #{const F_RDLCK}
+                               ExclusiveLock -> #{const F_WRLCK}
+                  , l_whence = #{const SEEK_SET}
+                  , l_start = 0
+                  , l_len = 0
+                  }
+    mode
+      | block     = #{const F_SETLKW}
+      | otherwise = #{const F_SETLK}
 
-#else /* !(defined(solaris2_HOST_OS) || defined(aix_HOST_OS)) */
+unlockImpl :: Handle -> IO ()
+unlockImpl h = do
+  FD{fdFD = fd} <- handleToFd h
+  let flock = FLock { l_type = #{const F_UNLCK}
+                    , l_whence = #{const SEEK_SET}
+                    , l_start = 0
+                    , l_len = 0
+                    }
+  throwErrnoIfMinus1_ "hUnlock"
+      $ with flock $ c_fcntl fd #{const F_SETLK}
 
-#if defined(mingw32_HOST_OS)
+#elif HAVE_FLOCK
+
+lockImpl :: Handle -> String -> LockMode -> Bool -> IO Bool
+lockImpl h ctx mode block = do
+  FD{fdFD = fd} <- handleToFd h
+  let flags = cmode .|. (if block then 0 else #{const LOCK_NB})
+  fix $ \retry -> c_flock fd flags >>= \case
+    0 -> return True
+    _ -> getErrno >>= \errno -> if
+      | not block
+      , errno == eAGAIN || errno == eACCES -> return False
+      | errno == eINTR -> retry
+      | otherwise -> ioException $ errnoToIOError ctx errno (Just h) Nothing
+  where
+    cmode = case mode of
+      SharedLock    -> #{const LOCK_SH}
+      ExclusiveLock -> #{const LOCK_EX}
+
+unlockImpl :: Handle -> IO ()
+unlockImpl h = do
+  FD{fdFD = fd} <- handleToFd h
+  throwErrnoIfMinus1_ "flock" $ c_flock fd #{const LOCK_UN}
+
+foreign import ccall interruptible "flock"
+  c_flock :: CInt -> CInt -> IO CInt
+
+#elif defined(mingw32_HOST_OS)
 
 lockImpl :: Handle -> String -> LockMode -> Bool -> IO Bool
 lockImpl h ctx mode block = do
@@ -137,22 +232,32 @@ lockImpl h ctx mode block = do
     -- We want to lock the whole file without looking up its size to be
     -- consistent with what flock does. According to documentation of LockFileEx
     -- "locking a region that goes beyond the current end-of-file position is
-    -- not an error", however e.g. Windows 10 doesn't accept maximum possible
-    -- value (a pair of MAXDWORDs) for mysterious reasons. Work around that by
-    -- trying 2^32-1.
-    fix $ \retry -> c_LockFileEx wh flags 0 0xffffffff 0x0 ovrlpd >>= \b -> case b of
+    -- not an error", hence we pass maximum value as the number of bytes to
+    -- lock.
+    fix $ \retry -> c_LockFileEx wh flags 0 0xffffffff 0xffffffff ovrlpd >>= \case
       True  -> return True
-      False -> getLastError >>= \err -> case () of
-        () | not block && err == #{const ERROR_LOCK_VIOLATION} -> return False
-           | err == #{const ERROR_OPERATION_ABORTED} -> retry
-           | otherwise -> failWith ctx err
+      False -> getLastError >>= \err -> if
+        | not block && err == #{const ERROR_LOCK_VIOLATION} -> return False
+        | err == #{const ERROR_OPERATION_ABORTED} -> retry
+        | otherwise -> failWith ctx err
   where
-    sizeof_OVERLAPPED :: Int
     sizeof_OVERLAPPED = #{size OVERLAPPED}
 
     cmode = case mode of
       SharedLock    -> 0
       ExclusiveLock -> #{const LOCKFILE_EXCLUSIVE_LOCK}
+
+unlockImpl :: Handle -> IO ()
+unlockImpl h = do
+  FD{fdFD = fd} <- handleToFd h
+  wh <- throwErrnoIf (== iNVALID_HANDLE_VALUE) "hUnlock" $ c_get_osfhandle fd
+  allocaBytes sizeof_OVERLAPPED $ \ovrlpd -> do
+    fillBytes ovrlpd 0 sizeof_OVERLAPPED
+    c_UnlockFileEx wh 0 0xffffffff 0xffffffff ovrlpd >>= \case
+      True  -> return ()
+      False -> getLastError >>= failWith "hUnlock"
+  where
+    sizeof_OVERLAPPED = #{size OVERLAPPED}
 
 -- https://msdn.microsoft.com/en-us/library/aa297958.aspx
 foreign import ccall unsafe "_get_osfhandle"
@@ -162,42 +267,20 @@ foreign import ccall unsafe "_get_osfhandle"
 foreign import WINDOWS_CCONV interruptible "LockFileEx"
   c_LockFileEx :: HANDLE -> DWORD -> DWORD -> DWORD -> DWORD -> Ptr () -> IO BOOL
 
-#else /* !defined(mingw32_HOST_OS), so assume unix with flock() */
+-- https://msdn.microsoft.com/en-us/library/windows/desktop/aa365716.aspx
+foreign import WINDOWS_CCONV interruptible "UnlockFileEx"
+  c_UnlockFileEx :: HANDLE -> DWORD -> DWORD -> DWORD -> Ptr () -> IO BOOL
 
+#else
+
+-- | No-op implementation.
 lockImpl :: Handle -> String -> LockMode -> Bool -> IO Bool
-lockImpl h ctx mode block = do
-  FD{fdFD = fd} <- handleToFd h
-  let flags = cmode .|. (if block then 0 else #{const LOCK_NB})
-  fix $ \retry -> c_flock fd flags >>= \n -> case n of
-    0 -> return True
-    _ -> getErrno >>= \errno -> case () of
-      () | not block && errno == eWOULDBLOCK -> return False
-         | errno == eINTR -> retry
-         | otherwise -> ioException $ errnoToIOError ctx errno (Just h) Nothing
-  where
-    cmode = case mode of
-      SharedLock    -> #{const LOCK_SH}
-      ExclusiveLock -> #{const LOCK_EX}
+lockImpl _ _ _ _ = throwIO FileLockingNotSupported
 
-foreign import ccall interruptible "flock"
-  c_flock :: CInt -> CInt -> IO CInt
+-- | No-op implementation.
+unlockImpl :: Handle -> IO ()
+unlockImpl _ = throwIO FileLockingNotSupported
 
-#endif /* !defined(mingw32_HOST_OS) */
+#endif
 
--- | Turn an existing Handle into a file descriptor. This function throws an
--- IOError if the Handle does not reference a file descriptor.
-handleToFd :: Handle -> IO FD
-handleToFd h = case h of
-  FileHandle _ mv -> do
-    Handle__{haDevice = dev} <- readMVar mv
-    case cast dev of
-      Just fd -> return fd
-      Nothing -> throwErr "not a file descriptor"
-  DuplexHandle{} -> throwErr "not a file handle"
-  where
-    throwErr msg = ioException $ IOError (Just h)
-      InappropriateType "handleToFd" msg Nothing Nothing
-
-#endif /* defined(solaris2_HOST_OS) || defined(aix_HOST_OS) */
-
-#endif /* MIN_VERSION_base */
+#endif /* MIN_VERSION_base(4,10,0) */
