@@ -8,7 +8,6 @@ module Hackage.Security.Util.IO (
   ) where
 
 import Control.Concurrent (threadDelay)
-import Control.Monad (unless)
 import Control.Exception
 import Data.Time
 import System.IO hiding (openTempFile, withFile)
