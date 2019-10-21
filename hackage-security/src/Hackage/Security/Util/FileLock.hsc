@@ -1,8 +1,6 @@
 {-# LANGUAGE CPP #-}
 {-# LANGUAGE InterruptibleFFI #-}
 {-# LANGUAGE DeriveDataTypeable #-}
-{-# LANGUAGE LambdaCase #-}
-{-# LANGUAGE MultiWayIf #-}
 
 -- | This compat module can be removed once base-4.10 (ghc-8.2) is the minimum
 -- required version. Though note that the locking functionality is not in
@@ -167,10 +165,11 @@ lockImpl h ctx mode block = do
       ret <- with flock $ fcntl fd mode flock_ptr
       case ret of
         0 -> return True
-        _ -> getErrno >>= \errno -> if
-          | not block && errno == eWOULDBLOCK -> return False
-          | errno == eINTR -> retry
-          | otherwise -> ioException $ errnoToIOError ctx errno (Just h) Nothing
+        _ -> getErrno >>= \errno ->
+          case () of
+            _ | not block && errno == eWOULDBLOCK -> return False
+              | errno == eINTR -> retry
+              | otherwise -> ioException $ errnoToIOError ctx errno (Just h) Nothing
   where
     flock = FLock { l_type = case mode of
                                SharedLock -> #{const F_RDLCK}
@@ -200,13 +199,16 @@ lockImpl :: Handle -> String -> LockMode -> Bool -> IO Bool
 lockImpl h ctx mode block = do
   FD{fdFD = fd} <- handleToFd h
   let flags = cmode .|. (if block then 0 else #{const LOCK_NB})
-  fix $ \retry -> c_flock fd flags >>= \case
-    0 -> return True
-    _ -> getErrno >>= \errno -> if
-      | not block
-      , errno == eAGAIN || errno == eACCES -> return False
-      | errno == eINTR -> retry
-      | otherwise -> ioException $ errnoToIOError ctx errno (Just h) Nothing
+  fix $ \retry -> do
+    ret <- c_flock fd flags
+    case ret of
+      0 -> return True
+      _ -> getErrno >>= \errno ->
+        case () of
+          _ | not block
+            , errno == eAGAIN || errno == eACCES -> return False
+            | errno == eINTR -> retry
+            | otherwise -> ioException $ errnoToIOError ctx errno (Just h) Nothing
   where
     cmode = case mode of
       SharedLock    -> #{const LOCK_SH}
@@ -234,12 +236,15 @@ lockImpl h ctx mode block = do
     -- "locking a region that goes beyond the current end-of-file position is
     -- not an error", hence we pass maximum value as the number of bytes to
     -- lock.
-    fix $ \retry -> c_LockFileEx wh flags 0 0xffffffff 0xffffffff ovrlpd >>= \case
-      True  -> return True
-      False -> getLastError >>= \err -> if
-        | not block && err == #{const ERROR_LOCK_VIOLATION} -> return False
-        | err == #{const ERROR_OPERATION_ABORTED} -> retry
-        | otherwise -> failWith ctx err
+    fix $ \retry -> do
+      ret <- c_LockFileEx wh flags 0 0xffffffff 0xffffffff ovrlpd
+      case ret of
+        True  -> return True
+        False -> getLastError >>= \err ->
+          case () of
+            _ | not block && err == #{const ERROR_LOCK_VIOLATION} -> return False
+              | err == #{const ERROR_OPERATION_ABORTED} -> retry
+              | otherwise -> failWith ctx err
   where
     sizeof_OVERLAPPED = #{size OVERLAPPED}
 
@@ -253,7 +258,8 @@ unlockImpl h = do
   wh <- throwErrnoIf (== iNVALID_HANDLE_VALUE) "hUnlock" $ c_get_osfhandle fd
   allocaBytes sizeof_OVERLAPPED $ \ovrlpd -> do
     fillBytes ovrlpd 0 sizeof_OVERLAPPED
-    c_UnlockFileEx wh 0 0xffffffff 0xffffffff ovrlpd >>= \case
+    ret <- c_UnlockFileEx wh 0 0xffffffff 0xffffffff ovrlpd
+    case ret of
       True  -> return ()
       False -> getLastError >>= failWith "hUnlock"
   where
