@@ -14,7 +14,7 @@ import System.IO hiding (openTempFile, withFile)
 import System.IO.Error
 
 import Hackage.Security.Util.Path
-import Hackage.Security.Util.FileLock (hLock, LockMode(ExclusiveLock), FileLockingNotSupported)
+import Hackage.Security.Util.FileLock (hLock, LockMode(ExclusiveLock), FileLockingNotSupported, hUnlock)
 
 {-------------------------------------------------------------------------------
   Miscelleneous

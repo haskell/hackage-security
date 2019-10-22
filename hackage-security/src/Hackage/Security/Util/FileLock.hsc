@@ -44,9 +44,9 @@ hUnlock hdl = return ()
 -- instead since those are known major Unix platforms lacking @flock()@ or
 -- having broken one.
 
-#define HAVE_FLOCK defined(solaris2_HOST_OS) || defined(aix_HOST_OS)
+-- We avoid using #define as it breaks older hsc2hs
 
-#if HAVE_FLOCK
+#if defined(solaris2_HOST_OS) || defined(aix_HOST_OS)
 
 #include <sys/file.h>
 
@@ -91,6 +91,7 @@ import GHC.Base
 import GHC.Exception
 import GHC.IO.Handle.Types
 import GHC.Show
+import Data.Typeable (Typeable)
 
 -- | Exception thrown by 'hLock' on non-Windows platforms that don't support
 -- 'flock'.
