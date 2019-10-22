@@ -15,13 +15,29 @@ module Hackage.Security.Util.FileLock (
   , hUnlock
   ) where
 
-#if MIN_VERSION_base(4,10,0)
+#if MIN_VERSION_base(4,11,0)
 
 import GHC.IO.Handle.Lock
 
+#elif MIN_VERSION_base(4,10,0)
+
+import GHC.IO.Handle.Lock
+import GHC.IO.Handle (Handle)
+
+-- N.B. base-4.10 (GHC 8.2) didn't have hUnlock. For the time being we simply
+-- define this to be a no-op since we generally close the lock handle anyways.
+--
+-- However, do note that on Windows it can take longer for an outstanding
+-- lock to be released after its handle is closed than if the lock were
+-- explicitly released.
+
+hUnlock :: Handle -> IO ()
+hUnlock _ = return ()
+
 #else
+
 -- The remainder of this file is a modified copy
--- of GHC.IO.Handle.Lock from ghc-8.2.x
+-- of GHC.IO.Handle.Lock from ghc-8.9.x
 --
 -- The modifications were just to the imports and the CPP, since we do not have
 -- access to the HAVE_FLOCK from the ./configure script. We approximate the
