@@ -84,7 +84,7 @@ withDirLock dir = bracket takeLock releaseLock . const
 
     me = "Hackage.Security.Util.IO.withDirLock: "
 
-    releaseLock (Just h) = hClose h
+    releaseLock (Just h) = hUnlock h >> hClose h
     releaseLock Nothing  = removeDirectory lock
 
 {-------------------------------------------------------------------------------
