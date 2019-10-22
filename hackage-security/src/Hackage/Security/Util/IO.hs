@@ -14,7 +14,7 @@ import System.IO hiding (openTempFile, withFile)
 import System.IO.Error
 
 import Hackage.Security.Util.Path
-import Hackage.Security.Util.FileLock (hLock, LockMode(ExclusiveLock), FileLockingNotSupported)
+import Hackage.Security.Util.FileLock (hLock, hUnlock, LockMode(ExclusiveLock), FileLockingNotSupported)
 
 {-------------------------------------------------------------------------------
   Miscelleneous
@@ -84,7 +84,7 @@ withDirLock dir = bracket takeLock releaseLock . const
 
     me = "Hackage.Security.Util.IO.withDirLock: "
 
-    releaseLock (Just h) = hClose h
+    releaseLock (Just h) = hUnlock h >> hClose h
     releaseLock Nothing  = removeDirectory lock
 
 {-------------------------------------------------------------------------------
