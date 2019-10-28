@@ -68,6 +68,7 @@ instance MonadReader RepoLayout m => ToJSON m Snapshot where
 
 instance ( MonadReader RepoLayout m
          , MonadError DeserializationError m
+         , MonadFail m
          , ReportSchemaErrors m
          ) => FromJSON m Snapshot where
   fromJSON enc = do
@@ -82,7 +83,10 @@ instance ( MonadReader RepoLayout m
     let snapshotInfoTar = FileMap.lookup (pathIndexTar repoLayout) snapshotMeta
     return Snapshot{..}
 
-instance (MonadKeys m, MonadReader RepoLayout m) => FromJSON m (Signed Snapshot) where
+instance ( MonadFail m
+         , MonadKeys m
+         , MonadReader RepoLayout m
+         ) => FromJSON m (Signed Snapshot) where
   fromJSON = signedFromJSON
 
 {-------------------------------------------------------------------------------

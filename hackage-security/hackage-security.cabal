@@ -99,8 +99,8 @@ library
                        base16-bytestring >= 0.1.1   && < 0.2,
                        base64-bytestring >= 1.0     && < 1.1,
                        bytestring        >= 0.9     && < 0.11,
-                       Cabal             >= 1.14    && < 1.26,
-                       containers        >= 0.4     && < 0.6,
+                       Cabal             >= 1.14    && < 4,
+                       containers        >= 0.4     && < 0.7,
                        ed25519           >= 0.0     && < 0.1,
                        filepath          >= 1.2     && < 1.5,
                        mtl               >= 2.2     && < 2.3,
@@ -110,7 +110,7 @@ library
                        -- 0.4.2 introduces TarIndex, 0.4.4 introduces more
                        -- functionality, 0.5.0 changes type of serialise
                        tar               >= 0.5     && < 0.6,
-                       time              >= 1.2     && < 1.7,
+                       time              >= 1.2     && < 1.10,
                        transformers      >= 0.4     && < 0.6,
                        zlib              >= 0.5     && < 0.7,
                        -- whatever versions are bundled with ghc:
@@ -195,8 +195,8 @@ library
   -- (Note that the HTTP library does the same thing, though in this case the
   -- dependency in network is not redundant.)
   if flag(use-network-uri)
-    build-depends: network-uri >= 2.6 && < 2.7,
-                   network     >= 2.6 && < 2.7
+    build-depends: network-uri >= 2.6 && < 3.2,
+                   network     >= 2.6 && < 3.2
   else
     build-depends: network     >= 2.5 && < 2.6
 

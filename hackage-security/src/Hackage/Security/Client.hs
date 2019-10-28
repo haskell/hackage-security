@@ -94,7 +94,10 @@ data HasUpdates = HasUpdates | NoUpdates
 -- You should pass @Nothing@ for the UTCTime _only_ under exceptional
 -- circumstances (such as when the main server is down for longer than the
 -- expiry dates used in the timestamp files on mirrors).
-checkForUpdates :: (Throws VerificationError, Throws SomeRemoteError)
+checkForUpdates :: ( MonadFail ReadJSON_Keys_Layout
+                   , Throws VerificationError
+                   , Throws SomeRemoteError
+                   )
                 => Repository down
                 -> Maybe UTCTime -- ^ To check expiry times against (if using)
                 -> IO HasUpdates
@@ -335,6 +338,8 @@ cachedVersion CachedInfo{..} remoteFile =
 getCachedInfo ::
 #if __GLASGOW_HASKELL__ < 800
                  (Applicative m, MonadIO m)
+#elif __GLASGOW_HASKELL__ >= 807
+                 (MonadFail ReadJSON_Keys_Layout, MonadIO m)
 #else
                  MonadIO m
 #endif

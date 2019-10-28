@@ -30,6 +30,7 @@ module Text.JSON.Canonical
   , prettyCanonicalJSON
   ) where
 
+import Prelude hiding ((<>))
 import Text.ParserCombinators.Parsec
          ( CharParser, (<|>), (<?>), many, between, sepBy
          , satisfy, char, string, digit, spaces

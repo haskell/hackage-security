@@ -75,7 +75,7 @@ fromList = FileMap . Map.fromList
   Convenience accessors
 -------------------------------------------------------------------------------}
 
-lookupM :: Monad m => FileMap -> TargetPath -> m FileInfo
+lookupM :: MonadFail m => FileMap -> TargetPath -> m FileInfo
 lookupM m fp =
     case lookup fp m of
       Nothing  -> fail $ "No entry for " ++ pretty fp ++ " in filemap"

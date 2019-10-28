@@ -48,6 +48,7 @@ instance MonadReader RepoLayout m => ToJSON m Timestamp where
 
 instance ( MonadReader RepoLayout m
          , MonadError DeserializationError m
+         , MonadFail m
          , ReportSchemaErrors m
          ) => FromJSON m Timestamp where
   fromJSON enc = do
@@ -59,7 +60,7 @@ instance ( MonadReader RepoLayout m
     timestampInfoSnapshot <- FileMap.lookupM timestampMeta (pathSnapshot repoLayout)
     return Timestamp{..}
 
-instance (MonadKeys m, MonadReader RepoLayout m) => FromJSON m (Signed Timestamp) where
+instance (MonadFail m, MonadKeys m, MonadReader RepoLayout m) => FromJSON m (Signed Timestamp) where
   fromJSON = signedFromJSON
 
 {-------------------------------------------------------------------------------
