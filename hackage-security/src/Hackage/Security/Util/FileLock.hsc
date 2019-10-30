@@ -305,4 +305,18 @@ unlockImpl _ = throwIO FileLockingNotSupported
 
 #endif
 
+-- | Turn an existing Handle into a file descriptor. This function throws an
+-- IOError if the Handle does not reference a file descriptor.
+handleToFd :: Handle -> IO FD.FD
+handleToFd h = case h of
+  FileHandle _ mv -> do
+    Handle__{haDevice = dev} <- readMVar mv
+    case cast dev of
+      Just fd -> return fd
+      Nothing -> throwErr "not a file descriptor"
+  DuplexHandle{} -> throwErr "not a file handle"
+  where
+    throwErr msg = ioException $ IOError (Just h)
+      InappropriateType "handleToFd" msg Nothing Nothing
+
 #endif /* MIN_VERSION_base(4,10,0) */
