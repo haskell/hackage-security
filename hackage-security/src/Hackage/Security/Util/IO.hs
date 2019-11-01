@@ -1,3 +1,4 @@
+{-# LANGUAGE CPP #-}
 module Hackage.Security.Util.IO (
     -- * Miscelleneous
     getFileSize
@@ -15,7 +16,15 @@ import System.IO hiding (openTempFile, withFile)
 import System.IO.Error
 
 import Hackage.Security.Util.Path
-import Hackage.Security.Util.FileLock (hLock, LockMode(ExclusiveLock), FileLockingNotSupported)
+
+#ifdef MIN_VERSION_lukko
+import Lukko (FD, fileLockingSupported, fdOpen, fdClose, fdLock, fdUnlock, LockMode(ExclusiveLock))
+#else
+import GHC.IO.Handle.Lock (hLock, LockMode(ExclusiveLock), FileLockingNotSupported)
+#if MIN_VERSION_base(4,11,0)
+import GHC.IO.Handle.Lock (hUnlock)
+#endif
+#endif
 
 {-------------------------------------------------------------------------------
   Miscelleneous
@@ -55,11 +64,41 @@ withDirLock dir = bracket takeLock releaseLock . const
     lock' :: FilePath
     lock' = toFilePath lock
 
+    me = "Hackage.Security.Util.IO.withDirLock: "
+
+#ifdef MIN_VERSION_lukko
+    takeLock :: IO FD
+    takeLock
+        | fileLockingSupported = do
+            h <- fdOpen lock'
+            fdLock h ExclusiveLock `onException` fdClose h
+            return h
+        | otherwise = takeDirLock
+      where
+        takeDirLock :: IO FD
+        takeDirLock = handle onCreateDirError $ do
+            createDirectory lock
+            return (undefined :: FD)
+
+        onCreateDirError :: IOError -> IO FD
+        onCreateDirError ioe
+          | isAlreadyExistsError ioe = threadDelay (1*1000*1000) >> takeDirLock
+          | otherwise = fail (me++"error creating directory lock: "++show ioe)
+
+    releaseLock h
+        | fileLockingSupported = do
+            fdUnlock h
+            fdClose h
+        | otherwise =
+            removeDirectory lock
+
+#else
     takeLock = do
         h <- openFile lock' ReadWriteMode
         handle (fallbackToDirLock h) $ do
             hLock h ExclusiveLock
             return (Just h)
+
 
     -- If file locking isn't supported then we fallback to directory locking,
     -- polling if necessary.
@@ -83,10 +122,13 @@ withDirLock dir = bracket takeLock releaseLock . const
         onIOError _ = hPutStrLn stderr
             (me++"cannot remove lock file before directory lock fallback")
 
-    me = "Hackage.Security.Util.IO.withDirLock: "
-
-    releaseLock (Just h) = hClose h
+    releaseLock (Just h) =
+        hClose h
+#if MIN_VERSION_base(4,11,0)
+        >> hUnlock h
+#endif
     releaseLock Nothing  = removeDirectory lock
+#endif
 
 {-------------------------------------------------------------------------------
   Debugging

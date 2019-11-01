@@ -7,6 +7,7 @@ See also http://pvp.haskell.org/faq
 * Report missing keys in `.meta` objects more appropriately as
   `ReportSchemaErrors(expected)` instead of via `Monad(fail)`
 * Add support for GHC 8.8 / base-4.13
+* Use `lukko` for file-locking
 
 0.5.3.0
 -------

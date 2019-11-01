@@ -4,7 +4,7 @@
 #
 # For more information, see https://github.com/haskell-CI/haskell-ci
 #
-# version: 0.7.20191023
+# version: 0.7.20191101
 #
 language: c
 dist: xenial
@@ -63,7 +63,7 @@ before_install:
   - CABALHOME=$HOME/.cabal
   - export PATH="$CABALHOME/bin:$PATH"
   - TOP=$(pwd)
-  - if [ "$TRAVIS_OS_NAME" = "osx" ]; then brew update; brew upgrade python@3; curl https://haskell.futurice.com/haskell-on-macos.py | python3 - --make-dirs --install-dir=$HOME/.ghc-install --cabal-alias=head install cabal-install-head ${TRAVIS_COMPILER}; fi
+  - if [ "$TRAVIS_OS_NAME" = "osx" ]; then curl https://haskell.futurice.com/haskell-on-macos.py | python3 - --make-dirs --install-dir=$HOME/.ghc-install --cabal-alias=head install cabal-install-head ${TRAVIS_COMPILER}; fi
   - if [ "$TRAVIS_OS_NAME" = "osx" ]; then HC=$HOME/.ghc-install/ghc/bin/$TRAVIS_COMPILER; WITHCOMPILER="-w $HC"; HCPKG=${HC/ghc/ghc-pkg}; CABAL=$HOME/.ghc-install/ghc/bin/cabal; fi
   - "HCNUMVER=$(${HC} --numeric-version|perl -ne '/^(\\d+)\\.(\\d+)\\.(\\d+)(\\.(\\d+))?$/; print(10000 * $1 + 100 * $2 + ($3 == 0 ? $5 != 1 : $3))')"
   - echo $HCNUMVER
@@ -216,5 +216,5 @@ script:
   - rm -f cabal.project.local
   - ${CABAL} v2-build $WITHCOMPILER --disable-tests --disable-benchmarks all | color_cabal_output
 
-# REGENDATA ("0.7.20191023",["--ghc-head","--osx=8.4.4","cabal.project"])
+# REGENDATA ("0.7.20191101",["--ghc-head","--osx=8.4.4","cabal.project"])
 # EOF
