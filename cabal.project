@@ -13,3 +13,5 @@ package hackage-security
 
 -- FIXME/TODO
 -- packages: precompute-fileinfo
+
+-- constraints: hackage-security -lukko
