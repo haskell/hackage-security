@@ -15,6 +15,7 @@ module Hackage.Security.TUF.FileMap (
   , fromList
     -- * Convenience accessors
   , lookupM
+  , lookupErr
     -- * Comparing file maps
   , FileChange(..)
   , fileMapChanges
@@ -22,6 +23,7 @@ module Hackage.Security.TUF.FileMap (
 
 import Prelude hiding (lookup)
 import Control.Arrow (second)
+import Control.Monad.Except
 import Data.Map (Map)
 import qualified Data.Map as Map
 
@@ -81,6 +83,11 @@ lookupM m fp =
       Nothing  -> fail $ "No entry for " ++ pretty fp ++ " in filemap"
       Just nfo -> return nfo
 
+lookupErr :: MonadError e m => (String -> e) -> FileMap -> TargetPath -> m FileInfo
+lookupErr e m fp =
+    case lookup fp m of
+      Nothing  -> throwError $ e $ "No entry for " ++ pretty fp ++ " in filemap"
+      Just nfo -> return nfo
 {-------------------------------------------------------------------------------
   Comparing filemaps
 -------------------------------------------------------------------------------}

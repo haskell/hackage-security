@@ -68,7 +68,6 @@ instance MonadReader RepoLayout m => ToJSON m Snapshot where
 
 instance ( MonadReader RepoLayout m
          , MonadError DeserializationError m
-         , MonadFail m
          , ReportSchemaErrors m
          ) => FromJSON m Snapshot where
   fromJSON enc = do
@@ -77,16 +76,13 @@ instance ( MonadReader RepoLayout m
     snapshotVersion     <- fromJSField enc "version"
     snapshotExpires     <- fromJSField enc "expires"
     snapshotMeta        <- fromJSField enc "meta"
-    snapshotInfoRoot    <- FileMap.lookupM snapshotMeta (pathRoot       repoLayout)
-    snapshotInfoMirrors <- FileMap.lookupM snapshotMeta (pathMirrors    repoLayout)
-    snapshotInfoTarGz   <- FileMap.lookupM snapshotMeta (pathIndexTarGz repoLayout)
+    snapshotInfoRoot    <- FileMap.lookupErr DeserializationErrorSchema snapshotMeta (pathRoot       repoLayout)
+    snapshotInfoMirrors <- FileMap.lookupErr DeserializationErrorSchema snapshotMeta (pathMirrors    repoLayout)
+    snapshotInfoTarGz   <- FileMap.lookupErr DeserializationErrorSchema snapshotMeta (pathIndexTarGz repoLayout)
     let snapshotInfoTar = FileMap.lookup (pathIndexTar repoLayout) snapshotMeta
     return Snapshot{..}
 
-instance ( MonadFail m
-         , MonadKeys m
-         , MonadReader RepoLayout m
-         ) => FromJSON m (Signed Snapshot) where
+instance ( MonadKeys m, MonadReader RepoLayout m) => FromJSON m (Signed Snapshot) where
   fromJSON = signedFromJSON
 
 {-------------------------------------------------------------------------------
