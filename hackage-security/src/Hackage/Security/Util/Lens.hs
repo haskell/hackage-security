@@ -7,6 +7,8 @@ module Hackage.Security.Util.Lens (
     -- * Generic definitions
     Lens
   , Lens'
+  , Traversal
+  , Traversal'
   , get
   , modify
   , set
@@ -22,27 +24,36 @@ import Data.Functor.Identity
 -------------------------------------------------------------------------------}
 
 -- | Polymorphic lens
-type Lens s t a b = forall f. Functor f => (a -> f b) -> s -> f t
+type Lens s t a b = forall f. Functor f => LensLike f s t a b
 
 -- | Monomorphic lens
 type Lens' s a = Lens s s a a
 
-get :: Lens' s a -> s -> a
+-- | Polymorphic traversal
+type Traversal s t a b = forall f. Applicative f => LensLike f s t a b
+
+-- | Monomorphic traversal
+type Traversal' s a = Traversal s s a a
+
+type LensLike f s t a b = (a -> f b) -> s -> f t
+type LensLike' f s a = LensLike f s s a a
+
+get :: LensLike' (Const a) s a -> s -> a
 get l = getConst . l Const
 
-modify :: Lens s t a b -> (a -> b) -> s -> t
+modify :: LensLike Identity s t a b -> (a -> b) -> s -> t
 modify l f = runIdentity . l (Identity . f)
 
-set :: Lens s t a b -> b -> s -> t
+set :: LensLike Identity s t a b -> b -> s -> t
 set l = modify l . const
 
 {-------------------------------------------------------------------------------
   Specific lenses
 -------------------------------------------------------------------------------}
 
-lookupM :: forall a b. (Eq a, Monoid b) => a -> Lens' [(a, b)] b
+lookupM :: forall a b. Eq a => a -> Traversal' [(a, b)] b
 lookupM a f = go
   where
-    go []                       = (\b'  -> [(a, b')]  ) <$> f mempty
+    go []                       = pure []
     go ((a', b):xs) | a == a'   = (\b'  -> (a, b'):xs ) <$> f b
                     | otherwise = (\xs' -> (a', b):xs') <$> go xs
