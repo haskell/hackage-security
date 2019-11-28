@@ -5,11 +5,13 @@ See also http://pvp.haskell.org/faq
 
 * Remove `Hackage.Security.TUF.FileMap.lookupM`
 * Don't expose `Hackage.Security.Util.IO` module
+* Don't expose `Hackage.Security.Util.Lens` module
 * Report missing keys in `.meta` objects more appropriately as
   `ReportSchemaErrors(expected)` instead of via `Monad(fail)`
 * Add support for GHC 8.8 / base-4.13
 * Use `lukko` for file-locking
-* Don't expose `Hackage.Security.Util.Lens` module
+* Extend `LogMessage` to signal events for cache lock acquiring and release
+* New `lockCacheWithLogger` operation
 
 0.5.3.0
 -------

@@ -12,6 +12,7 @@ module Hackage.Security.Client.Repository.Cache (
   , getIndexIdx
   , cacheRemoteFile
   , lockCache
+  , lockCacheWithLogger
   ) where
 
 import Control.Exception
@@ -214,7 +215,18 @@ clearCache cache = void . handleDoesNotExist $ do
 -- This avoids two concurrent processes updating the cache at the same time,
 -- provided they both take the lock.
 lockCache :: Cache -> IO () -> IO ()
-lockCache Cache{..} = withDirLock cacheRoot
+lockCache Cache{..} = withDirLock (\_ -> return ()) cacheRoot
+
+-- | Variant of 'lockCache' which emits 'LogMessage's before and after
+-- a possibly blocking file-locking system call
+--
+-- @since 0.6.0
+lockCacheWithLogger :: (LogMessage -> IO ()) -> Cache -> IO () -> IO ()
+lockCacheWithLogger logger Cache{..} = withDirLock logger' cacheRoot
+  where
+    logger' (WithDirLockEventPre    fn) = logger (LogLockWait     fn)
+    logger' (WithDirLockEventPost   fn) = logger (LogLockWaitDone fn)
+    logger' (WithDirLockEventUnlock fn) = logger (LogUnlock       fn)
 
 {-------------------------------------------------------------------------------
   Auxiliary: tar

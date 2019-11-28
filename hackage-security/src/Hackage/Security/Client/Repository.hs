@@ -316,6 +316,27 @@ data LogMessage =
     -- (we will try with a different mirror if any are available)
   | LogMirrorFailed MirrorDescription SomeException
 
+    -- | This log event is triggered before invoking a filesystem lock
+    -- operation that may block for a significant amount of time; once
+    -- the possibly blocking call completes successfully,
+    -- 'LogLockWaitDone' will be emitted.
+    --
+    -- @since 0.6.0
+  | LogLockWait (Path Absolute)
+
+    -- | Denotes completion of the operation that advertised a
+    -- 'LogLockWait' event
+    --
+    -- @since 0.6.0
+  | LogLockWaitDone (Path Absolute)
+
+    -- | Denotes the filesystem lock previously acquired (signaled by
+    -- 'LogLockWait') has been released.
+    --
+    -- @since 0.6.0
+  | LogUnlock (Path Absolute)
+
+
 -- | Records why we are downloading a file rather than updating it.
 data UpdateFailure =
     -- | Server does not support incremental downloads
@@ -451,6 +472,12 @@ instance Pretty LogMessage where
       "Cannot update " ++ pretty file ++ " (" ++ pretty ex ++ ")"
   pretty (LogMirrorFailed mirror ex) =
       "Exception " ++ displayException ex ++ " when using mirror " ++ mirror
+  pretty (LogLockWait file) =
+      "Waiting to acquire cache lock on " ++ pretty file
+  pretty (LogLockWaitDone file) =
+      "Acquired cache lock on " ++ pretty file
+  pretty (LogUnlock file) =
+      "Released cache lock on " ++ pretty file
 
 instance Pretty UpdateFailure where
   pretty UpdateImpossibleUnsupported =

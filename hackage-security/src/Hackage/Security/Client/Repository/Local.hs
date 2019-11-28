@@ -51,7 +51,7 @@ withRepository repo
     , repClearCache    = clearCache    cache
     , repWithIndex     = withIndex     cache
     , repGetIndexIdx   = getIndexIdx   cache
-    , repLockCache     = lockCache     cache
+    , repLockCache     = lockCacheWithLogger logger cache
     , repWithMirror    = mirrorsUnsupported
     , repLog           = logger
     , repLayout        = repLayout

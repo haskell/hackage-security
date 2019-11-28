@@ -284,6 +284,9 @@ msgsInitialUpdate = [
     , downloading isMirrors
     , noLocalCopy
     , downloading isIndex
+    , lockingWait
+    , lockingWaitDone
+    , lockingRelease
     ]
 
 -- | Log messages when we do a check for updates and there are no changes
@@ -291,6 +294,9 @@ msgsNoUpdates :: [LogMessage -> Bool]
 msgsNoUpdates = [
       selectedMirror inMemURI
     , downloading isTimestamp
+    , lockingWait
+    , lockingWaitDone
+    , lockingRelease
     ]
 
 -- | Log messages we expect when the timestamp and snapshot have been resigned
@@ -299,6 +305,9 @@ msgsResigned = [
       selectedMirror inMemURI
     , downloading isTimestamp
     , downloading isSnapshot
+    , lockingWait
+    , lockingWaitDone
+    , lockingRelease
     ]
 
 -- | Log messages we expect when the timestamp key has been rolled over
@@ -308,12 +317,18 @@ msgsKeyRollover = [
     , downloading isTimestamp
     , verificationError $ unknownKeyError timestampPath
     , downloading isRoot
+    , lockingWait
+    , lockingWaitDone
+    , lockingRelease
     , downloading isTimestamp
     , downloading isSnapshot
     -- Since we delete the timestamp and snapshot on a root info change,
     -- we will then conclude that we need to update the mirrors and the index.
     , downloading isMirrors
     , updating isIndex
+    , lockingWait
+    , lockingWaitDone
+    , lockingRelease
     ]
 
 {-------------------------------------------------------------------------------
@@ -335,6 +350,14 @@ selectedMirror _ _ = False
 updating :: (forall fs typ. RemoteFile fs typ -> Bool) -> LogMessage -> Bool
 updating isFile (LogUpdating file) = isFile file
 updating _ _ = False
+
+lockingWait, lockingWaitDone, lockingRelease :: LogMessage -> Bool
+lockingWait (LogLockWait _) = True
+lockingWait _ = False
+lockingWaitDone (LogLockWaitDone _) = True
+lockingWaitDone _ = False
+lockingRelease (LogUnlock _) = True
+lockingRelease _ = False
 
 expired :: TargetPath -> VerificationError -> Bool
 expired f (VerificationErrorExpired f') = f == f'
@@ -494,6 +517,9 @@ httpMemTest test = uncheckClientErrors $ do
     bootstrapMsgs :: [LogMessage -> Bool]
     bootstrapMsgs = [ selectedMirror inMemURI
                     , downloading isRoot
+                    , lockingWait
+                    , lockingWaitDone
+                    , lockingRelease
                     ]
 
     layout :: RepoLayout

@@ -178,7 +178,7 @@ withRepository httpLib
       , repClearCache    = Cache.clearCache    cache
       , repWithIndex     = Cache.withIndex     cache
       , repGetIndexIdx   = Cache.getIndexIdx   cache
-      , repLockCache     = Cache.lockCache     cache
+      , repLockCache     = Cache.lockCacheWithLogger logger cache
       , repWithMirror    = withMirror httpLib
                                       selectedMirror
                                       logger

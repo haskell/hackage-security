@@ -3,6 +3,7 @@ module Hackage.Security.Util.IO (
     -- * Miscelleneous
     getFileSize
   , handleDoesNotExist
+  , WithDirLockEvent(..)
   , withDirLock
     -- * Debugging
   , timedIO
@@ -41,6 +42,12 @@ handleDoesNotExist act =
         then return Nothing
         else throwIO e
 
+
+data WithDirLockEvent
+  = WithDirLockEventPre    (Path Absolute)
+  | WithDirLockEventPost   (Path Absolute)
+  | WithDirLockEventUnlock (Path Absolute)
+
 -- | Attempt to create a filesystem lock in the specified directory.
 --
 -- This will use OS-specific file locking primitives: "GHC.IO.Handle.Lock" with
@@ -48,14 +55,19 @@ handleDoesNotExist act =
 --
 -- Blocks if the lock is already present.
 --
+-- The logger callback passed as first argument is invoked before and
+-- after acquiring a lock, and after unlocking.
+--
 -- May fallback to locking via creating a directory:
 -- Given a file @/path/to@, we do this by attempting to create the directory
 -- @//path/to/hackage-security-lock@, and deleting the directory again
 -- afterwards. Creating a directory that already exists will throw an exception
 -- on most OSs (certainly Linux, OSX and Windows) and is a reasonably common way
 -- to implement a lock file.
-withDirLock :: Path Absolute -> IO a -> IO a
-withDirLock dir = bracket takeLock releaseLock . const
+withDirLock :: (WithDirLockEvent -> IO ()) -> Path Absolute -> IO a -> IO a
+withDirLock logger dir
+  = bracket takeLock (\h -> releaseLock h >> logger (WithDirLockEventUnlock lock))
+            . const
   where
     lock :: Path Absolute
     lock = dir </> fragment "hackage-security-lock"
@@ -65,14 +77,21 @@ withDirLock dir = bracket takeLock releaseLock . const
 
     me = "Hackage.Security.Util.IO.withDirLock: "
 
+    wrapLog :: IO a -> IO a
+    wrapLog op = do
+      logger (WithDirLockEventPre lock)
+      h <- op
+      logger (WithDirLockEventPost lock)
+      return h
+
 #ifdef MIN_VERSION_lukko
     takeLock :: IO FD
     takeLock
         | fileLockingSupported = do
             h <- fdOpen lock'
-            fdLock h ExclusiveLock `onException` fdClose h
+            wrapLog (fdLock h ExclusiveLock `onException` fdClose h)
             return h
-        | otherwise = takeDirLock
+        | otherwise = wrapLog takeDirLock
       where
         takeDirLock :: IO FD
         takeDirLock = handle onCreateDirError $ do
@@ -94,7 +113,7 @@ withDirLock dir = bracket takeLock releaseLock . const
 #else
     takeLock = do
         h <- openFile lock' ReadWriteMode
-        handle (fallbackToDirLock h) $ do
+        wrapLog $ handle (fallbackToDirLock h) $ do
             hLock h ExclusiveLock
             return (Just h)
 
