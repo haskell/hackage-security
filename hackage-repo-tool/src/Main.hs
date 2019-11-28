@@ -10,6 +10,7 @@ import GHC.Conc.Sync (setUncaughtExceptionHandler)
 import Network.URI (URI)
 import System.Exit
 import qualified Data.ByteString.Lazy as BS.L
+import qualified Lens.Micro           as Lens
 import qualified System.FilePath      as FilePath
 
 #ifndef mingw32_HOST_OS
@@ -28,7 +29,6 @@ import Hackage.Security.Util.Path
 import Hackage.Security.Util.Pretty
 import qualified Hackage.Security.Key.Env     as KeyEnv
 import qualified Hackage.Security.TUF.FileMap as FileMap
-import qualified Hackage.Security.Util.Lens   as Lens
 import Text.JSON.Canonical (JSValue)
 
 -- hackage-repo-tool

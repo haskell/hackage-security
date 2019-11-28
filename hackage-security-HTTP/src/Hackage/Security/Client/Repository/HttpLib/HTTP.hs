@@ -31,7 +31,6 @@ import Hackage.Security.Client
 import Hackage.Security.Client.Repository.HttpLib
 import Hackage.Security.Util.Checked
 import Hackage.Security.Util.Pretty
-import qualified Hackage.Security.Util.Lens as Lens
 
 {-------------------------------------------------------------------------------
   Top-level API
@@ -257,7 +256,14 @@ setRequestHeaders =
     finalizeHeader (name, strs) = [(name, intercalate ", " (reverse strs))]
 
     insert :: Eq a => a -> [b] -> [(a, [b])] -> [(a, [b])]
-    insert x y = Lens.modify (Lens.lookupM x) (++ y)
+    insert x y = modifyAssocList x (++ y)
+
+    -- modify the first maching element
+    modifyAssocList :: Eq a => a -> (b -> b) -> [(a, b)] -> [(a, b)]
+    modifyAssocList a f = go where
+        go []                         = []
+        go (p@(a', b) : xs) | a == a'   = (a', f b) : xs
+                            | otherwise = p         : go xs
 
 getResponseHeaders :: HTTP.Response a -> [HttpResponseHeader]
 getResponseHeaders response = concat [

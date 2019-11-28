@@ -10,10 +10,8 @@ module Hackage.Security.Util.Lens (
   , Traversal
   , Traversal'
   , get
-  , modify
+  , over
   , set
-    -- * Specific lenses
-  , lookupM
   ) where
 
 import Control.Applicative
@@ -41,19 +39,8 @@ type LensLike' f s a = LensLike f s s a a
 get :: LensLike' (Const a) s a -> s -> a
 get l = getConst . l Const
 
-modify :: LensLike Identity s t a b -> (a -> b) -> s -> t
-modify l f = runIdentity . l (Identity . f)
+over :: LensLike Identity s t a b -> (a -> b) -> s -> t
+over l f = runIdentity . l (Identity . f)
 
 set :: LensLike Identity s t a b -> b -> s -> t
-set l = modify l . const
-
-{-------------------------------------------------------------------------------
-  Specific lenses
--------------------------------------------------------------------------------}
-
-lookupM :: forall a b. Eq a => a -> Traversal' [(a, b)] b
-lookupM a f = go
-  where
-    go []                       = pure []
-    go ((a', b):xs) | a == a'   = (\b'  -> (a, b'):xs ) <$> f b
-                    | otherwise = (\xs' -> (a', b):xs') <$> go xs
+set l = over l . const
