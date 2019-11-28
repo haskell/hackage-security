@@ -106,6 +106,7 @@ library
                        Hackage.Security.Util.Base64
                        Hackage.Security.Util.Exit
                        Hackage.Security.Util.JSON
+                       Hackage.Security.Util.Lock
                        Hackage.Security.Util.Stack
                        Hackage.Security.Util.TypedEmbedded
                        Prelude

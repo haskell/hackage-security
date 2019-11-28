@@ -32,6 +32,7 @@ import Hackage.Security.TUF
 import Hackage.Security.Util.Checked
 import Hackage.Security.Util.Exit
 import Hackage.Security.Util.IO
+import Hackage.Security.Util.Lock
 import Hackage.Security.Util.Path
 
 -- | Location and layout of the local cache
