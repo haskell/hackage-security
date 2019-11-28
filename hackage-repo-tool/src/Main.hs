@@ -15,6 +15,7 @@ import qualified System.FilePath      as FilePath
 #ifndef mingw32_HOST_OS
 import System.IO.Error (isAlreadyExistsError)
 #endif
+import System.IO.Error (isDoesNotExistError)
 
 -- Cabal
 import Distribution.Package
@@ -23,7 +24,6 @@ import Distribution.Text
 -- hackage-security
 import Hackage.Security.Server
 import Hackage.Security.Util.Some
-import Hackage.Security.Util.IO
 import Hackage.Security.Util.Path
 import Hackage.Security.Util.Pretty
 import qualified Hackage.Security.Key.Env     as KeyEnv
@@ -678,3 +678,10 @@ hasExtensions = \fp exts -> go (takeFileName fp) (reverse exts)
 throwErrors :: Exception e => Either e a -> IO a
 throwErrors (Left err) = throwIO err
 throwErrors (Right a)  = return a
+
+
+handleDoesNotExist :: IO a -> IO (Maybe a)
+handleDoesNotExist act = handle aux (Just <$> act)
+  where
+    aux e | isDoesNotExistError e = return Nothing
+          | otherwise             = throwIO e
