@@ -80,7 +80,6 @@ library
                        Hackage.Security.Trusted
                        Hackage.Security.TUF.FileMap
                        Hackage.Security.Util.Checked
-                       Hackage.Security.Util.Lens
                        Hackage.Security.Util.Path
                        Hackage.Security.Util.Pretty
                        Hackage.Security.Util.Some
@@ -106,6 +105,7 @@ library
                        Hackage.Security.Util.Exit
                        Hackage.Security.Util.IO
                        Hackage.Security.Util.JSON
+                       Hackage.Security.Util.Lens
                        Hackage.Security.Util.Stack
                        Hackage.Security.Util.TypedEmbedded
                        Prelude
