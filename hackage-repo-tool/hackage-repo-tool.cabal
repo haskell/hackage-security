@@ -5,16 +5,13 @@ version:             0.1.1.2
 build-type:          Simple
 synopsis:            Manage secure file-based package repositories
 description:         This utility can be used to manage secure file-based package
-                     repositories (creating
-                     [TUF](https://theupdateframework.github.io/)
-                     metadata as well as a Hackage index tarball) which can be used
-                     by clients such as
-                     [cabal-install](http://hackage.haskell.org/package/cabal-install).
-                     Currently it also provides various lower level utilities
-                     for creating and signing TUF files.
+                     repositories (creating [TUF](https://theupdateframework.github.io/)
+                     metadata as well as a Hackage index tarball) which can be used by
+                     clients such as [cabal-install](http://hackage.haskell.org/package/cabal-install).
+                     Currently it also provides various lower level utilities for creating
+                     and signing TUF files.
                      .
-                     This is part of the
-                     [Hackage Security](https://github.com/haskell/hackage-security#readme)
+                     This is part of the [Hackage Security](https://github.com/haskell/hackage-security#readme)
                      infrastructure.
 license:             BSD3
 license-file:        LICENSE
