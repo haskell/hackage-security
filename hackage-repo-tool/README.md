@@ -19,6 +19,8 @@ A file-based repository (as opposed to one running the actual [Hackage software]
         ~/my-secure-repo/package/pretty-sop-0.1.0.1.tar.gz
         ~/my-secure-repo/package/HsYAML-0.2.1.0.tar.gz
 
+    *(Due to [#174](https://github.com/haskell/hackage-security/issues/174) this folder must contain at least one package tarball or `hackage-repo-tool` will fail in non-obvious ways)*
+
     Note the flat directory structure: different packages and
     different versions of those packages all live in the one
     directory.
