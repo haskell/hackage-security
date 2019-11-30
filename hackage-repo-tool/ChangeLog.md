@@ -1,3 +1,7 @@
+0.1.1.2
+-------
+* Compat release for `hackage-security-0.6`
+
 0.1.1.1
 -------
 * Make `hackage-repo-tool` buildable on Windows (#175)
