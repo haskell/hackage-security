@@ -183,20 +183,28 @@ sign :: PrivateKey typ -> BS.L.ByteString -> BS.ByteString
 sign (PrivateKeyEd25519 pri) =
     Ed25519.unSignature . dsign pri . BS.concat . BS.L.toChunks
   where
+#ifdef MIN_VERSION_ed25519
 #if MIN_VERSION_ed25519(0,0,4)
     dsign = Ed25519.dsign
 #else
     dsign = Ed25519.sign'
+#endif
+#else
+    dsign = Ed25519.dsign
 #endif
 
 verify :: PublicKey typ -> BS.L.ByteString -> BS.ByteString -> Bool
 verify (PublicKeyEd25519 pub) inp sig =
     dverify pub (BS.concat $ BS.L.toChunks inp) (Ed25519.Signature sig)
   where
+#ifdef MIN_VERSION_ed25519
 #if MIN_VERSION_ed25519(0,0,4)
     dverify = Ed25519.dverify
 #else
     dverify = Ed25519.verify'
+#endif
+#else
+    dverify = Ed25519.dverify
 #endif
 
 {-------------------------------------------------------------------------------
