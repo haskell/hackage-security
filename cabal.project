@@ -15,5 +15,3 @@ package hackage-security
 -- packages: precompute-fileinfo
 
 -- constraints: hackage-security -lukko
-
-allow-newer: HTTP-4000.3.14:base

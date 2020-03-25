@@ -138,7 +138,6 @@ install:
     echo "packages: hackage-repo-tool" >> cabal.project
     echo "packages: hackage-security-HTTP" >> cabal.project
   - |
-    echo "allow-newer: HTTP-4000.3.14:base" >> cabal.project
   - "for pkg in $($HCPKG list --simple-output); do echo $pkg | sed 's/-[^-]*$//' | (grep -vE -- '^(example-client|hackage-repo-tool|hackage-root-tool|hackage-security|hackage-security-HTTP|hackage-security-curl|hackage-security-http-client)$' || true) | sed 's/^/constraints: /' | sed 's/$/ installed/' >> cabal.project.local; done"
   - cat cabal.project || true
   - cat cabal.project.local || true
@@ -182,7 +181,6 @@ script:
     echo "packages: ${PKGDIR_hackage_repo_tool}" >> cabal.project
     echo "packages: ${PKGDIR_hackage_security_HTTP}" >> cabal.project
   - |
-    echo "allow-newer: HTTP-4000.3.14:base" >> cabal.project
   - "for pkg in $($HCPKG list --simple-output); do echo $pkg | sed 's/-[^-]*$//' | (grep -vE -- '^(example-client|hackage-repo-tool|hackage-root-tool|hackage-security|hackage-security-HTTP|hackage-security-curl|hackage-security-http-client)$' || true) | sed 's/^/constraints: /' | sed 's/$/ installed/' >> cabal.project.local; done"
   - cat cabal.project || true
   - cat cabal.project.local || true

@@ -4,7 +4,8 @@
 -- It is currently unusued.
 {-# LANGUAGE CPP #-}
 #if __GLASGOW_HASKELL__ >= 800
-{-# LANGUAGE TemplateHaskellQuotes #-}
+{-# LANGUAGE DeriveLift #-}
+{-# LANGUAGE StandaloneDeriving #-}
 #else
 {-# LANGUAGE TemplateHaskell #-}
 #endif
@@ -272,6 +273,11 @@ qqd pat repl  =
       Left  err -> fail $ "Invalid delegation: " ++ err
       Right del -> TH.lift del
 
+#if __GLASGOW_HASKELL__ >= 800
+deriving instance TH.Lift (Pattern a)
+deriving instance TH.Lift (Replacement a)
+deriving instance TH.Lift Delegation
+#else
 instance TH.Lift (Pattern a) where
   lift (PatFileConst fn)  = [| PatFileConst fn  |]
   lift (PatFileExt   e)   = [| PatFileExt   e   |]
@@ -288,6 +294,7 @@ instance TH.Lift (Replacement a) where
 
 instance TH.Lift Delegation where
   lift (Delegation pat repl) = [| Delegation pat repl |]
+#endif
 
 {-------------------------------------------------------------------------------
   JSON
