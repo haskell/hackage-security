@@ -176,9 +176,9 @@ library
                        PackageImports
                        UndecidableInstances
 
-  -- use the new stage1/cross-compile-friendly Quotes subset of TH for new GHCs
+  -- use the new stage1/cross-compile-friendly DeriveLift extension for GHC 8.0+
   if impl(ghc >= 8.0)
-    other-extensions: TemplateHaskellQuotes
+    other-extensions: DeriveLift
   else
     other-extensions: TemplateHaskell
 
