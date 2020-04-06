@@ -1,5 +1,11 @@
 See also http://pvp.haskell.org/faq
 
+0.6.0.1
+-------
+
+* Fix bug in non-default `-lukko` build-configuration (#242)
+* Add support for `template-haskell-2.16.0.0` (#240)
+
 0.6.0.0
 -------
 
