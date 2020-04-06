@@ -141,10 +141,10 @@ withDirLock logger dir
             (me++"cannot remove lock file before directory lock fallback")
 
     releaseLock (Just h) =
-        hClose h
 #if MIN_VERSION_base(4,11,0)
-        >> hUnlock h
+        hUnlock h >>
 #endif
+        hClose h
     releaseLock Nothing  = removeDirectory lock
 #endif
 
