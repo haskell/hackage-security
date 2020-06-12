@@ -24,20 +24,21 @@ import qualified Data.Vector as V
 import qualified Data.HashMap.Strict as HM
 
 prop_aeson_canonical, prop_roundtrip_canonical, prop_roundtrip_pretty, prop_canonical_pretty
-  :: JSValue -> Bool
+  :: JSValue -> Property
 
 prop_roundtrip_canonical jsval =
-    parseCanonicalJSON (renderCanonicalJSON jsval) == Right (canonicalise jsval)
+    parseCanonicalJSON (renderCanonicalJSON jsval) === Right (canonicalise jsval)
 
 prop_roundtrip_pretty jsval =
-    parseCanonicalJSON (BS.pack (prettyCanonicalJSON jsval)) == Right jsval
+    parseCanonicalJSON (BS.pack (prettyCanonicalJSON jsval)) === Right jsval
 
 prop_canonical_pretty jsval =
-    parseCanonicalJSON (renderCanonicalJSON jsval) ==
+    parseCanonicalJSON (renderCanonicalJSON jsval) ===
     fmap canonicalise (parseCanonicalJSON (BS.pack (prettyCanonicalJSON jsval)))
 
 prop_aeson_canonical jsval =
-    eitherDecode (renderCanonicalJSON jsval) == Right (toAeson (canonicalise jsval))
+    counterexample (BS.unpack $ renderCanonicalJSON jsval) $
+    eitherDecode (renderCanonicalJSON jsval) === Right (toAeson (canonicalise jsval))
 
 canonicalise :: JSValue -> JSValue
 canonicalise v@JSNull        = v
@@ -55,9 +56,9 @@ instance Arbitrary JSValue where
       [ (1, pure JSNull)
       , (1, JSBool   <$> arbitrary)
       , (2, JSNum    <$> arbitrary)
-      , (2, JSString . getASCIIString <$> arbitrary)
+      , (2, JSString . getCanonicalString <$> arbitrary)
       , (3, JSArray                <$> resize (sz `div` 2) arbitrary)
-      , (3, JSObject . mapFirst getASCIIString .  noDupFields <$> resize (sz `div` 2) arbitrary)
+      , (3, JSObject . mapFirst getCanonicalString .  noDupFields <$> resize (sz `div` 2) arbitrary)
       ]
     where
       noDupFields = nubBy (\(x,_) (y,_) -> x==y)
@@ -92,3 +93,14 @@ instance Arbitrary Int54 where
       lowerbound = (-999999999999999)
   shrink = shrinkIntegral
 
+newtype CanonicalString = CanonicalString { getCanonicalString :: String }
+  deriving (Eq, Show)
+
+-- ASCII and not control character
+instance Arbitrary CanonicalString where
+    arbitrary = fmap CanonicalString (listOf (chooseEnum ('\32', '\127')))
+
+    shrink (CanonicalString str) =
+        map (CanonicalString . filter isCanonical) (shrink str)
+      where
+        isCanonical c = c >= '\32' && c <= '\127'
