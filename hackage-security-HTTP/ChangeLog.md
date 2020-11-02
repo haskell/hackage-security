@@ -1,3 +1,7 @@
+0.1.1.1
+-------
+* Add support for hackage-security-0.6
+
 0.1.1
 -----
 * Implement updated HttpLib API from hackage-security 0.5
