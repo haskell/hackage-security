@@ -61,8 +61,7 @@ get manager reqHeaders uri callback = wrapCustomEx $ do
     -- TODO: setUri fails under certain circumstances; in particular, when
     -- the URI contains URL auth. Not sure if this is a concern.
     request' <- HttpClient.setUri HttpClient.defaultRequest uri
-    let request = setRequestHeaders reqHeaders
-                $ request'
+    let request = setRequestHeaders reqHeaders request'
     checkHttpException $ HttpClient.withResponse request manager $ \response -> do
       let br = wrapCustomEx $ HttpClient.responseBody response
       callback (getResponseHeaders response) br
