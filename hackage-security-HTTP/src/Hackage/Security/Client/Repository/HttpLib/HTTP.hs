@@ -62,7 +62,7 @@ get :: Throws SomeRemoteError
     -> IO a
 get browser reqHeaders uri callback = wrapCustomEx $ do
     response <- request browser
-      $ setRequestHeaders reqHeaders
+      $ addRequestHeaders reqHeaders
       -- avoid silly `Content-Length: 0` header inserted by `mkRequest`
       $ removeHeader HTTP.HdrContentLength
       $ HTTP.mkRequest HTTP.GET uri
@@ -78,7 +78,7 @@ getRange :: Throws SomeRemoteError
 getRange browser reqHeaders uri (from, to) callback = wrapCustomEx $ do
     response <- request browser
       $ setRange from to
-      $ setRequestHeaders reqHeaders
+      $ addRequestHeaders reqHeaders
       -- avoid silly `Content-Length: 0` header inserted by `mkRequest`
       $ removeHeader HTTP.HdrContentLength
       $ HTTP.mkRequest HTTP.GET uri
@@ -234,8 +234,8 @@ setRange from to = HTTP.insertHeader HTTP.HdrRange rangeHeader
     -- See <http://www.w3.org/Protocols/rfc2616/rfc2616-sec14.html>
     rangeHeader = "bytes=" ++ show from ++ "-" ++ show (to - 1)
 
-setRequestHeaders :: HTTP.HasHeaders a => [HttpRequestHeader] -> a -> a
-setRequestHeaders =
+addRequestHeaders :: HTTP.HasHeaders a => [HttpRequestHeader] -> a -> a
+addRequestHeaders =
     foldr (.) id . map (uncurry HTTP.insertHeader) . trOpt []
   where
     trOpt :: [(HTTP.HeaderName, [String])]
