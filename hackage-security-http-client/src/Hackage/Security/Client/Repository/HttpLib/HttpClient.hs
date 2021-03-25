@@ -61,7 +61,7 @@ get manager reqHeaders uri callback = wrapCustomEx $ do
     -- TODO: setUri fails under certain circumstances; in particular, when
     -- the URI contains URL auth. Not sure if this is a concern.
     request' <- HttpClient.setUri HttpClient.defaultRequest uri
-    let request = setRequestHeaders reqHeaders request'
+    let request = addRequestHeaders reqHeaders request'
     checkHttpException $ HttpClient.withResponse request manager $ \response -> do
       let br = wrapCustomEx $ HttpClient.responseBody response
       callback (getResponseHeaders response) br
@@ -72,7 +72,7 @@ getRange :: Throws SomeRemoteError
          -> (HttpStatus -> [HttpResponseHeader] -> BodyReader -> IO a)
          -> IO a
 getRange manager reqHeaders uri (from, to) callback = wrapCustomEx $ do
-    request <- (setRange from to . setRequestHeaders reqHeaders)
+    request <- (setRange from to . addRequestHeaders reqHeaders)
             `fmap` HttpClient.setUri HttpClient.defaultRequest uri
     checkHttpException $ HttpClient.withResponse request manager $ \response -> do
       let br = wrapCustomEx $ HttpClient.responseBody response
@@ -129,11 +129,11 @@ setRange from to req = req {
     -- See <http://www.w3.org/Protocols/rfc2616/rfc2616-sec14.html>
     rangeHeader = BS.C8.pack $ "bytes=" ++ show from ++ "-" ++ show (to - 1)
 
--- | Set request headers
-setRequestHeaders :: [HttpRequestHeader]
+-- | Add the given request headers
+addRequestHeaders :: [HttpRequestHeader]
                   -> HttpClient.Request -> HttpClient.Request
-setRequestHeaders opts req = req {
-      HttpClient.requestHeaders = trOpt disallowCompressionByDefault opts
+addRequestHeaders opts req = req {
+      HttpClient.requestHeaders = HttpClient.requestHeaders req ++ trOpt disallowCompressionByDefault opts
     }
   where
     trOpt :: [(HttpClient.HeaderName, [ByteString])]
