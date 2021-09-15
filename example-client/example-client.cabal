@@ -17,13 +17,17 @@ flag use-network-uri
   description: Are we using network-uri?
   manual: False
 
+flag Cabal-syntax
+  description: Are we using Cabal-syntax?
+  manual: False
+  default: False
+
 executable example-client
   main-is:             Main.hs
   other-modules: Prelude ExampleClient.Options
 
   build-depends:       base                 >= 4.5 && < 4.15,
                        bytestring           >= 0.9,
-                       Cabal                >= 1.12,
                        directory            >= 1.1,
                        filepath             >= 1.2,
                        optparse-applicative >= 0.11,
@@ -48,3 +52,9 @@ executable example-client
                    network     >= 2.6 && < 3.2
   else
     build-depends: network     >= 2.5 && < 2.6
+
+  if flag(Cabal-syntax)
+    build-depends: Cabal-syntax >= 3.7 && < 3.9
+  else
+    build-depends: Cabal        >= 1.12 && < 3.7,
+                   Cabal-syntax <  3.7
