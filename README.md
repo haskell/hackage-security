@@ -676,7 +676,7 @@ Some notes:
     `/package/<package-id>/<package-id>.tar.gz`).
 
 The most important observation however is the following: **It is not possible to
-serve a local repository as a remote repository** (by poining a webserver at a
+serve a local repository as a remote repository** (by pointing a web server at a
 local repository) because the layouts are completely different. (Note that the
 location of packages on Hackage-1 _did_ match the layout of local repositories,
 but that doesn't help because the _only_ repository that `cabal-install` will
