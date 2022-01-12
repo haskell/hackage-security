@@ -23,6 +23,9 @@ import Data.String (fromString)
 import qualified Data.Vector as V
 import qualified Data.HashMap.Strict as HM
 
+-- text
+import qualified Data.Text as Text
+
 prop_aeson_canonical, prop_roundtrip_canonical, prop_roundtrip_pretty, prop_canonical_pretty
   :: JSValue -> Bool
 
@@ -48,6 +51,9 @@ canonicalise   (JSArray  vs) = JSArray  [ canonicalise v | v <- vs]
 canonicalise   (JSObject vs) = JSObject [ (k, canonicalise v)
                                         | (k,v) <- sortBy (compare `on` fst) vs ]
 
+sanitizeString :: String -> String
+sanitizeString s = Text.unpack (Text.replace (Text.pack "\\") (Text.pack "\\\\") (Text.pack (show s)))
+
 instance Arbitrary JSValue where
   arbitrary =
     sized $ \sz ->
@@ -55,9 +61,9 @@ instance Arbitrary JSValue where
       [ (1, pure JSNull)
       , (1, JSBool   <$> arbitrary)
       , (2, JSNum    <$> arbitrary)
-      , (2, JSString . getASCIIString <$> arbitrary)
+      , (2, JSString . sanitizeString . getASCIIString <$> arbitrary)
       , (3, JSArray                <$> resize (sz `div` 2) arbitrary)
-      , (3, JSObject . mapFirst getASCIIString .  noDupFields <$> resize (sz `div` 2) arbitrary)
+      , (3, JSObject . mapFirst (sanitizeString . getASCIIString) .  noDupFields <$> resize (sz `div` 2) arbitrary)
       ]
     where
       noDupFields = nubBy (\(x,_) (y,_) -> x==y)
