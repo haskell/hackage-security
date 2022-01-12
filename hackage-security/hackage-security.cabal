@@ -255,6 +255,7 @@ test-suite TestSuite
                        bytestring,
                        network-uri,
                        tar,
+                       text,
                        time,
                        zlib
 
