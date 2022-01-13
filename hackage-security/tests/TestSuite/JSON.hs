@@ -1,3 +1,4 @@
+{-# LANGUAGE CPP #-}
 {-# OPTIONS_GHC -fno-warn-orphans #-}
 module TestSuite.JSON (
     prop_roundtrip_canonical,
@@ -21,26 +22,30 @@ import Text.JSON.Canonical
 import Data.Aeson (Value (..), eitherDecode)
 import Data.String (fromString)
 import qualified Data.Vector as V
+#if MIN_VERSION_aeson(2,0,0)
+import qualified Data.Aeson.KeyMap as KM
+#else
 import qualified Data.HashMap.Strict as HM
+#endif
 
 -- text
 import qualified Data.Text as Text
 
 prop_aeson_canonical, prop_roundtrip_canonical, prop_roundtrip_pretty, prop_canonical_pretty
-  :: JSValue -> Bool
+  :: JSValue -> Property
 
 prop_roundtrip_canonical jsval =
-    parseCanonicalJSON (renderCanonicalJSON jsval) == Right (canonicalise jsval)
+    parseCanonicalJSON (renderCanonicalJSON jsval) === Right (canonicalise jsval)
 
 prop_roundtrip_pretty jsval =
-    parseCanonicalJSON (BS.pack (prettyCanonicalJSON jsval)) == Right jsval
+    parseCanonicalJSON (BS.pack (prettyCanonicalJSON jsval)) === Right jsval
 
 prop_canonical_pretty jsval =
-    parseCanonicalJSON (renderCanonicalJSON jsval) ==
+    parseCanonicalJSON (renderCanonicalJSON jsval) ===
     fmap canonicalise (parseCanonicalJSON (BS.pack (prettyCanonicalJSON jsval)))
 
 prop_aeson_canonical jsval =
-    eitherDecode (renderCanonicalJSON jsval) == Right (toAeson (canonicalise jsval))
+    eitherDecode (renderCanonicalJSON jsval) === Right (toAeson (canonicalise jsval))
 
 canonicalise :: JSValue -> JSValue
 canonicalise v@JSNull        = v
@@ -84,7 +89,11 @@ toAeson (JSBool b)    = Bool b
 toAeson (JSNum n)     = Number (fromIntegral n)
 toAeson (JSString s)  = String (fromString s)
 toAeson (JSArray xs)  = Array $ V.fromList [ toAeson x | x <- xs ]
+#if MIN_VERSION_aeson(2,0,0)
+toAeson (JSObject xs) = Object $ KM.fromList [ (fromString k, toAeson v) | (k, v) <- xs ]
+#else
 toAeson (JSObject xs) = Object $ HM.fromList [ (fromString k, toAeson v) | (k, v) <- xs ]
+#endif
 
 instance Arbitrary Int54 where
   arbitrary = fromIntegral <$>
