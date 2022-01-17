@@ -1,5 +1,12 @@
 See also http://pvp.haskell.org/faq
 
+0.6.1.0
+-------
+
+* Support basic auth in package-indices (#252)
+* Fix tests due to new aeson handling of unescaped control sequences (#256)
+* Bump a lot of bounds on packages we depend on
+
 0.6.0.1
 -------
 

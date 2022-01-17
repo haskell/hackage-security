@@ -1,7 +1,6 @@
 cabal-version:       1.12
 name:                hackage-security
-version:             0.6.0.1
-x-revision: 9
+version:             0.6.1.0
 
 synopsis:            Hackage security library
 description:         The hackage security library provides both server and
@@ -25,7 +24,7 @@ license:             BSD3
 license-file:        LICENSE
 author:              Edsko de Vries
 maintainer:          cabal-devel@haskell.org
-copyright:           Copyright 2015-2016 Well-Typed LLP
+copyright:           Copyright 2015-2022 Well-Typed LLP
 category:            Distribution
 homepage:            https://github.com/haskell/hackage-security
 bug-reports:         https://github.com/haskell/hackage-security/issues
