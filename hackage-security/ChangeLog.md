@@ -1,5 +1,10 @@
 See also http://pvp.haskell.org/faq
 
+0.6.2.0
+-------
+
+* Safely prepare for when cabal factors out Cabal-syntax
+
 0.6.1.0
 -------
 
