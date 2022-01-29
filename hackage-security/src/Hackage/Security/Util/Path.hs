@@ -294,7 +294,7 @@ makeAbsolute (FsPath p) = mkPathNative <$> toAbsoluteFilePath p
 fromAbsoluteFilePath :: FilePath -> Path Absolute
 fromAbsoluteFilePath fp
   | FP.Native.isAbsolute fp = mkPathNative fp
-  | otherwise               = error "fromAbsoluteFilePath: not an absolute path"
+  | otherwise               = error ("fromAbsoluteFilePath: not an absolute path: " <> fp)
 
 {-------------------------------------------------------------------------------
   Wrappers around System.IO
