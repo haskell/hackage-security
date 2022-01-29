@@ -41,7 +41,7 @@ module Hackage.Security.Client (
   , LocalFileCorrupted(..)
   ) where
 
-import Prelude hiding (log)
+import MyPrelude hiding (log)
 import Control.Arrow (first)
 import Control.Exception
 import Control.Monad

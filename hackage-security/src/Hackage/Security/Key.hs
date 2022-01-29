@@ -25,6 +25,7 @@ module Hackage.Security.Key (
   , verify
   ) where
 
+import MyPrelude
 import Control.Monad
 import Data.Functor.Identity
 import Data.Typeable (Typeable)

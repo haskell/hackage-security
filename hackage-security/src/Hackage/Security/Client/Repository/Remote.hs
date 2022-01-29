@@ -27,6 +27,7 @@ module Hackage.Security.Client.Repository.Remote (
   , fileSizeWithinBounds
   ) where
 
+import MyPrelude
 import Control.Concurrent
 import Control.Exception
 import Control.Monad.Cont

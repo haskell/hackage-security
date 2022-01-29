@@ -26,6 +26,7 @@ module Hackage.Security.TUF.Patterns (
   , qqd
   ) where
 
+import MyPrelude
 import Control.Monad.Except
 import Language.Haskell.TH (Q, Exp)
 import System.FilePath.Posix

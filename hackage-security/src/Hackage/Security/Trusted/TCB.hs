@@ -26,6 +26,7 @@ module Hackage.Security.Trusted.TCB (
 #endif
   ) where
 
+import MyPrelude
 import Control.Exception
 import Control.Monad.Except
 import Data.Typeable

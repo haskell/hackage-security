@@ -1,8 +1,7 @@
 -- | Smooth over differences between various ghc versions by making older
 -- preludes look like 4.8.0
-{-# LANGUAGE PackageImports #-}
 {-# LANGUAGE CPP #-}
-module Prelude (
+module MyPrelude (
     module P
 #if !MIN_VERSION_base(4,8,0)
   , Applicative(..)
@@ -15,12 +14,12 @@ module Prelude (
   ) where
 
 #if MIN_VERSION_base(4,8,0)
-import "base" Prelude as P
+import Prelude as P
 #else
 #if MIN_VERSION_base(4,6,0)
-import "base" Prelude as P
+import Prelude as P
 #else
-import "base" Prelude as P hiding (catch)
+import Prelude as P hiding (catch)
 #endif
 import Control.Applicative
 import Control.Exception (Exception)

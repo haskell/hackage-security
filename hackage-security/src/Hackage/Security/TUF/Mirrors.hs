@@ -9,6 +9,7 @@ module Hackage.Security.TUF.Mirrors (
   , describeMirror
   ) where
 
+import MyPrelude
 import Control.Monad.Except
 import Network.URI
 

@@ -1,5 +1,6 @@
 module Hackage.Security.Util.Exit where
 
+import MyPrelude
 import Control.Monad.Except
 
 {-------------------------------------------------------------------------------

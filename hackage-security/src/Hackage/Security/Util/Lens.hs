@@ -14,6 +14,7 @@ module Hackage.Security.Util.Lens (
   , set
   ) where
 
+import MyPrelude
 import Control.Applicative
 import Data.Functor.Identity
 

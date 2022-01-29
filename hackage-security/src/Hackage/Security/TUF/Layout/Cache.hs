@@ -4,6 +4,7 @@ module Hackage.Security.TUF.Layout.Cache (
   , cabalCacheLayout
   ) where
 
+import MyPrelude
 import Hackage.Security.TUF.Paths
 import Hackage.Security.Util.Path
 

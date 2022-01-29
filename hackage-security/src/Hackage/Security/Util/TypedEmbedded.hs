@@ -7,6 +7,8 @@ module Hackage.Security.Util.TypedEmbedded (
   , AsType(..)
   ) where
 
+import MyPrelude
+
 -- | Type equality proofs
 --
 -- This is a direct copy of "type-equality:Data.Type.Equality"; if we don't

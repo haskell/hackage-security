@@ -17,6 +17,7 @@ module Hackage.Security.Client.Formats (
   , formatsLookup
   ) where
 
+import MyPrelude
 import Hackage.Security.Util.Stack
 import Hackage.Security.Util.TypedEmbedded
 

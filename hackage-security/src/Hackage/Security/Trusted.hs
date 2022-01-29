@@ -12,6 +12,7 @@ module Hackage.Security.Trusted (
   , trustedFileInfoEqual
   ) where
 
+import MyPrelude
 import Data.Function (on)
 import Data.Time
 import Hackage.Security.TUF

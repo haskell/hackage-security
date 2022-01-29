@@ -30,6 +30,7 @@ module Hackage.Security.Client.Repository (
   , mustCache
   ) where
 
+import MyPrelude
 import Control.Exception
 import Data.Typeable (Typeable)
 import qualified Codec.Archive.Tar.Index as Tar

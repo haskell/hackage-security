@@ -12,6 +12,7 @@ module Hackage.Security.TUF.Header (
   , versionIncrement
   ) where
 
+import MyPrelude
 import Data.Time
 import Data.Typeable (Typeable)
 
