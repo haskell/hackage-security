@@ -8,6 +8,7 @@ module Hackage.Security.TUF.Targets (
   , targetsLookup
   ) where
 
+import MyPrelude
 import Hackage.Security.JSON
 import Hackage.Security.Key
 import Hackage.Security.Key.Env (KeyEnv)

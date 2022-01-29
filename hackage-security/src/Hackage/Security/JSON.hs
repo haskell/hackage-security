@@ -38,6 +38,7 @@ module Hackage.Security.JSON (
   , module Hackage.Security.Util.JSON
   ) where
 
+import MyPrelude
 import Control.Arrow (first, second)
 import Control.Exception
 import Control.Monad.Except

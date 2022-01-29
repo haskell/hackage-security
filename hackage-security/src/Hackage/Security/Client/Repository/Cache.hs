@@ -15,6 +15,7 @@ module Hackage.Security.Client.Repository.Cache (
   , lockCacheWithLogger
   ) where
 
+import MyPrelude
 import Control.Exception
 import Control.Monad
 import Control.Monad.IO.Class

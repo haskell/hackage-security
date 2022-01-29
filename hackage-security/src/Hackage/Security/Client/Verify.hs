@@ -10,6 +10,7 @@ module Hackage.Security.Client.Verify (
   , liftIO
   ) where
 
+import MyPrelude
 import Control.Exception
 import Control.Monad.Reader
 import Data.IORef

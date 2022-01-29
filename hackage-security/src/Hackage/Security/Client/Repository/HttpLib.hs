@@ -11,6 +11,7 @@ module Hackage.Security.Client.Repository.HttpLib (
   , bodyReaderFromBS
   ) where
 
+import MyPrelude
 import Data.IORef
 import Network.URI hiding (uriPath, path)
 import qualified Data.ByteString      as BS

@@ -25,6 +25,7 @@ module Hackage.Security.Util.Checked (
   , internalError
   ) where
 
+import MyPrelude
 import Control.Exception (Exception, IOException)
 import qualified Control.Exception as Base
 import Data.Typeable (Typeable)
