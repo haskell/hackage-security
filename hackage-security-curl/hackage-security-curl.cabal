@@ -23,7 +23,7 @@ flag use-network-uri
 
 library
   exposed-modules:     Hackage.Security.Client.Repository.HttpLib.Curl
-  build-depends:       base        >= 4.5 && < 4.15,
+  build-depends:       base        >= 4.5 && < 4.16,
                        bytestring  >= 0.9,
                        process     >= 1.1,
                        hackage-security
