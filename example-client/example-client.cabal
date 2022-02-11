@@ -26,7 +26,7 @@ executable example-client
   main-is:             Main.hs
   other-modules: Prelude ExampleClient.Options
 
-  build-depends:       base                 >= 4.5 && < 4.15,
+  build-depends:       base                 >= 4.5 && < 4.16,
                        bytestring           >= 0.9,
                        directory            >= 1.1,
                        filepath             >= 1.2,
