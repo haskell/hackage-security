@@ -1,5 +1,11 @@
 See also http://pvp.haskell.org/faq
 
+0.6.2.1
+-------
+
+* Allow GHC-9.0 (base-4.15) (#265)
+* Fix running `cabal repl hackage-security` (#263)
+
 0.6.2.0
 -------
 
