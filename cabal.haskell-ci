@@ -1,5 +1,4 @@
 ghc-head: True
-osx: 8.4.4
 
 constraint-set no-lukko
   ghc: >=8.2
