@@ -51,7 +51,7 @@ instance Unify Format where
 --
 -- Rather than having a general list here, we enumerate all possibilities.
 -- This means we are very precise about what we expect, and we avoid any runtime
--- errors about unexpect format definitions.
+-- errors about unexpected format definitions.
 --
 -- NOTE: If we add additional cases here (for dealing with additional formats)
 -- all calls to @error "inaccessible"@ need to be reevaluated.

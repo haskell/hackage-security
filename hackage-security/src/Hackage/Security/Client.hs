@@ -89,7 +89,7 @@ data HasUpdates = HasUpdates | NoUpdates
 -- This implements the logic described in Section 5.1, "The client application",
 -- of the TUF spec. It checks which of the server metadata has changed, and
 -- downloads all changed metadata to the local cache. (Metadata here refers
--- both to the TUF security metadata as well as the Hackage packge index.)
+-- both to the TUF security metadata as well as the Hackage package index.)
 --
 -- You should pass @Nothing@ for the UTCTime _only_ under exceptional
 -- circumstances (such as when the main server is down for longer than the

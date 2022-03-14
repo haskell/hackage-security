@@ -15,7 +15,7 @@ import Hackage.Security.Util.Path
 -- | Location of the various files we cache
 --
 -- Although the generic TUF algorithms do not care how we organize the cache,
--- we nonetheless specity this here because as long as there are tools which
+-- we nonetheless specify this here because as long as there are tools which
 -- access files in the cache directly we need to define the cache layout.
 -- See also comments for 'defaultCacheLayout'.
 data CacheLayout = CacheLayout {

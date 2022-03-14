@@ -1,7 +1,7 @@
 -- | Patterns and replacements
 --
 -- NOTE: This module was developed to prepare for proper delegation (#39).
--- It is currently unusued.
+-- It is currently unused.
 {-# LANGUAGE CPP #-}
 #if __GLASGOW_HASKELL__ >= 800
 {-# LANGUAGE DeriveLift #-}
