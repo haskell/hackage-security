@@ -40,7 +40,7 @@ import Hackage.Security.Util.Pretty
 --
 -- TODO: This currently uses the lazy bytestring API offered by the HTTP
 -- library. Unfortunately this provides no way of closing the connection when
--- the callback decides it doens't require any further input. It seems
+-- the callback decides it doesn't require any further input. It seems
 -- impossible however to implement a proper streaming API.
 -- See <https://github.com/haskell/HTTP/issues/86>.
 withClient :: (Browser -> HttpLib -> IO a) -> IO a

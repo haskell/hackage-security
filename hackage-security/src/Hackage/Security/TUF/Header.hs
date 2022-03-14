@@ -36,7 +36,7 @@ class HasHeader a where
 -- every file update.
 --
 -- 'Show' and 'Read' instance are defined in terms of the underlying 'Int'
--- (this is use for example by hackage during the backup process).
+-- (this is used for example by Hackage during the backup process).
 newtype FileVersion = FileVersion Int54
   deriving (Eq, Ord, Typeable)
 
@@ -55,7 +55,7 @@ instance Read FileVersion where
 newtype FileExpires = FileExpires (Maybe UTCTime)
   deriving (Eq, Ord, Show, Typeable)
 
--- | Occassionally it is useful to read only a header from a file.
+-- | Occasionally it is useful to read only a header from a file.
 --
 -- 'HeaderOnly' intentionally only has a 'FromJSON' instance (no 'ToJSON').
 data Header = Header {
