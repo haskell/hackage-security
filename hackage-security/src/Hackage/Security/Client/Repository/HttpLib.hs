@@ -45,7 +45,7 @@ data HttpLib = HttpLib {
     -- HTTP servers are normally expected to respond to a range request with
     -- a "206 Partial Content" response. However, servers can respond with a
     -- "200 OK" response, sending the entire file instead (for instance, this
-    -- may happen for servers that don't actually support range rqeuests, but
+    -- may happen for servers that don't actually support range requests, but
     -- for which we optimistically assumed they did). Implementations of
     -- 'HttpLib' may accept such a response and inform the @hackage-security@
     -- library that the whole file is being returned; the security library can

@@ -181,7 +181,7 @@ data Repository down = DownloadedFile down => Repository {
     -- * Download the file from the repository and make it available at a
     --   temporary location
     -- * Use the provided file length to protect against endless data attacks.
-    --   (Repositories such as local repositories that are not suspectible to
+    --   (Repositories such as local repositories that are not susceptible to
     --   endless data attacks can safely ignore this argument.)
     -- * Move the file from its temporary location to its permanent location
     --   if verification succeeds.
