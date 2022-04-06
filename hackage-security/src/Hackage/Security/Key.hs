@@ -145,8 +145,8 @@ createKey' = liftM Some . createKey
 -- | The key ID of a key, by definition, is the hexdigest of the SHA-256 hash of
 -- the canonical JSON form of the key where the private object key is excluded.
 --
--- NOTE: The FromJSON and ToJSON instances for KeyId are ntentially omitted. Use
--- writeKeyAsId instead.
+-- NOTE: The FromJSON and ToJSON instances for KeyId are intentionally omitted.
+-- Use writeKeyAsId instead.
 newtype KeyId = KeyId { keyIdString :: String }
   deriving (Show, Eq, Ord)
 
