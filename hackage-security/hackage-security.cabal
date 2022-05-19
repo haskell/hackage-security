@@ -133,7 +133,7 @@ library
                        tar               >= 0.5     && < 0.6,
                        template-haskell  >= 2.7     && < 2.19,
                        time              >= 1.2     && < 1.13,
-                       transformers      >= 0.3     && < 0.6,
+                       transformers      >= 0.3     && < 0.7,
                        zlib              >= 0.5     && < 0.7,
                        -- whatever versions are bundled with ghc:
                        ghc-prim
@@ -147,7 +147,7 @@ library
     build-depends:     mtl        >= 2.1     && < 2.2,
                        mtl-compat >= 0.2     && < 0.3
   else
-    build-depends:     mtl        >= 2.2     && < 2.3
+    build-depends:     mtl        >= 2.2     && < 2.4
 
   if flag(lukko)
     build-depends:     lukko      >= 0.1     && < 0.2
