@@ -155,7 +155,7 @@ library
     build-depends:     base       >= 4.10
 
   if flag(Cabal-syntax)
-    build-depends: Cabal-syntax >= 3.7 && < 3.9
+    build-depends: Cabal-syntax >= 3.7 && < 3.10
   else
     build-depends: Cabal        >= 1.14    && < 1.26
                              || >= 2.0     && < 2.6
