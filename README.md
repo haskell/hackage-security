@@ -108,7 +108,7 @@ protected by the snapshot key (but see [author signing](#author-signing)).
 This file itself is signed by the target keys (kept offline by the Hackage
 admins).  
 
-Note that this file uses various extension to TUF spec:
+Note that this file uses various extensions to TUF spec:
 
 * We can use wildcards in names as well as in paths. This means that we list a
   <b>single</b> path with a <b>single</b> replacement name. (Alternatively, we
