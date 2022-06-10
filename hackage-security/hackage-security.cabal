@@ -6,8 +6,8 @@ x-revision:          1
 synopsis:            Hackage security library
 description:         The hackage security library provides both server and
                      client utilities for securing the Hackage package server
-                     (<http://hackage.haskell.org/>).  It is based on The Update
-                     Framework (<http://theupdateframework.com/>), a set of
+                     (<https://hackage.haskell.org/>).  It is based on The Update
+                     Framework (<https://theupdateframework.com/>), a set of
                      recommendations developed by security researchers at
                      various universities in the US as well as developers on the
                      Tor project (<https://www.torproject.org/>).
