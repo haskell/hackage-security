@@ -3,12 +3,42 @@
 This is a library for Hackage security based on [TUF, The Update
 Framework][TUF].
 
-## Project phases and shortcuts
+## Background Information
 
-Phase 1 of the project will implement the basic TUF framework, but leave out
-author signing; support for author signed packages (and other targets) will
-added in phase 2. The main goal of phase 1 is to be able to have untrusted
-mirrors of the Hackage server.
+The Hackage security process is an implementation of [_The Update Framework_
+(TUF)][TUF], intended to stop software supply-chain attacks.  TUF provides both
+index signing, which prevents mirrors or other middlemen from tampering with the
+contents of a software repository, and author signing, which prevents
+repositories from tampering with the contents of hosted packages.  Thus far,
+however, Hackage implements only index signing.  Additionally, Hackage differs
+somewhat from TUF's assumptions, and thus does things a little differently.
+Rather than attempting to describe the diff against TUF, this document simply
+describes how Hackage's security features work.
+
+As an instance of TUF, the Hackage security process uses much of its jargon.  In
+particular, a _role_ refers to a manner of use of a particular key.  A given key
+might, in principle, be used in multiple roles - for instance, the same key
+could be used to sign timestamps and mirrors.  In this context, "the timestamp
+key" and "the mirror key" would refer to the same key used in two different
+ways.  Similarly, keys are distinguished from key IDs, which are hashes of the
+key content.  With the `ed25519` keys used by this process, they are the same
+length, so be careful.
+
+Hackage provides the following to build tools:
+ * An index, which contains the metadata for every package
+ * Packages, which contain the actual code
+ * A timestamp, with a frequently-updated signature that expires regularly
+
+Malicious mirrors could attempt to interpose incorrect information into either.
+Hackage cryptographically signs the index, providing evidence of its
+authenticity, and the index itself contains hashes of each package file.  Thus,
+mirrors cannot interpose new metadata or new packages, because both are secured
+by the signature.  Additionally, these features prevent man-in-the-middle
+attacks against both Hackage and its mirrors, domain hijacking, and rollback
+attacks.  The signed timestamp ensures that clients can detect replay attacks
+that are denying them new packages.  They do not prevent malicious or
+compromised package authors from uploading malware to the index, nor do they
+protect against the Hackage server itself being compromised.
 
 ## Brief overview of Hackage and cabal-install
 
@@ -33,6 +63,73 @@ In order to distinguish between paths on the server and paths in the index we
 will qualify them as `<repo>/package/Foo-1.0.tar.gz` and
 `<index>/Foo/1.0/Foo.cabal` respectively, both informally in this text and in
 formal delegation rules.
+
+## Formats and Tools
+
+The files that are to be signed contain JSON objects that have two fields:
+`signatures` and `signed`.  The Hackage signing tools will not sign any other
+format.  The `signatures` field is expected to be an array of signatures, while
+the `signed` field may consist of arbitrary JSON.  When signing, the signature
+is actually applied to the [canonical
+JSON](https://gibson042.github.io/canonicaljson-spec/) rendering of the contents
+of the `signed` field.  This allows multiple signatures to be independently
+created and added, because new signatures do not sign the prior signatures.
+
+There are two tools that are relevant:
+[hackage-root-tool](https://github.com/haskell/hackage-security/tree/master/hackage-root-tool)
+and
+[hackage-repo-tool](https://github.com/haskell/hackage-security/tree/master/hackage-repo-tool).
+`hackage-root-tool` is a minimal implementation of the cryptography, intended to
+be as small as possible so that it can be audited and run on an offline machine.
+`hackage-repo-tool`, on the other hand, has a number of features for managing
+file-based Hackage repositories in addition to signing.
+
+## Keys and Participants
+
+### Root Keys
+
+The Hackage root keys are held by trusted members of the Haskell community. A
+signature is valid when three keyholders have signed.  This means that the
+overall system is not vulnerable to a single key being compromised; nor can
+service be denied by a single key being lost.  Keyholders are strongly
+encouraged to keep their keys very secure.  The current collection of
+keyholders, plus signatures that demonstrate that they have the keys, is
+available at https://github.com/haskell-infra/hackage-root-keys .
+
+The public part of the root key is shipped with the build tools that need to
+verify Hackage downloads.  Because these keys are so difficult to replace, they
+are not used for operations.  The root key is used to sign a set of operational
+keys, and these operational keys are used for the daily signing of indices by
+Hackage.
+
+### Operational Keys
+
+The operational keys are signed by the root keys.  Build tools have no in-built
+knowledge of them, but can instead discover them through downloading a file
+(`/root.json`) signed by the root keys.  This file contains the public parts of
+all keys, whether root or operational, and describes which keys have which
+roles. The operational private keys are kept secure by the Hackage
+administrators, but because they are on an online machine, they are more
+vulnerable than the root keys.
+
+Operational keys fulfill two roles:
+ * **Snapshot keys** are used to sign the Hackage index.
+ * **Timestamp keys** are used to sign the frequently-updated timestamp file.
+ 
+
+## Mirrors
+
+A list of authorized mirrors of Hackage is provided in a file called
+`mirrors.json`.  This list is signed by the mirror key.  The mirrors list
+expires annually and must be re-signed by the mirror key.  Clients check that
+the mirror key is signed by the root key, and that the mirror list is signed by
+the mirror key, before accepting a mirror list.  According to the [TUF
+spec](https://theupdateframework.github.io/specification/latest/#mirrors),
+
+> The importance of using signed mirror lists depends on the application and the users of that application. There is minimal risk to the application’s security from being tricked into contacting the wrong mirrors. This is because the framework has very little trust in repositories.
+
+The mirror list being signed is mostly for the sake of completeness, rather than out of concern for a particular threat.
+
 
 ## Comparison with TUF
 
@@ -559,6 +656,45 @@ This list is currenty not exhaustive.
   so much that the old maintainers of a package are no longer maintainters.
   But we would still like to be able to install and verify old packages. How
   do we deal with this?
+
+## Ongoing Maintenance
+
+### Mirror Keys: Every Year
+
+The mirror list requires annual resigning by a holder of a mirror key.
+To do this, use the following steps:
+
+ 1. Install `hackage-root-tool` on the signing machine and ensure that the key is present.
+ 2. Create a new `mirrors.json` file by incrementing the version field of the existing file and adding a year to the expiration date. Delete the signature(s), replacing them with an empty array. Place the file on the signing machine.
+ 3. Sign the file using `hackage-root-tool sign KEY mirrors.json`, and place the resulting signature array into the `signatures` field of `mirrors.json`.
+ 4. Commit the updated file to `https://github.com/haskell-infra/hackage-root-keys` and inform the Hackage admins so they can install it.
+ 
+
+### Root Data: Every Other Year
+
+The holders of the root keys are, each year, signing the root information file `root.json` that directs clients to the operational and mirror keys.
+The keyholders are attesting that they believe that the root and operational keys are not compromised, that Hackage is still under the control of trusted administrators, and that everything is working about the way it usually does.
+
+Today, there are five active root keys, because three of the original eight never completed the setup process.
+
+To prepare the updated `roots.json` for signing by the root keyholders, a coordinator should perform the following edits:
+ 1. If any new keys are to be admitted, collect their key IDs and add them to the `keys` field.
+ 2. Modify the expiration date.
+ 3. Increment the `version` field.
+ 4. Delete the existing signatures.
+
+Each holder of root keys should do the following:
+ 1. Install `hackage-root-tool` on the signing machine and ensure that the key is present.
+ 2. Place the updated `roots.json` file on the signing machine.
+ 3. Sign the file using `hackage-root-tool sign KEY roots.json`, and send the resulting signature back to the person who is coordinating the signing.
+ 
+Finally, the coordinator should insert the provided signatures and commit the updated file to `https://github.com/haskell-infra/hackage-root-keys` and inform the Hackage admins so they can install it.
+
+
+### Operational Keys
+
+The operational keys do not presently require regeneration, unless the private keys have been lost or compromised.
+
 
 ## <a name="paths">Footnotes</a>
 
