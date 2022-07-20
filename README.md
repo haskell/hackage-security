@@ -21,9 +21,12 @@ particular, a _role_ refers to a manner of use of a particular key.  A given key
 might, in principle, be used in multiple roles - for instance, the same key
 could be used to sign timestamps and mirrors.  In this context, "the timestamp
 key" and "the mirror key" would refer to the same key used in two different
-ways.  Similarly, keys are distinguished from key IDs, which are hashes of the
-key content.  With the `ed25519` keys used by this process, they are the same
-length, so be careful.
+ways. Each role is assigned a _threshold_ that states how many signatures are
+expected for a given role. For instance, in Hackage, the timestamp role requires
+just one signature, while the root role requires three signatures. Similarly,
+keys are distinguished from key IDs, which are hashes of the key content.  With
+the `ed25519` keys used by this process, they are the same length, so be
+careful.
 
 Hackage provides the following to build tools:
  * An index, which contains the metadata for every package
@@ -87,6 +90,12 @@ file-based Hackage repositories in addition to signing.
 
 ## Keys and Participants
 
+### The Root of Trust
+
+The file `root.json` describes all of the keys used in Hackage Security. It
+lists the public parts of the keys, enumerates the roles used, and assigns keys
+and thresholds to each role. It is signed by keys in the root role.
+
 ### Root Keys
 
 The Hackage root keys are held by trusted members of the Haskell community. A
@@ -97,21 +106,25 @@ encouraged to keep their keys very secure.  The current collection of
 keyholders, plus signatures that demonstrate that they have the keys, is
 available at https://github.com/haskell-infra/hackage-root-keys .
 
-The public part of the root key is shipped with the build tools that need to
-verify Hackage downloads.  Because these keys are so difficult to replace, they
-are not used for operations.  The root key is used to sign a set of operational
+Root keys present a bootstrapping problem: how is a build tool to know whether
+it should trust a newly-downloaded `root.json`? To work around this, the public
+part of the root keys and the threshold policy for the root role are shipped
+with the build tools that need to verify Hackage downloads. Once this
+`root.json` has been verified, its policies override the built-in bootstrapping
+keys.
+
+Because these root keys are so difficult to replace, they are not used for
+operations.  The root keys are used to delegate roles to a set of operational
 keys, and these operational keys are used for the daily signing of indices by
 Hackage.
 
 ### Operational Keys
 
 The operational keys are signed by the root keys.  Build tools have no in-built
-knowledge of them, but can instead discover them through downloading a file
-(`/root.json`) signed by the root keys.  This file contains the public parts of
-all keys, whether root or operational, and describes which keys have which
-roles. The operational private keys are kept secure by the Hackage
-administrators, but because they are on an online machine, they are more
-vulnerable than the root keys.
+knowledge of them, but can instead discover them through `root.json`. The
+operational private keys are kept secure by the Hackage administrators, but
+because they are on an online machine, they are more vulnerable than the root
+keys.
 
 Operational keys fulfill two roles:
  * **Snapshot keys** are used to sign the Hackage index.
@@ -685,9 +698,10 @@ To prepare the updated `roots.json` for signing by the root keyholders, a coordi
  4. Delete the existing signatures.
 
 Each holder of root keys should do the following:
- 1. Install `hackage-root-tool` on the signing machine and ensure that the key is present.
- 2. Place the updated `roots.json` file on the signing machine.
- 3. Sign the file using `hackage-root-tool sign KEY roots.json`, and send the resulting signature back to the person who is coordinating the signing.
+ 1. Verify that the contents of `root.json` are correct. Any changes to the set of keys and their roles or to the threshold policies should be trustworthy, and any new keyholders need to have their identity verified. Please be a stickler for details here.
+ 2. Install `hackage-root-tool` on the signing machine and ensure that the key is present.
+ 3. Place the updated `roots.json` file on the signing machine.
+ 4. Sign the file using `hackage-root-tool sign KEY roots.json`, and send the resulting signature back to the person who is coordinating the signing.
  
 Finally, the coordinator should insert the provided signatures and commit the updated file to `https://github.com/haskell-infra/hackage-root-keys` and inform the Hackage admins so they can install it.
 
