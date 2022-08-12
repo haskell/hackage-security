@@ -154,7 +154,7 @@ library
   else
     build-depends:     base       >= 4.10
 
-  if flag(Cabal-syntax)
+  if flag(Cabal-syntax) && impl(ghc >= 8.2)
     build-depends: Cabal-syntax >= 3.7 && < 3.10
   else
     build-depends: Cabal        >= 1.14    && < 1.26
@@ -271,7 +271,7 @@ test-suite TestSuite
                        time,
                        zlib
 
-  if flag(Cabal-syntax)
+  if flag(Cabal-syntax) && impl(ghc >= 8.2)
     build-depends: Cabal        >= 3.7 && < 3.10,
                    Cabal-syntax >= 3.7 && < 3.10
   else
