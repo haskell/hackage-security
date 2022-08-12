@@ -1,5 +1,11 @@
 See also http://pvp.haskell.org/faq
 
+0.6.2.2
+-------
+
+* Fix broken compilation of test-suite with Cabal-syntax-3.8.1.0 on Hackage
+* Huge README updates
+
 0.6.2.1
 -------
 

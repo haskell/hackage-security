@@ -1,6 +1,6 @@
 cabal-version:       1.12
 name:                hackage-security
-version:             0.6.2.1
+version:             0.6.2.2
 x-revision:          1
 
 synopsis:            Hackage security library
@@ -263,7 +263,6 @@ test-suite TestSuite
   -- inherited constraints from lib:hackage-security component
   build-depends:       hackage-security,
                        base,
-                       Cabal,
                        containers,
                        bytestring,
                        network-uri,
@@ -273,7 +272,13 @@ test-suite TestSuite
                        zlib
 
   if flag(Cabal-syntax)
-    build-depends: Cabal-syntax
+    build-depends: Cabal        >= 3.7 && < 3.10,
+                   Cabal-syntax >= 3.7 && < 3.10
+  else
+    build-depends: Cabal        >= 1.14    && < 1.26
+                             || >= 2.0     && < 2.6
+                             || >= 3.0     && < 3.7,
+                   Cabal-syntax <  3.7
 
   -- dependencies exclusive to test-suite
   build-depends:       tasty            >= 1.2 && < 1.5,
