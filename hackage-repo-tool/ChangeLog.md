@@ -1,3 +1,7 @@
+0.1.1.3
+-------
+* Compat release for `Cabal-syntax-3.8.1.0`
+
 0.1.1.2
 -------
 * Compat release for `hackage-security-0.6`
