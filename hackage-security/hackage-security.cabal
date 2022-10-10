@@ -285,7 +285,7 @@ test-suite TestSuite
                        tasty-quickcheck == 0.10.*,
                        QuickCheck       >= 2.11 && <2.15,
                        aeson            == 1.4.* || == 1.5.* || == 2.0.* || == 2.1.*,
-                       vector           == 0.12.*,
+                       vector           >= 0.12 && <0.14,
                        unordered-containers >=0.2.8.0 && <0.3,
                        temporary        >= 1.2 && < 1.4
 
