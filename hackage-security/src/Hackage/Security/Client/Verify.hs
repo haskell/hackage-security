@@ -12,7 +12,9 @@ module Hackage.Security.Client.Verify (
 
 import MyPrelude
 import Control.Exception
-import Control.Monad.Reader
+import Control.Monad (join, void)
+import Control.Monad.IO.Class (MonadIO, liftIO)
+import Control.Monad.Reader (ReaderT, runReaderT, ask)
 import Data.IORef
 
 import Hackage.Security.Util.IO

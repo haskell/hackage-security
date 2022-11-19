@@ -1,7 +1,8 @@
 module Hackage.Security.Util.Exit where
 
 import MyPrelude
-import Control.Monad.Except
+import Control.Monad (liftM)
+import Control.Monad.Except (ExceptT, runExceptT, throwError)
 
 {-------------------------------------------------------------------------------
   Auxiliary: multiple exit points

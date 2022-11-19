@@ -28,7 +28,8 @@ module Hackage.Security.Trusted.TCB (
 
 import MyPrelude
 import Control.Exception
-import Control.Monad.Except
+import Control.Monad (when, unless)
+import Control.Monad.Except (Except, runExcept, throwError)
 import Data.Typeable
 import Data.Time
 import Hackage.Security.TUF
