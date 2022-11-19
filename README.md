@@ -1,4 +1,4 @@
-# Hackage Security [![Hackage version](https://img.shields.io/hackage/v/hackage-security.svg?label=Hackage)](https://hackage.haskell.org/package/hackage-security) [![Stackage version](https://www.stackage.org/package/hackage-security/badge/lts?label=Stackage)](https://www.stackage.org/package/hackage-security) [![Build Status](https://secure.travis-ci.org/haskell/hackage-security.svg?branch=master)](http://travis-ci.org/haskell/hackage-security) [![Windows build status](https://ci.appveyor.com/api/projects/status/github/haskell/cabal?branch=master&svg=true)](https://ci.appveyor.com/project/hvr/hackage-security)
+# Hackage Security [![Hackage version](https://img.shields.io/hackage/v/hackage-security.svg?label=Hackage)](https://hackage.haskell.org/package/hackage-security) [![Stackage version](https://www.stackage.org/package/hackage-security/badge/lts?label=Stackage)](https://www.stackage.org/package/hackage-security)
 
 This is a library for Hackage security based on [TUF, The Update
 Framework][TUF]. In addition to the TUF website, the [blog post][blogpost] that
