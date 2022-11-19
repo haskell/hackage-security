@@ -1,5 +1,11 @@
 See also http://pvp.haskell.org/faq
 
+0.6.2.3
+-------
+
+* Bump base for GHC 9.4 comp
+* Fix code to *really* support mtl-2.3
+
 0.6.2.2
 -------
 
