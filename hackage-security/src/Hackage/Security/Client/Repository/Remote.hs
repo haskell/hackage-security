@@ -30,7 +30,8 @@ module Hackage.Security.Client.Repository.Remote (
 import MyPrelude
 import Control.Concurrent
 import Control.Exception
-import Control.Monad.Cont
+import Control.Monad (when, unless)
+import Control.Monad.IO.Class (MonadIO)
 import Data.List (nub, intercalate)
 import Data.Typeable
 import Network.URI hiding (uriPath, path)
@@ -337,7 +338,7 @@ pickDownloadMethod RemoteConfig{..} attemptNr remoteFile =
         unless rangeSupport $ exit $ CannotUpdate hasGz UpdateImpossibleUnsupported
 
         -- We must already have a local file to be updated
-        mCachedIndex <- lift $ Cache.getCachedIndex cfgCache (hasFormatGet hasGz)
+        mCachedIndex <- liftIO $ Cache.getCachedIndex cfgCache (hasFormatGet hasGz)
         cachedIndex  <- case mCachedIndex of
           Nothing -> exit $ CannotUpdate hasGz UpdateImpossibleNoLocalCopy
           Just fp -> return fp

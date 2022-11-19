@@ -27,7 +27,7 @@ module Hackage.Security.TUF.Patterns (
   ) where
 
 import MyPrelude
-import Control.Monad.Except
+import Control.Monad (guard)
 import Language.Haskell.TH (Q, Exp)
 import System.FilePath.Posix
 import qualified Language.Haskell.TH.Syntax as TH
