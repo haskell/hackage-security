@@ -68,7 +68,7 @@ executable example-client
     build-depends: network     >= 2.5 && < 2.6
 
   if flag(Cabal-syntax)
-    build-depends: Cabal-syntax >= 3.7 && < 3.9
+    build-depends: Cabal-syntax >= 3.7 && < 3.12
   else
     build-depends: Cabal        >= 1.12 && < 3.7,
                    Cabal-syntax <  3.7
