@@ -1,7 +1,7 @@
 cabal-version:       1.12
 name:                hackage-security-HTTP
 version:             0.1.1.1
-x-revision:          2
+x-revision:          5
 synopsis:            Hackage security bindings against the HTTP library
 description:         The hackage security library provides a 'HttpLib'
                      abstraction to allow to bind against different HTTP
