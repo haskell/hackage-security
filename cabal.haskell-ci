@@ -1,3 +1,5 @@
+branches: master ci-*
+
 ghc-head: True
 
 constraint-set no-lukko

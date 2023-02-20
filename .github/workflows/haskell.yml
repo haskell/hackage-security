@@ -1,6 +1,14 @@
 name: MacOS, Ubuntu, Windows
 
-on: [push, pull_request]
+on:
+  push:
+    branches:
+      - master
+      - ci-*
+  pull_request:
+    branches:
+      - master
+      - ci-*
 
 jobs:
   build:
