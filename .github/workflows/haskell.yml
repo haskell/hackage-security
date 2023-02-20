@@ -9,32 +9,33 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        ghc: ['9.4.1', '9.2.4', '9.0.2', '8.10.7']
+        ghc: ['9.4.4', '9.2.5', '9.0.2', '8.10.7']
         os: [ubuntu-latest, macOS-latest, windows-latest]
     steps:
-    - uses: actions/checkout@v2
-    - uses: haskell/actions/setup@v1
+    - uses: actions/checkout@v3
+
+    - uses: haskell/actions/setup@v2
+      id:   setup
       with:
-        ghc-version: ${{ matrix.ghc }}
+        ghc-version:   ${{ matrix.ghc }}
         cabal-version: '3.8.1.0'
+        cabal-update:  true
 
     - name: Cache
-      uses: actions/cache@v1
+      uses: actions/cache@v3
       env:
-        cache-name: cache-cabal
+        cache-name: haskell.yml
       with:
-        path: ~/.cabal
-        key: ${{ runner.os }}-build-${{ env.cache-name }}-${{ hashFiles('**/*.cabal') }}-${{ hashFiles('**/cabal.project') }}
-        restore-keys: |
-          ${{ runner.os }}-build-${{ env.cache-name }}-
-          ${{ runner.os }}-build-
-          ${{ runner.os }}-
+        path: ${{ steps.setup.outputs.cabal-store }}
+        key:          ${{ runner.os }}-${{ env.cache-name }}-ghc-${{ matrix.ghc }}-${{ hashFiles('**/*.cabal', '**/cabal.project') }}
+        restore-keys: ${{ runner.os }}-${{ env.cache-name }}-ghc-${{ matrix.ghc }}-
 
     - name: Install dependencies
       run: |
-        cabal update
         cabal build --only-dependencies --enable-tests --enable-benchmarks -vnormal+nowrap all
+
     - name: Build
       run: cabal build --enable-tests --enable-benchmarks -j1 -vnormal+nowrap all
+
     - name: Run tests
       run: cabal test -j1 -vnormal+nowrap all
