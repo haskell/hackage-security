@@ -334,8 +334,8 @@ jobs:
           $CABAL v2-haddock --disable-documentation --haddock-all $ARG_COMPILER --with-haddock $HADDOCK $ARG_TESTS $ARG_BENCH all
       - name: unconstrained build
         run: |
-          rm -f cabal.project.local
-          $CABAL v2-build $ARG_COMPILER --disable-tests --disable-benchmarks all
+          if [ $((HCNUMVER < 90600)) -ne 0 ] ; then rm -f cabal.project.local ; fi
+          if [ $((HCNUMVER < 90600)) -ne 0 ] ; then $CABAL v2-build $ARG_COMPILER --disable-tests --disable-benchmarks all ; fi
       - name: prepare for constraint sets
         run: |
           rm -f cabal.project.local
