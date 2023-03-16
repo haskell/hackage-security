@@ -142,7 +142,7 @@ library
                        -- 0.4.2 introduces TarIndex, 0.4.4 introduces more
                        -- functionality, 0.5.0 changes type of serialise
                        tar               >= 0.5     && < 0.6,
-                       template-haskell  >= 2.7     && < 2.20,
+                       template-haskell  >= 2.7     && < 2.21,
                        time              >= 1.2     && < 1.13,
                        transformers      >= 0.3     && < 0.7,
                        zlib              >= 0.5     && < 0.7,
