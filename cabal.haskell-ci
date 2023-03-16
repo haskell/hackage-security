@@ -1,10 +1,10 @@
 branches: master ci-*
 
-ghc-head: True
+-- ghc-head: True
 
--- Andreas, 2023-02-20: see https://github.com/haskell/hackage-security/pull/291
--- unconstrained build with head.hackage produces failing build plans
-unconstrained: < 9.6
+-- -- Andreas, 2023-02-20: see https://github.com/haskell/hackage-security/pull/291
+-- -- unconstrained build with head.hackage produces failing build plans
+-- unconstrained: < 9.6
 
 constraint-set no-lukko
   ghc: >=8.2
