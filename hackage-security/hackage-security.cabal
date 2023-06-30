@@ -1,7 +1,7 @@
 cabal-version:       1.12
 name:                hackage-security
 version:             0.6.2.3
-x-revision:          2
+x-revision:          4
 
 synopsis:            Hackage security library
 description:         The hackage security library provides both server and
@@ -142,7 +142,7 @@ library
                        -- 0.4.2 introduces TarIndex, 0.4.4 introduces more
                        -- functionality, 0.5.0 changes type of serialise
                        tar               >= 0.5     && < 0.6,
-                       template-haskell  >= 2.7     && < 2.20,
+                       template-haskell  >= 2.7     && < 2.21,
                        time              >= 1.2     && < 1.13,
                        transformers      >= 0.3     && < 0.7,
                        zlib              >= 0.5     && < 0.7,
@@ -296,7 +296,7 @@ test-suite TestSuite
                        tasty-hunit      == 0.10.*,
                        tasty-quickcheck == 0.10.*,
                        QuickCheck       >= 2.11 && <2.15,
-                       aeson            == 1.4.* || == 1.5.* || == 2.0.* || == 2.1.*,
+                       aeson            >= 1.4 && < 1.6 || >= 2.0 && < 2.3,
                        vector           >= 0.12 && <0.14,
                        unordered-containers >=0.2.8.0 && <0.3,
                        temporary        >= 1.2 && < 1.4
