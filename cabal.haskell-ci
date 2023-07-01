@@ -2,9 +2,19 @@ branches: master ci-*
 
 ghc-head: True
 
--- Andreas, 2023-02-20: see https://github.com/haskell/hackage-security/pull/291
--- unconstrained build with head.hackage produces failing build plans
-unconstrained: < 9.6
+-- Andreas, 2023-07-01: We use some haddock features that are new in 8.6.
+haddock: >= 8.6
+
+-- -- Andreas, 2023-02-20: see https://github.com/haskell/hackage-security/pull/291
+-- -- unconstrained build with head.hackage produces failing build plans
+-- unconstrained: < 9.6
+--
+-- Andreas, 2023-07-01
+-- Ryan GI Scott suggests this instead:
+-- see https://github.com/haskell-CI/haskell-ci/issues/643#issuecomment-1466195957
+raw-project
+  constraints:
+    base-compat >= 0.12.2
 
 constraint-set no-lukko
   ghc: >=8.2
