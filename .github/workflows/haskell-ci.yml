@@ -284,6 +284,7 @@ jobs:
           if [ $((HCNUMVER >= 80200)) -ne 0 ] ; then echo "    ghc-options: -Werror=missing-methods" >> cabal.project ; fi
           cat >> cabal.project <<EOF
           constraints: base-compat >= 0.12.2
+          allow-newer: bytestring
           EOF
           if $HEADHACKAGE; then
           echo "allow-newer: $($HCPKG list --simple-output | sed -E 's/([a-zA-Z-]+)-[0-9.]+/*:\1,/g')" >> cabal.project
@@ -340,6 +341,11 @@ jobs:
       - name: prepare for constraint sets
         run: |
           rm -f cabal.project.local
+      - name: constraint set bytestring-0.12
+        run: |
+          if [ $((HCNUMVER >= 80000)) -ne 0 ] ; then $CABAL v2-build $ARG_COMPILER --enable-tests --disable-benchmarks --constraint='bytestring >= 0.12' --dependencies-only -j2 all ; fi
+          if [ $((HCNUMVER >= 80000)) -ne 0 ] ; then $CABAL v2-build $ARG_COMPILER --enable-tests --disable-benchmarks --constraint='bytestring >= 0.12' all ; fi
+          if [ $((HCNUMVER >= 80000)) -ne 0 ] ; then $CABAL v2-test $ARG_COMPILER --enable-tests --disable-benchmarks --constraint='bytestring >= 0.12' all ; fi
       - name: constraint set no-lukko
         run: |
           if [ $((HCNUMVER >= 80200)) -ne 0 ] ; then $CABAL v2-build $ARG_COMPILER --disable-tests --disable-benchmarks --constraint='hackage-security -lukko' --dependencies-only -j2 all ; fi
