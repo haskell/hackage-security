@@ -167,7 +167,10 @@ newtype SignaturesVerified a = SignaturesVerified { signaturesVerified :: a }
 -- | Errors thrown during role validation
 data VerificationError =
      -- | Not enough signatures signed with the appropriate keys
-     VerificationErrorSignatures TargetPath
+     VerificationErrorSignatures TargetPath -- what were we verifying?
+                                 Integer    -- threshold
+                                 [KeyId]    -- trusted keys
+                                 [KeyId]    -- found signing keys
 
      -- | The file is expired
    | VerificationErrorExpired TargetPath
@@ -218,9 +221,16 @@ instance Show RootUpdated where show = pretty
 instance Exception RootUpdated
 #endif
 
+indentedLines :: [String] -> String
+indentedLines = unlines . map ("  " ++)
+
 instance Pretty VerificationError where
-  pretty (VerificationErrorSignatures file) =
-      pretty file ++ " does not have enough signatures signed with the appropriate keys"
+  pretty (VerificationErrorSignatures file threshold trusted sigs) =
+      pretty file ++ " does not have enough signatures signed with the appropriate keys\n"
+   ++ "Expected at least " ++ show threshold  ++ " signatures from:\n"
+   ++ indentedLines (map keyIdString trusted)
+   ++ "Found signatures from:\n"
+   ++ indentedLines (map keyIdString sigs)
   pretty (VerificationErrorExpired file) =
       pretty file ++ " is expired"
   pretty (VerificationErrorVersion file) =
@@ -235,7 +245,7 @@ instance Pretty VerificationError where
       "Could not deserialize " ++ pretty file ++ ": " ++ pretty err
   pretty (VerificationErrorLoop es) =
       "Verification loop. Errors in order:\n"
-   ++ unlines (map (("  " ++) . either pretty pretty) es)
+   ++ indentedLines (map (either pretty pretty) es)
 
 instance Pretty RootUpdated where
   pretty RootUpdated = "Root information updated"
@@ -291,14 +301,19 @@ verifyRole' (trusted -> RoleSpec{roleSpecThreshold = KeyThreshold threshold, ..}
       -- was invalid we would already have thrown an error constructing Signed.
       -- (Similarly, if two signatures were made by the same key, the FromJSON
       -- instance for Signatures would have thrown an error.)
-      unless (length (filter isRoleSpecKey sigs) >= fromIntegral threshold) $
-        throwError $ VerificationErrorSignatures targetPath
+      let nSigs = length (filter isRoleSpecKey sigs)
+      unless (nSigs >= fromIntegral threshold) $
+        throwError $ VerificationErrorSignatures targetPath (fromIntegral threshold) trustedKeys signingKeys
 
       -- Everything is A-OK!
       return $ SignaturesVerified signed
 
     isRoleSpecKey :: Signature -> Bool
     isRoleSpecKey Signature{..} = signatureKey `elem` roleSpecKeys
+
+    trustedKeys, signingKeys :: [KeyId]
+    trustedKeys = map someKeyId roleSpecKeys
+    signingKeys = map (someKeyId . signatureKey) sigs
 
 -- | Variation on 'verifyRole' that uses key IDs rather than keys
 --
@@ -314,9 +329,12 @@ verifyFingerprints fingerprints
                    (KeyThreshold threshold)
                    targetPath
                    Signed{signatures = Signatures sigs, ..} =
-    if length (filter isTrustedKey sigs) >= fromIntegral threshold
+    if length (filter isTrustedKey signingKeys) >= fromIntegral threshold
       then Right $ SignaturesVerified signed
-      else Left $ VerificationErrorSignatures targetPath
+      else Left $ VerificationErrorSignatures targetPath (fromIntegral threshold) fingerprints signingKeys
   where
-    isTrustedKey :: Signature -> Bool
-    isTrustedKey Signature{..} = someKeyId signatureKey `elem` fingerprints
+    signingKeys :: [KeyId]
+    signingKeys = map (someKeyId . signatureKey) sigs
+
+    isTrustedKey :: KeyId -> Bool
+    isTrustedKey key = key `elem` fingerprints
