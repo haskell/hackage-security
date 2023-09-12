@@ -1,4 +1,8 @@
-branches: master ci-*
+branches: master
+
+distribution: bionic
+-- Switching to focal (20.04) and higher would require dropping GHC < 7.10
+-- enabled: ghc >= 7.10
 
 ghc-head: True
 
