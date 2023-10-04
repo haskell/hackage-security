@@ -15,7 +15,8 @@ build-type:          Simple
 cabal-version:       >=1.10
 
 tested-with:
-  GHC == 9.6.2
+  GHC == 9.8.0
+  GHC == 9.6.3
   GHC == 9.4.7
   GHC == 9.2.8
   GHC == 9.0.2
@@ -33,7 +34,7 @@ flag use-network-uri
 
 library
   exposed-modules:     Hackage.Security.Client.Repository.HttpLib.HttpClient
-  build-depends:       base               >= 4.5 && < 4.19,
+  build-depends:       base               >= 4.5 && < 4.20,
                        bytestring         >= 0.9,
                        http-client        >= 0.4 && < 0.8,
                        http-types         >= 0.8,
