@@ -1,7 +1,7 @@
 cabal-version:       1.12
 name:                hackage-security
 version:             0.6.2.3
-x-revision:          7
+x-revision:          8
 
 synopsis:            Hackage security library
 description:         The hackage security library provides both server and
@@ -32,7 +32,7 @@ bug-reports:         https://github.com/haskell/hackage-security/issues
 build-type:          Simple
 
 tested-with:
-  GHC == 9.8.0
+  GHC == 9.8.1
   GHC == 9.6.3
   GHC == 9.4.7
   GHC == 9.2.8
@@ -140,7 +140,7 @@ library
                        -- 0.4.2 introduces TarIndex, 0.4.4 introduces more
                        -- functionality, 0.5.0 changes type of serialise
                        tar               >= 0.5     && < 0.6,
-                       template-haskell  >= 2.7     && < 2.21,
+                       template-haskell  >= 2.7     && < 2.22,
                        time              >= 1.2     && < 1.13,
                        transformers      >= 0.3     && < 0.7,
                        zlib              >= 0.5     && < 0.7,

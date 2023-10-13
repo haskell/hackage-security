@@ -24,7 +24,7 @@ homepage:            https://github.com/haskell/hackage-security
 bug-reports:         https://github.com/haskell/hackage-security/issues
 
 tested-with:
-  GHC == 9.8.0
+  GHC == 9.8.1
   GHC == 9.6.3
   GHC == 9.4.7
   GHC == 9.2.8
