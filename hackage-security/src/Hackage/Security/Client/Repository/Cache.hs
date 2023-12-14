@@ -20,7 +20,7 @@ import Control.Exception
 import Control.Monad
 import Control.Monad.IO.Class
 import Data.Maybe
-import Codec.Archive.Tar (Entries(..))
+import Codec.Archive.Tar (Entries, pattern Done, pattern Fail, pattern Next)
 import Codec.Archive.Tar.Index (TarIndex, IndexBuilder, TarEntryOffset)
 import qualified Codec.Archive.Tar       as Tar
 import qualified Codec.Archive.Tar.Index as TarIndex

@@ -1,5 +1,12 @@
 See also http://pvp.haskell.org/faq
 
+0.6.2.4
+-------
+
+* Allow `tar-0.6`
+* Drop support for GHC < 7.8 in favor of `PatternSynonyms`
+* Tested with GHC 7.10 - 9.8
+
 0.6.2.3
 -------
 
