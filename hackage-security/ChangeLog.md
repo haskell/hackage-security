@@ -5,6 +5,7 @@ See also http://pvp.haskell.org/faq
 
 * Allow `tar-0.6`
 * Drop support for GHC < 7.8 in favor of `PatternSynonyms`
+* Drop flags `base48`, `mtl21`, `old-directory` and support for GHC 7.8, `mtl < 2.2` and `directory < 1.2`
 * Tested with GHC 7.10 - 9.8
 
 0.6.2.3
