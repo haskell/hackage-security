@@ -1,3 +1,7 @@
+Unreleased
+----------
+* Drop support for GHC 7.
+
 0.1.1.3
 -------
 * Compat release for `Cabal-syntax-3.8.1.0`

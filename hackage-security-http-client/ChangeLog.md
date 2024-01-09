@@ -1,3 +1,7 @@
+Unreleased
+----------
+* Drop support for GHC 7.
+
 0.1.1
 -----
 * Implement updated HttpLib API from hackage-security 0.5

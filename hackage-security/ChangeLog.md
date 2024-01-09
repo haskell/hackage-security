@@ -1,5 +1,11 @@
 See also http://pvp.haskell.org/faq
 
+Unreleased
+----------
+
+* Drop support for GHC 7.
+* Drop flag `use-old-time` and support for `old-time`, require `time ≥ 1.5`.
+
 0.6.2.4
 -------
 

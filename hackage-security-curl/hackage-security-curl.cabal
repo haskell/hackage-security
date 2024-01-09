@@ -27,7 +27,6 @@ tested-with:
   GHC == 8.4.4
   GHC == 8.2.2
   GHC == 8.0.2
-  GHC == 7.10.3
 
 flag use-network-uri
   description: Are we using network-uri?
@@ -35,7 +34,7 @@ flag use-network-uri
 
 library
   exposed-modules:     Hackage.Security.Client.Repository.HttpLib.Curl
-  build-depends:       base        >= 4.8 && < 4.20,
+  build-depends:       base        >= 4.9 && < 4.20,
                        bytestring  >= 0.9,
                        process     >= 1.1,
                        hackage-security

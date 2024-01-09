@@ -3,12 +3,9 @@
 -- NOTE: This module was developed to prepare for proper delegation (#39).
 -- It is currently unused.
 {-# LANGUAGE CPP #-}
-#if __GLASGOW_HASKELL__ >= 800
 {-# LANGUAGE DeriveLift #-}
 {-# LANGUAGE StandaloneDeriving #-}
-#else
-{-# LANGUAGE TemplateHaskell #-}
-#endif
+
 module Hackage.Security.TUF.Patterns (
     -- * Patterns and replacements
     FileName
@@ -274,28 +271,9 @@ qqd pat repl  =
       Left  err -> fail $ "Invalid delegation: " ++ err
       Right del -> TH.lift del
 
-#if __GLASGOW_HASKELL__ >= 800
 deriving instance TH.Lift (Pattern a)
 deriving instance TH.Lift (Replacement a)
 deriving instance TH.Lift Delegation
-#else
-instance TH.Lift (Pattern a) where
-  lift (PatFileConst fn)  = [| PatFileConst fn  |]
-  lift (PatFileExt   e)   = [| PatFileExt   e   |]
-  lift PatFileAny         = [| PatFileAny       |]
-  lift (PatDirConst  d p) = [| PatDirConst  d p |]
-  lift (PatDirAny      p) = [| PatDirAny      p |]
-
-instance TH.Lift (Replacement a) where
-  lift (RepFileConst fn)  = [| RepFileConst fn  |]
-  lift (RepFileExt   e )  = [| RepFileExt   e   |]
-  lift RepFileAny         = [| RepFileAny       |]
-  lift (RepDirConst  d r) = [| RepDirConst  d r |]
-  lift (RepDirAny      r) = [| RepDirAny      r |]
-
-instance TH.Lift Delegation where
-  lift (Delegation pat repl) = [| Delegation pat repl |]
-#endif
 
 {-------------------------------------------------------------------------------
   JSON

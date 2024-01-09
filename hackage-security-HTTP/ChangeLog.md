@@ -1,3 +1,8 @@
+Unreleased
+----------
+* Drop support for GHC 7.
+
+
 0.1.1.1
 -------
 * Add support for hackage-security-0.6

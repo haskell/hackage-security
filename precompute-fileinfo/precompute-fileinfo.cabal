@@ -16,12 +16,11 @@ cabal-version:       >=1.10
 
 tested-with:
   GHC==9.6.3,  GHC==9.4.5, GHC==9.2.8, GHC==9.0.2,
-  GHC==8.10.7, GHC==8.8.4, GHC==8.6.5, GHC==8.4.4, GHC==8.2.2, GHC==8.0.2,
-  GHC==7.10.3
+  GHC==8.10.7, GHC==8.8.4, GHC==8.6.5, GHC==8.4.4, GHC==8.2.2, GHC==8.0.2
 
 executable precompute-fileinfo
   main-is:             Main.hs
-  build-depends:       base                 >= 4.8,
+  build-depends:       base                 >= 4.9,
                        bytestring           >= 0.9,
                        containers           >= 0.4,
                        deepseq              >= 1.3,

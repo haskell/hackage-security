@@ -3,10 +3,8 @@
 {-# LANGUAGE IncoherentInstances #-}
 {-# LANGUAGE RoleAnnotations     #-}
 
-{-# OPTIONS_GHC -fno-warn-unused-binds #-}
-#if __GLASGOW_HASKELL__ >= 800
+{-# OPTIONS_GHC -Wno-unused-binds #-}
 {-# OPTIONS_GHC -Wno-redundant-constraints #-}
-#endif
 
 -- | Checked exceptions
 module Hackage.Security.Util.Checked (
