@@ -88,11 +88,7 @@ import Control.Monad
 import Data.List (isPrefixOf)
 import System.IO (IOMode(..), BufferMode(..), Handle, SeekMode(..))
 import System.IO.Unsafe (unsafeInterleaveIO)
-#if MIN_VERSION_directory(1,2,0)
 import Data.Time (UTCTime)
-#else
-import System.Time (ClockTime)
-#endif
 import qualified Data.ByteString         as BS
 import qualified Data.ByteString.Lazy    as BS.L
 import qualified System.FilePath         as FP.Native
@@ -239,21 +235,7 @@ class FsRoot root where
   toAbsoluteFilePath :: Path root -> IO FilePath
 
 instance FsRoot Relative where
-    toAbsoluteFilePath p = go (unPathNative p)
-      where
-        go :: FilePath -> IO FilePath
-#if MIN_VERSION_directory(1,2,2)
-        go = Dir.makeAbsolute
-#else
-        -- copied implementation from the directory package
-        go = (FP.Native.normalise <$>) . absolutize
-        absolutize path -- avoid the call to `getCurrentDirectory` if we can
-          | FP.Native.isRelative path
-                      = (FP.Native.</> path)
-                      . FP.Native.addTrailingPathSeparator <$>
-                        Dir.getCurrentDirectory
-          | otherwise = return path
-#endif
+    toAbsoluteFilePath p = Dir.makeAbsolute (unPathNative p)
 
 instance FsRoot Absolute where
     toAbsoluteFilePath = return . unPathNative
@@ -371,11 +353,7 @@ doesDirectoryExist path = do
     filePath <- toAbsoluteFilePath path
     Dir.doesDirectoryExist filePath
 
-#if MIN_VERSION_directory(1,2,0)
 getModificationTime :: FsRoot root => Path root -> IO UTCTime
-#else
-getModificationTime :: FsRoot root => Path root -> IO ClockTime
-#endif
 getModificationTime path = do
     filePath <- toAbsoluteFilePath path
     Dir.getModificationTime filePath
