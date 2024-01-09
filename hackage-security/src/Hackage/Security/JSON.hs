@@ -84,13 +84,8 @@ data DeserializationError =
   | DeserializationErrorFileType String String
   deriving (Typeable)
 
-#if MIN_VERSION_base(4,8,0)
 deriving instance Show DeserializationError
 instance Exception DeserializationError where displayException = pretty
-#else
-instance Show DeserializationError where show = pretty
-instance Exception DeserializationError
-#endif
 
 instance Pretty DeserializationError where
   pretty (DeserializationErrorMalformed str) =

@@ -49,11 +49,6 @@ topLevelExceptionHandler e = do
     putStrLn $ displayException e
     exitFailure
 
-#if !MIN_VERSION_base(4,8,0)
-displayException :: Exception e => e -> String
-displayException = show
-#endif
-
 {-------------------------------------------------------------------------------
   Creating keys
 -------------------------------------------------------------------------------}

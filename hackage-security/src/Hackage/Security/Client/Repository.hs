@@ -385,13 +385,8 @@ data SomeRemoteError :: * where
     SomeRemoteError :: Exception e => e -> SomeRemoteError
   deriving (Typeable)
 
-#if MIN_VERSION_base(4,8,0)
 deriving instance Show SomeRemoteError
 instance Exception SomeRemoteError where displayException = pretty
-#else
-instance Exception SomeRemoteError
-instance Show SomeRemoteError where show = pretty
-#endif
 
 instance Pretty SomeRemoteError where
     pretty (SomeRemoteError ex) = displayException ex

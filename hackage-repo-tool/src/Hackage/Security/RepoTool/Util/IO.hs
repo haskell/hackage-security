@@ -123,11 +123,6 @@ data TarGzError = TarGzError FilePath SomeException
   deriving (Typeable)
 
 instance Exception TarGzError where
-#if MIN_VERSION_base(4,8,0)
   displayException (TarGzError path e) = path ++ ": " ++ displayException e
 
 deriving instance Show TarGzError
-#else
-instance Show TarGzError where
-  show (TarGzError path e) = path ++ ": " ++ show e
-#endif

@@ -13,30 +13,17 @@ module Hackage.Security.Util.Some (
   , SomePretty(..)
     -- ** Type checking
   , typecheckSome
-#if !MIN_VERSION_base(4,7,0)
-    -- ** Compatibility with base < 4.7
-  , tyConSome
-#endif
   ) where
 
 import Prelude
-#if MIN_VERSION_base(4,7,0)
 import Data.Typeable (Typeable)
-#else
-import qualified Data.Typeable as Typeable
-#endif
 
 import Hackage.Security.Util.TypedEmbedded
 import Hackage.Security.Util.Pretty
 
 data Some f = forall a. Some (f a)
 
-#if MIN_VERSION_base(4,7,0)
 deriving instance Typeable Some
-#else
-tyConSome :: Typeable.TyCon
-tyConSome = Typeable.mkTyCon3 "hackage-security" "Hackage.Security.Util.Some" "Some"
-#endif
 
 {-------------------------------------------------------------------------------
   Equality on Some types

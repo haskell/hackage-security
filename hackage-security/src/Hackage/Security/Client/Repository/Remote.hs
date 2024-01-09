@@ -498,13 +498,8 @@ instance Pretty FileTooLarge where
       expected (FileSizeExact n) = "exactly " ++ show n
       expected (FileSizeBound n) = "at most " ++ show n
 
-#if MIN_VERSION_base(4,8,0)
 deriving instance Show FileTooLarge
 instance Exception FileTooLarge where displayException = pretty
-#else
-instance Exception FileTooLarge
-instance Show FileTooLarge where show = pretty
-#endif
 
 {-------------------------------------------------------------------------------
   Information about remote files

@@ -1,7 +1,6 @@
 {-# LANGUAGE CPP #-}
-#if __GLASGOW_HASKELL__ >= 710
 {-# LANGUAGE StaticPointers #-}
-#endif
+
 -- | Main entry point into the Hackage Security framework for clients
 module Hackage.Security.Client (
     -- * Checking for updates
@@ -952,21 +951,12 @@ data InvalidFileInIndex = forall dec. InvalidFileInIndex {
   }
   deriving (Typeable)
 
-#if MIN_VERSION_base(4,8,0)
 deriving instance Show InvalidPackageException
 deriving instance Show LocalFileCorrupted
 deriving instance Show InvalidFileInIndex
 instance Exception InvalidPackageException where displayException = pretty
 instance Exception LocalFileCorrupted where displayException = pretty
 instance Exception InvalidFileInIndex where displayException = pretty
-#else
-instance Show InvalidPackageException where show = pretty
-instance Show LocalFileCorrupted where show = pretty
-instance Show InvalidFileInIndex where show = pretty
-instance Exception InvalidPackageException
-instance Exception LocalFileCorrupted
-instance Exception InvalidFileInIndex
-#endif
 
 instance Pretty InvalidPackageException where
   pretty (InvalidPackageException pkgId) = "Invalid package " ++ display pkgId

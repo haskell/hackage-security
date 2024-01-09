@@ -1,7 +1,6 @@
 {-# LANGUAGE CPP #-}
-#if __GLASGOW_HASKELL__ >= 710
 {-# LANGUAGE StaticPointers #-}
-#endif
+
 module Hackage.Security.Trusted (
     module Hackage.Security.Trusted.TCB
     -- * Derived functions

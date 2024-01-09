@@ -133,17 +133,10 @@ instance Pretty UnexpectedResponse where
 instance Pretty InvalidProxy where
   pretty (InvalidProxy p) = "Invalid proxy " ++ show p
 
-#if MIN_VERSION_base(4,8,0)
 deriving instance Show UnexpectedResponse
 deriving instance Show InvalidProxy
 instance Exception UnexpectedResponse where displayException = pretty
 instance Exception InvalidProxy where displayException = pretty
-#else
-instance Show UnexpectedResponse where show = pretty
-instance Show InvalidProxy where show = pretty
-instance Exception UnexpectedResponse
-instance Exception InvalidProxy
-#endif
 
 {-------------------------------------------------------------------------------
   Additional operations

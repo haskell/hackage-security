@@ -37,10 +37,6 @@ import qualified Data.ByteString.Char8 as BS.C8
 import qualified Data.ByteString.Base16 as Base16
 import qualified Data.ByteString.Lazy as BS.L
 
-#if !MIN_VERSION_base(4,7,0)
-import qualified Data.Typeable as Typeable
-#endif
-
 import Hackage.Security.Util.JSON
 import Hackage.Security.Util.Some
 import Hackage.Security.Util.TypedEmbedded
@@ -277,26 +273,3 @@ instance ReportSchemaErrors m => FromJSON m (Some KeyType) where
     case tag of
       "ed25519"  -> return . Some $ KeyTypeEd25519
       _otherwise -> expected "valid key type" (Just tag)
-
-{-------------------------------------------------------------------------------
-  Orphans
-
-  Pre-7.8 (base 4.7) we cannot have Typeable instance for higher-kinded types.
-  Instead, here we provide some instance for specific instantiations.
--------------------------------------------------------------------------------}
-
-#if !MIN_VERSION_base(4,7,0)
-tyConKey, tyConPublicKey, tyConPrivateKey :: Typeable.TyCon
-tyConKey        = Typeable.mkTyCon3 "hackage-security" "Hackage.Security.Key" "Key"
-tyConPublicKey  = Typeable.mkTyCon3 "hackage-security" "Hackage.Security.Key" "PublicKey"
-tyConPrivateKey = Typeable.mkTyCon3 "hackage-security" "Hackage.Security.Key" "PrivateKey"
-
-instance Typeable (Some Key) where
-  typeOf _ = Typeable.mkTyConApp tyConSome [Typeable.mkTyConApp tyConKey []]
-
-instance Typeable (Some PublicKey) where
-  typeOf _ = Typeable.mkTyConApp tyConSome [Typeable.mkTyConApp tyConPublicKey []]
-
-instance Typeable (Some PrivateKey) where
-  typeOf _ = Typeable.mkTyConApp tyConSome [Typeable.mkTyConApp tyConPrivateKey []]
-#endif

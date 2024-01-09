@@ -1,15 +1,12 @@
 {-# LANGUAGE CPP #-}
+{-# LANGUAGE DeriveDataTypeable  #-}
+{-# LANGUAGE IncoherentInstances #-}
+{-# LANGUAGE RoleAnnotations     #-}
+
 {-# OPTIONS_GHC -fno-warn-unused-binds #-}
 #if __GLASGOW_HASKELL__ >= 800
 {-# OPTIONS_GHC -Wno-redundant-constraints #-}
 #endif
-
-#if __GLASGOW_HASKELL__ >= 708
-{-# LANGUAGE RoleAnnotations     #-}
-{-# LANGUAGE IncoherentInstances #-}
-#endif
-
-{-# LANGUAGE DeriveDataTypeable#-}
 
 -- | Checked exceptions
 module Hackage.Security.Util.Checked (
@@ -30,11 +27,7 @@ import Control.Exception (Exception, IOException)
 import qualified Control.Exception as Base
 import Data.Typeable (Typeable)
 
-#if __GLASGOW_HASKELL__ >= 708
 import GHC.Prim (coerce)
-#else
-import Unsafe.Coerce (unsafeCoerce)
-#endif
 
 {-------------------------------------------------------------------------------
   Basic infrastructure
@@ -43,9 +36,7 @@ import Unsafe.Coerce (unsafeCoerce)
 -- | Checked exceptions
 class Throws e where
 
-#if __GLASGOW_HASKELL__ >= 708
 type role Throws representational
-#endif
 
 unthrow :: forall a e proxy . proxy e -> (Throws e => a) -> a
 unthrow _ x = unWrap (coerceWrap (Wrap x :: Wrap e a))
@@ -56,22 +47,10 @@ unthrow _ x = unWrap (coerceWrap (Wrap x :: Wrap e a))
 
 -- | Determine if an exception is asynchronous, based on its type.
 isAsync :: Exception e => e -> Bool
-#if MIN_VERSION_base(4, 7, 0)
 isAsync e =
   case Base.fromException $ Base.toException e of
     Just Base.SomeAsyncException{} -> True
     Nothing -> False
-#else
--- Earlier versions of GHC had no SomeAsyncException. We have to
--- instead make up a list of async exceptions.
-isAsync e =
-  let se = Base.toException e
-   in case () of
-        ()
-          | Just (_ :: Base.AsyncException) <- Base.fromException se -> True
-          | show e == "<<timeout>>" -> True
-          | otherwise -> False
-#endif
 
 -- | 'Base.catch', but immediately rethrows asynchronous exceptions
 -- (as determined by 'isAsync').
@@ -131,11 +110,7 @@ internalError = throwUnchecked . userError
 newtype Wrap e a = Wrap { unWrap :: Throws e => a }
 
 coerceWrap :: Wrap e a -> Wrap (Catch e) a
-#if __GLASGOW_HASKELL__ >= 708
 coerceWrap = coerce
-#else
-coerceWrap = unsafeCoerce
-#endif
 
 data Proxy a = Proxy
 

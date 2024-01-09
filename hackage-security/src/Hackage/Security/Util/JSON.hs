@@ -1,7 +1,5 @@
 {-# LANGUAGE CPP #-}
-#if __GLASGOW_HASKELL__ < 710
-{-# LANGUAGE OverlappingInstances #-}
-#endif
+
 -- |
 module Hackage.Security.Util.JSON (
     -- * Type classes
@@ -120,16 +118,12 @@ instance ReportSchemaErrors m => FromJSON m Int54 where
   fromJSON val       = expected' "int" val
 
 instance
-#if __GLASGOW_HASKELL__ >= 710
   {-# OVERLAPPABLE #-}
-#endif
     (Monad m, ToJSON m a) => ToJSON m [a] where
   toJSON = liftM JSArray . mapM toJSON
 
 instance
-#if __GLASGOW_HASKELL__ >= 710
   {-# OVERLAPPABLE #-}
-#endif
     (ReportSchemaErrors m, FromJSON m a) => FromJSON m [a] where
   fromJSON (JSArray as) = mapM fromJSON as
   fromJSON val          = expected' "array" val

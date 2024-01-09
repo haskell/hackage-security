@@ -16,14 +16,8 @@ module Hackage.Security.Trusted.TCB (
   , signaturesVerified
   , verifyRole'
   , verifyFingerprints
-#if __GLASGOW_HASKELL__ >= 710
     -- * Re-exports
   , StaticPtr
-#else
-    -- * Fake static pointers
-  , StaticPtr
-  , static
-#endif
   ) where
 
 import Prelude
@@ -38,17 +32,7 @@ import Hackage.Security.Key
 import Hackage.Security.Util.Pretty
 import qualified Hackage.Security.Util.Lens as Lens
 
-#if __GLASGOW_HASKELL__ >= 710
 import GHC.StaticPtr
-#else
--- Fake static pointers for ghc < 7.10. This means Trusted offers no
--- additional type safety, but that's okay: we can still verify the code
--- with ghc 7.10 and get the additional checks.
-newtype StaticPtr a = StaticPtr { deRefStaticPtr :: a }
-
-static :: a -> StaticPtr a
-static = StaticPtr
-#endif
 
 -- | Trusted values
 --
@@ -209,17 +193,10 @@ data RootUpdated = RootUpdated
 
 type VerificationHistory = [Either RootUpdated VerificationError]
 
-#if MIN_VERSION_base(4,8,0)
 deriving instance Show VerificationError
 deriving instance Show RootUpdated
 instance Exception VerificationError where displayException = pretty
 instance Exception RootUpdated where displayException = pretty
-#else
-instance Exception VerificationError
-instance Show VerificationError where show = pretty
-instance Show RootUpdated where show = pretty
-instance Exception RootUpdated
-#endif
 
 indentedLines :: [String] -> String
 indentedLines = unlines . map ("  " ++)

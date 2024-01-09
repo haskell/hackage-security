@@ -37,14 +37,9 @@ import Text.ParserCombinators.Parsec
          , parse )
 import Text.PrettyPrint hiding (char)
 import qualified Text.PrettyPrint as Doc
-#if !(MIN_VERSION_base(4,7,0))
-import Control.Applicative ((<$>), (<$), pure, (<*>), (<*), (*>))
-#endif
 import Control.Arrow (first)
 import Data.Bits (Bits)
-#if MIN_VERSION_base(4,7,0)
 import Data.Bits (FiniteBits)
-#endif
 import Data.Char (isDigit, digitToInt)
 import Data.Data (Data)
 import Data.Function (on)
@@ -83,9 +78,7 @@ newtype Int54 = Int54 { int54ToInt64 :: Int64 }
            , Ord
            , Real
            , Ix
-#if MIN_VERSION_base(4,7,0)
            , FiniteBits
-#endif
            , Bits
            , Storable
            , PrintfArg
