@@ -9,7 +9,7 @@ module Hackage.Security.Util.IO (
   , timedIO
   ) where
 
-import MyPrelude
+import Prelude
 import Control.Concurrent (threadDelay)
 import Control.Exception
 import Data.Time

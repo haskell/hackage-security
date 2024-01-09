@@ -13,7 +13,7 @@ module Hackage.Security.TUF.FileInfo (
   , Int54
   ) where
 
-import MyPrelude hiding (lookup)
+import Prelude hiding (lookup)
 import Data.Map (Map)
 import qualified Crypto.Hash.SHA256   as SHA256
 import qualified Data.Map             as Map

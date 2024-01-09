@@ -4,7 +4,7 @@ module Hackage.Security.Util.Base64 (
   , toByteString
   ) where
 
-import MyPrelude
+import Prelude
 import Data.ByteString (ByteString)
 import qualified Data.ByteString.Char8  as C8  -- only called on B64-enc strings
 import qualified Data.ByteString.Base64 as B64

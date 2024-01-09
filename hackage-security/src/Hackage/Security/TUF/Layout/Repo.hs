@@ -5,7 +5,7 @@ module Hackage.Security.TUF.Layout.Repo (
   , cabalLocalRepoLayout
   ) where
 
-import MyPrelude
+import Prelude
 import Distribution.Package
 import Distribution.Text
 

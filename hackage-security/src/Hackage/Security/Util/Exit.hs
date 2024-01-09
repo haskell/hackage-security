@@ -1,6 +1,6 @@
 module Hackage.Security.Util.Exit where
 
-import MyPrelude
+import Prelude
 import Control.Monad (liftM)
 import Control.Monad.Except (ExceptT, runExceptT, throwError)
 

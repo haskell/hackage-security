@@ -18,7 +18,7 @@ module Hackage.Security.TUF.FileMap (
   , fileMapChanges
   ) where
 
-import MyPrelude hiding (lookup)
+import Prelude hiding (lookup)
 import Control.Arrow (second)
 import Data.Map (Map)
 import qualified Data.Map as Map

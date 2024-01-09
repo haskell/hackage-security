@@ -3,7 +3,7 @@ module Hackage.Security.TUF.Snapshot (
     Snapshot(..)
   ) where
 
-import MyPrelude
+import Prelude
 import Control.Monad.Except
 import Control.Monad.Reader
 

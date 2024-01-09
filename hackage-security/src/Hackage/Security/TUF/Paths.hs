@@ -14,7 +14,7 @@ module Hackage.Security.TUF.Paths (
   , anchorCachePath
   ) where
 
-import MyPrelude
+import Prelude
 import Hackage.Security.Util.Path
 import Hackage.Security.Util.Pretty
 

@@ -30,7 +30,7 @@ module Text.JSON.Canonical
   , prettyCanonicalJSON
   ) where
 
-import MyPrelude
+import Prelude
 import Text.ParserCombinators.Parsec
          ( CharParser, (<|>), (<?>), many, between, sepBy
          , satisfy, char, string, digit, spaces
@@ -353,4 +353,3 @@ punctuate' l p r (x:xs) = l <+> x : go xs
     go []     = []
     go [y]    = [p <+> y, r]
     go (y:ys) = (p <+> y) : go ys
-

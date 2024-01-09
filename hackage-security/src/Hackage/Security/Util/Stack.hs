@@ -3,7 +3,7 @@ module Hackage.Security.Util.Stack (
     (:-)(..)
   ) where
 
-import MyPrelude
+import Prelude
 
 data h :- t = h :- t
   deriving (Eq, Show)

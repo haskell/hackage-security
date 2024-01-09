@@ -10,7 +10,7 @@ module Hackage.Security.Client.Verify (
   , liftIO
   ) where
 
-import MyPrelude
+import Prelude
 import Control.Exception
 import Control.Monad (join, void)
 import Control.Monad.IO.Class (MonadIO, liftIO)

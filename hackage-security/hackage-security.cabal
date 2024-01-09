@@ -110,8 +110,7 @@ library
                        Hackage.Security.Util.Lens
                        Hackage.Security.Util.Stack
                        Hackage.Security.Util.TypedEmbedded
-                       MyPrelude
-  -- We support ghc 7.4 (bundled with Cabal 1.14) and up
+
   build-depends:       base              >= 4.8     && < 4.20,
                          -- PatternSynonyms are only available since GHC 7.8 (base 4.7)
                        base16-bytestring >= 0.1.1   && < 1.1,

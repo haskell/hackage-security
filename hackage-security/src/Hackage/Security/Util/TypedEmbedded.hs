@@ -7,7 +7,7 @@ module Hackage.Security.Util.TypedEmbedded (
   , AsType(..)
   ) where
 
-import MyPrelude
+import Prelude
 
 -- | Type equality proofs
 --

@@ -27,7 +27,7 @@ module Hackage.Security.TUF.Signed (
   , toPreSignatures
   ) where
 
-import MyPrelude
+import Prelude
 import Control.Monad
 import Data.Functor.Identity
 import qualified Data.ByteString      as BS

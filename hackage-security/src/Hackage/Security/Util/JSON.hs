@@ -23,7 +23,7 @@ module Hackage.Security.Util.JSON (
   , Int54
   ) where
 
-import MyPrelude
+import Prelude
 import Control.Monad (liftM)
 import Data.Maybe (catMaybes)
 import Data.Map (Map)

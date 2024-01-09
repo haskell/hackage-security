@@ -12,7 +12,7 @@ module Hackage.Security.Key.Env (
   , union
   ) where
 
-import MyPrelude hiding (lookup, null)
+import Prelude hiding (lookup, null)
 import Control.Monad
 import Data.Map (Map)
 import qualified Data.Map as Map

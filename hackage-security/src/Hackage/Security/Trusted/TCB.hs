@@ -26,7 +26,7 @@ module Hackage.Security.Trusted.TCB (
 #endif
   ) where
 
-import MyPrelude
+import Prelude
 import Control.Exception
 import Control.Monad (when, unless)
 import Control.Monad.Except (Except, runExcept, throwError)

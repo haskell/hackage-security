@@ -9,7 +9,7 @@ module Hackage.Security.TUF.Layout.Index (
   , indexLayoutPkgPrefs
   ) where
 
-import MyPrelude
+import Prelude
 import Distribution.Package
 import Distribution.Text
 

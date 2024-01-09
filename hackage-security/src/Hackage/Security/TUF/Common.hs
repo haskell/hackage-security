@@ -6,7 +6,7 @@ module Hackage.Security.TUF.Common (
   , KeyThreshold(..)
   ) where
 
-import MyPrelude
+import Prelude
 import Hackage.Security.JSON
 
 {-------------------------------------------------------------------------------

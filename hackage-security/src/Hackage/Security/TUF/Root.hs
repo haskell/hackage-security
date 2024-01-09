@@ -6,7 +6,7 @@ module Hackage.Security.TUF.Root (
   , RoleSpec(..)
   ) where
 
-import MyPrelude
+import Prelude
 import Hackage.Security.JSON
 import Hackage.Security.Key
 import Hackage.Security.Key.Env (KeyEnv)

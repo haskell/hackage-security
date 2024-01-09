@@ -5,7 +5,7 @@ module Hackage.Security.Client.Repository.Local (
   , withRepository
   ) where
 
-import MyPrelude
+import Prelude
 import Hackage.Security.Client.Formats
 import Hackage.Security.Client.Repository
 import Hackage.Security.Client.Repository.Cache

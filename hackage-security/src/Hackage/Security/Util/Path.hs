@@ -83,7 +83,7 @@ module Hackage.Security.Util.Path (
   , IO.hSeek
   ) where
 
-import MyPrelude
+import Prelude
 import Control.Monad
 import Data.List (isPrefixOf)
 import System.IO (IOMode(..), BufferMode(..), Handle, SeekMode(..))

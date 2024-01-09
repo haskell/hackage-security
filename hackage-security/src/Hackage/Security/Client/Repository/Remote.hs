@@ -27,7 +27,7 @@ module Hackage.Security.Client.Repository.Remote (
   , fileSizeWithinBounds
   ) where
 
-import MyPrelude
+import Prelude
 import Control.Concurrent
 import Control.Exception
 import Control.Monad (when, unless)
@@ -687,4 +687,3 @@ verifyRemoteFile remoteTemp trustedInfo = do
                 BS.L.take (fromIntegral deltaSeek) existing
               , temp
               ]
-
