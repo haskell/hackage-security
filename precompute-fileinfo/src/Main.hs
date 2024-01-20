@@ -1,3 +1,5 @@
+{-# LANGUAGE  ScopedTypeVariables #-}
+
 module Main where
 
 import Control.Concurrent
@@ -167,13 +169,13 @@ writeMap fp hashes = withFile fp WriteMode $ \h ->
 readMap :: FilePath -> IO (Map MD5 (SHA256, Length))
 readMap fp =
     withFile fp ReadMode $ \h -> do
-      hashes <- Map.fromList . map parseEntry . lines <$> hGetContents h
+      hashes <- mapFromParseEntry . lines <$> hGetContents h
       evaluate $ rnf hashes
       return hashes
   where
-    parseEntry :: String -> (MD5, (SHA256, Length))
-    parseEntry line = let [md5, sha256, len] = words line
-                      in (md5, (sha256, read len))
+    mapFromParseEntry :: [String] -> Map MD5 (SHA256, Length)
+    mapFromParseEntry mapLines = Map.fromList
+      [(md5, (sha256, read len)) | [md5, sha256, len] <- words <$> mapLines]
 
 {-------------------------------------------------------------------------------
   Auxiliary
