@@ -238,7 +238,7 @@ getRemote remoteConfig selectedMirror attemptNr remoteFile = do
 -- error we want to make sure caches get files upstream in case the validation
 -- error was because the cache updated files out of order.
 httpRequestHeaders :: RemoteConfig -> AttemptNr -> [HttpRequestHeader]
-httpRequestHeaders RemoteConfig{..} attemptNr =
+httpRequestHeaders RemoteConfig{} attemptNr =
     if attemptNr == 0 then defaultHeaders
                       else HttpRequestMaxAge0 : defaultHeaders
   where
@@ -256,7 +256,7 @@ withMirror :: forall a.
            -> Maybe [Mirror]         -- ^ TUF mirrors
            -> IO a                   -- ^ Callback
            -> IO a
-withMirror HttpLib{..}
+withMirror HttpLib{}
            selectedMirror
            logger
            oobMirrors

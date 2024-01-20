@@ -410,7 +410,7 @@ createPackageMetadata opts repoLoc whenWrite pkgId = do
 
 -- | Find the files we need to add to the index
 findNewIndexFiles :: GlobalOpts -> RepoLoc -> WhenWrite -> IO [IndexPath]
-findNewIndexFiles opts@GlobalOpts{..} repoLoc whenWrite = do
+findNewIndexFiles opts@GlobalOpts{} repoLoc whenWrite = do
     indexTS    <- getFileModTime opts repoLoc (InRep repoLayoutIndexTar)
     indexFiles <- getRecursiveContents absIndexDir
 
@@ -430,7 +430,7 @@ findNewIndexFiles opts@GlobalOpts{..} repoLoc whenWrite = do
 
 -- | Extract the cabal file from the package tarball and copy it to the index
 extractCabalFile :: GlobalOpts -> RepoLoc -> WhenWrite -> PackageIdentifier -> IO ()
-extractCabalFile opts@GlobalOpts{..} repoLoc whenWrite pkgId = do
+extractCabalFile opts@GlobalOpts{} repoLoc whenWrite pkgId = do
     srcTS <- getFileModTime opts repoLoc src
     dstTS <- getFileModTime opts repoLoc dst
     let skip = case whenWrite of
