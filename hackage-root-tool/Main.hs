@@ -1,7 +1,6 @@
-{-# LANGUAGE CPP, ScopedTypeVariables, RecordWildCards #-}
+{-# LANGUAGE ScopedTypeVariables, RecordWildCards #-}
 module Main (main) where
 
-import Data.Monoid
 import Control.Exception
 import GHC.Conc.Sync (setUncaughtExceptionHandler)
 import System.Exit

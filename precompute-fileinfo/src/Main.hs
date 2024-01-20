@@ -1,12 +1,10 @@
 module Main where
 
-import Control.Applicative
 import Control.Concurrent
 import Control.DeepSeq
 import Control.Exception
 import Control.Monad
 import Data.Map.Strict (Map)
-import Data.Monoid
 import Options.Applicative
 import System.FilePath
 import System.IO
