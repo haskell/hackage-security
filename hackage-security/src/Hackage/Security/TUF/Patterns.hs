@@ -126,8 +126,8 @@ matchPattern = go . splitDirectories
     go []    _                    = Nothing
     go [f]   (PatFileConst f')    = do guard (f == f')
                                        return ()
-    go [f]   (PatFileExt   e')    = do let (bn, _:e) = splitExtension f
-                                       guard $ e == e'
+    go [f]   (PatFileExt   e')    = do let (bn, dotExt) = splitExtension f
+                                       guard $ dotExt == '.':e'
                                        return (bn :- ())
     go [_]   _                    = Nothing
     go (d:p) (PatDirConst  d' p') = do guard (d == d')
