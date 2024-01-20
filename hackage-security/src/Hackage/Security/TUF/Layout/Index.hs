@@ -10,6 +10,7 @@ module Hackage.Security.TUF.Layout.Index (
   ) where
 
 import Prelude
+import Data.Kind (Type)
 import Distribution.Package
 import Distribution.Text
 
@@ -43,7 +44,7 @@ data IndexLayout = IndexLayout  {
 -- TODO: If we wanted to support legacy Hackage, we should also have a case for
 -- the global preferred-versions file. But supporting legacy Hackage will
 -- probably require more work anyway..
-data IndexFile :: * -> * where
+data IndexFile :: Type -> Type where
     -- Package-specific metadata (@targets.json@)
     IndexPkgMetadata :: PackageIdentifier -> IndexFile (Signed Targets)
 

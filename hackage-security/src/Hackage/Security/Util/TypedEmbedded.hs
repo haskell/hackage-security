@@ -8,6 +8,7 @@ module Hackage.Security.Util.TypedEmbedded (
   ) where
 
 import Prelude
+import Data.Kind (Type)
 
 -- | Type equality proofs
 --
@@ -16,7 +17,7 @@ import Prelude
 data a :=: b where
   Refl :: a :=: a
 
-type family TypeOf (f :: * -> *) :: * -> *
+type family TypeOf (f :: Type -> Type) :: Type -> Type
 
 -- | Equality check that gives us a type-level equality proof.
 class Unify f where

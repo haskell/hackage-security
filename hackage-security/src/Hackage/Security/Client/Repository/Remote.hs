@@ -32,6 +32,7 @@ import Control.Concurrent
 import Control.Exception
 import Control.Monad (when, unless)
 import Control.Monad.IO.Class (MonadIO)
+import Data.Kind (Type)
 import Data.List (nub, intercalate)
 import Data.Typeable
 import Network.URI hiding (uriPath, path)
@@ -300,7 +301,7 @@ withMirror HttpLib{}
 -------------------------------------------------------------------------------}
 
 -- | Download method (downloading or updating)
-data DownloadMethod :: * -> * -> * where
+data DownloadMethod :: Type -> Type -> Type where
     -- Download this file (we never attempt to update this type of file)
     NeverUpdated :: {
         neverUpdatedFormat :: HasFormat fs f
@@ -595,7 +596,7 @@ fileLength' = fileLength . fileInfoLength . trusted
   Files downloaded from the remote repository
 -------------------------------------------------------------------------------}
 
-data RemoteTemp :: * -> * where
+data RemoteTemp :: Type -> Type where
     DownloadedWhole :: {
         wholeTemp :: Path Absolute
       } -> RemoteTemp a

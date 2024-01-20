@@ -18,6 +18,7 @@ module Hackage.Security.Client.Formats (
   ) where
 
 import Prelude
+import Data.Kind (Type)
 import Hackage.Security.Util.Stack
 import Hackage.Security.Util.TypedEmbedded
 
@@ -31,7 +32,7 @@ data FormatGz
 -- | Format is a singleton type (reflection type to term level)
 --
 -- NOTE: In the future we might add further compression formats.
-data Format :: * -> * where
+data Format :: Type -> Type where
   FUn :: Format FormatUn
   FGz :: Format FormatGz
 
@@ -55,7 +56,7 @@ instance Unify Format where
 --
 -- NOTE: If we add additional cases here (for dealing with additional formats)
 -- all calls to @error "inaccessible"@ need to be reevaluated.
-data Formats :: * -> * -> * where
+data Formats :: Type -> Type -> Type where
   FsNone :: Formats () a
   FsUn   :: a -> Formats (FormatUn :- ()) a
   FsGz   :: a -> Formats (FormatGz :- ()) a
@@ -74,7 +75,7 @@ instance Functor (Formats fs) where
 -- | @HasFormat fs f@ is a proof that @f@ is a key in @fs@.
 --
 -- See 'formatsMember' and 'formatsLookup' for typical usage.
-data HasFormat :: * -> * -> * where
+data HasFormat :: Type -> Type -> Type where
   HFZ :: Format f       -> HasFormat (f  :- fs) f
   HFS :: HasFormat fs f -> HasFormat (f' :- fs) f
 
