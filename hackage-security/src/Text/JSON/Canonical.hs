@@ -38,8 +38,7 @@ import Text.ParserCombinators.Parsec
 import Text.PrettyPrint hiding (char)
 import qualified Text.PrettyPrint as Doc
 import Control.Arrow (first)
-import Data.Bits (Bits)
-import Data.Bits (FiniteBits)
+import Data.Bits (Bits, FiniteBits)
 import Data.Char (isDigit, digitToInt)
 import Data.Data (Data)
 import Data.Function (on)
