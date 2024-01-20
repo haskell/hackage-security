@@ -1,4 +1,3 @@
-{-# LANGUAGE CPP #-}
 {-# LANGUAGE StaticPointers #-}
 
 -- | Main entry point into the Hackage Security framework for clients

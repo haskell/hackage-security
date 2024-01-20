@@ -2,7 +2,6 @@
 --
 -- NOTE: This module was developed to prepare for proper delegation (#39).
 -- It is currently unused.
-{-# LANGUAGE CPP #-}
 {-# LANGUAGE DeriveLift #-}
 {-# LANGUAGE StandaloneDeriving #-}
 

@@ -1,5 +1,3 @@
-{-# LANGUAGE CPP #-}
---------------------------------------------------------------------
 -- |
 -- Module    : Text.JSON.Parsec
 -- Copyright : (c) Galois, Inc. 2007-2009, Duncan Coutts 2015

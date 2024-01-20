@@ -1,4 +1,3 @@
-{-# LANGUAGE CPP #-}
 -- | Hiding existentials
 module Hackage.Security.Util.Some (
     Some(..)

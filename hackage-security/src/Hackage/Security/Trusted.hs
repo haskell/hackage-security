@@ -1,4 +1,3 @@
-{-# LANGUAGE CPP #-}
 {-# LANGUAGE StaticPointers #-}
 
 module Hackage.Security.Trusted (

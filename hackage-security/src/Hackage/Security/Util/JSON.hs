@@ -1,5 +1,3 @@
-{-# LANGUAGE CPP #-}
-
 -- |
 module Hackage.Security.Util.JSON (
     -- * Type classes

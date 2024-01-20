@@ -1,4 +1,3 @@
-{-# LANGUAGE CPP #-}
 module Hackage.Security.Trusted.TCB (
     -- * Trusted values
     Trusted(DeclareTrusted)

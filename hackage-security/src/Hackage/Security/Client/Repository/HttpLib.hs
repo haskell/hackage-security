@@ -1,4 +1,3 @@
-{-# LANGUAGE CPP #-}
 -- | Abstracting over HTTP libraries
 module Hackage.Security.Client.Repository.HttpLib (
     HttpLib(..)
