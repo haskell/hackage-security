@@ -37,7 +37,7 @@ executable example-client
   main-is:             Main.hs
   other-modules:       ExampleClient.Options
 
-  build-depends:       base                 >= 4.9 && < 4.20,
+  build-depends:       base                 >= 4.11 && < 4.20,
                        bytestring           >= 0.9,
                        directory            >= 1.2,
                        filepath             >= 1.2,

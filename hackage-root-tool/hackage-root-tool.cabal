@@ -38,7 +38,7 @@ source-repository head
 
 executable hackage-root-tool
   main-is:             Main.hs
-  build-depends:       base                 >= 4.9  && < 5,
+  build-depends:       base                 >= 4.11  && < 5,
                        filepath             >= 1.2  && < 1.5,
                        optparse-applicative >= 0.11 && < 0.18,
                        hackage-security     >= 0.5  && < 0.7
