@@ -1,4 +1,4 @@
--- See http://cabal.readthedocs.io/en/latest/nix-local-build-overview.html
+-- SEE: https://cabal.readthedocs.io/en/latest/how-to-build-like-nix.html
 
 packages: hackage-security
           hackage-security-http-client
