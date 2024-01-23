@@ -323,7 +323,7 @@ _ex1 = matchDelegation del "A/x/y/z.foo"
             )
 
 _ex2 :: Maybe String
-_ex2 = either (const Nothing) (`matchDelegation` "A/x/y/z.foo")
+_ex2 = either undefined (`matchDelegation` "A/x/y/z.foo")
   (parseDelegation "A/*/*/*.foo" "B/*/C/*/*.bar")
 
 _ex3 :: Either String Delegation
