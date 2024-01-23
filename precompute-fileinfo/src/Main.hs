@@ -175,7 +175,11 @@ readMap fp =
   where
     mapFromParseEntry :: [String] -> Map MD5 (SHA256, Length)
     mapFromParseEntry mapLines = Map.fromList
-      [(md5, (sha256, read len)) | [md5, sha256, len] <- words <$> mapLines]
+      [ case ws of
+          [md5, sha256, len] -> (md5, (sha256, read len))
+          _ -> (unwords ws, undefined)
+      | ws <- words <$> mapLines
+      ]
 
 {-------------------------------------------------------------------------------
   Auxiliary
