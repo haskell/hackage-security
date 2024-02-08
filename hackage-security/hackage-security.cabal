@@ -128,7 +128,7 @@ library
                        template-haskell  >= 2.7     && < 2.22,
                        time              >= 1.5     && < 1.13,
                        transformers      >= 0.3     && < 0.7,
-                       zlib              >= 0.5     && < 0.7,
+                       zlib              >= 0.5     && < 0.8,
                        -- whatever versions are bundled with ghc:
                        ghc-prim
 
