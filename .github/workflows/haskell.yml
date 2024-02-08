@@ -15,10 +15,10 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        ghc: ['9.8.1', '9.6.3', '9.4.7']
+        ghc: ['9.8.1', '9.6.4', '9.4.8']
         os: [ubuntu-latest, macOS-latest, windows-latest]
     steps:
-    - uses: actions/checkout@v3
+    - uses: actions/checkout@v4
 
     - uses: haskell-actions/setup@v2
       id:   setup
@@ -28,7 +28,7 @@ jobs:
         cabal-update:  true
 
     - name: Cache
-      uses: actions/cache@v3
+      uses: actions/cache@v4
       env:
         cache-name: haskell.yml
       with:
