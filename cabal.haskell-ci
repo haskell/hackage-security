@@ -1,11 +1,12 @@
 branches: master
+installed: +all
 
 -- Andreas, 2023-07-01: We use some haddock features that are new in 8.6.
 haddock: >= 8.6
 
 -- -- Andreas, 2023-02-20: see https://github.com/haskell/hackage-security/pull/291
 -- -- unconstrained build with head.hackage produces failing build plans
--- unconstrained: < 9.6
+-- unconstrained: < 9.10
 --
 -- Andreas, 2023-07-01
 -- Ryan GI Scott suggests this instead:
@@ -15,11 +16,12 @@ raw-project
     base-compat >= 0.12.2
 
 constraint-set no-lukko
-  ghc: >=8.4
   constraints: hackage-security -lukko
 
 constraint-set containers-0.7
-  ghc: >= 8.4 && < 9.8
+  -- Andreas, 2024-03-19: possibly we will have to turn off the constraint set
+  -- for the head.hackage build with GHC 9.10.0
+  -- ghc: < 9.10
   constraints: containers >= 0.7
   tests: True
   run-tests: True
