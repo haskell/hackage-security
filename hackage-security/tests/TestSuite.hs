@@ -238,7 +238,7 @@ testRepoIndex inMemRepo repo = do
     length (directoryEntries dir1) @?= 0
 
     now <- getCurrentTime
-    inMemRepoSetIndex inMemRepo now [testEntry1]
+    inMemRepoSetIndex inMemRepo now testEntries1
 
     assertEqual "B" HasUpdates =<< checkForUpdates repo =<< checkExpiry
     dir2 <- getDirectory repo
@@ -264,9 +264,9 @@ testRepoIndex inMemRepo repo = do
              _        -> fail "unexpected index entry content"
          _ -> fail "unexpected index path"
 
-    testEntry1 = Tar.fileEntry path testEntrycontent
-      where
-        Right path = Tar.toTarPath False "foo/preferred-versions"
+    testEntries1 :: [Tar.GenEntry Tar.TarPath linkTarget]
+    testEntries1 = either (const []) (pure . (`Tar.fileEntry` testEntrycontent))
+        (Tar.toTarPath False "foo/preferred-versions")
     testEntrycontent   = BS.pack "foo >= 1"
     testEntryIndexFile = IndexPkgPrefs (mkPackageName "foo")
 

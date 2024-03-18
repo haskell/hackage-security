@@ -1,4 +1,3 @@
-{-# LANGUAGE CPP #-}
 {-# LANGUAGE StaticPointers #-}
 
 -- | Main entry point into the Hackage Security framework for clients
@@ -375,7 +374,7 @@ getRemoteFile :: ( Throws VerificationError
               -> Maybe UTCTime
               -> RemoteFile (f :- ()) Metadata
               -> Verify (Trusted a, down Metadata)
-getRemoteFile rep@Repository{..} cachedInfo@CachedInfo{..} isRetry mNow file = do
+getRemoteFile rep@Repository{} cachedInfo@CachedInfo{..} isRetry mNow file = do
     (targetPath, tempPath) <- getRemote' rep isRetry file
     verifyFileInfo' (remoteFileDefaultInfo file) targetPath tempPath
     signed   <- throwErrorsChecked (VerificationErrorDeserialization targetPath) =<<

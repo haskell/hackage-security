@@ -1,4 +1,3 @@
-{-# LANGUAGE CPP #-}
 -- | Implementation of 'HttpClient' using the HTTP package
 module Hackage.Security.Client.Repository.HttpLib.HTTP (
     withClient

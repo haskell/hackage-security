@@ -7,7 +7,6 @@
 --
 -- Note that his module does not import any other modules from Hackage.Security;
 -- everywhere else we use Path instead of FilePath directly.
-{-# LANGUAGE CPP #-}
 module Hackage.Security.Util.Path (
     -- * Paths
     Path(..)

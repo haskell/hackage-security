@@ -8,6 +8,7 @@ module TestSuite.InMemRepo (
 
 -- stdlib
 import Control.Exception
+import Data.Kind (Type)
 import Data.Time
 import qualified Codec.Archive.Tar      as Tar
 import qualified Codec.Compression.GZip as GZip
@@ -33,7 +34,7 @@ import TestSuite.Util.StrictMVar
   "Files" from the in-memory repository
 -------------------------------------------------------------------------------}
 
-data InMemFile :: * -> * where
+data InMemFile :: Type -> Type where
     InMemMetadata :: ToJSON WriteJSON a => RepoLayout -> a -> InMemFile Metadata
     InMemBinary   :: BS.L.ByteString -> InMemFile Binary
 

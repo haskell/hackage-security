@@ -32,6 +32,7 @@ module Hackage.Security.Client.Repository (
 
 import Prelude
 import Control.Exception
+import Data.Kind (Type)
 import Data.Typeable (Typeable)
 import qualified Codec.Archive.Tar.Index as Tar
 import qualified Data.ByteString.Lazy    as BS.L
@@ -63,7 +64,7 @@ data Binary
 -- is metadata actual binary content.
 --
 -- NOTE: Haddock lacks GADT support so constructors have only regular comments.
-data RemoteFile :: * -> * -> * where
+data RemoteFile :: Type -> Type -> Type where
     -- Timestamp metadata (@timestamp.json@)
     --
     -- We never have (explicit) file length available for timestamps.
@@ -361,7 +362,7 @@ data UpdateFailure =
   Downloaded files
 -------------------------------------------------------------------------------}
 
-class DownloadedFile (down :: * -> *) where
+class DownloadedFile (down :: Type -> Type) where
   -- | Verify a download file
   downloadedVerify :: down a -> Trusted FileInfo -> IO Bool
 
@@ -381,7 +382,7 @@ class DownloadedFile (down :: * -> *) where
 --
 -- For instance, for repositories using HTTP this might correspond to a 404;
 -- for local repositories this might correspond to file-not-found, etc.
-data SomeRemoteError :: * where
+data SomeRemoteError :: Type where
     SomeRemoteError :: Exception e => e -> SomeRemoteError
   deriving (Typeable)
 
@@ -419,7 +420,7 @@ remoteRepoPath' repoLayout file format =
 -------------------------------------------------------------------------------}
 
 -- | Is a particular remote file cached?
-data IsCached :: * -> * where
+data IsCached :: Type -> Type where
     -- This remote file should be cached, and we ask for it by name
     CacheAs :: CachedFile -> IsCached Metadata
 

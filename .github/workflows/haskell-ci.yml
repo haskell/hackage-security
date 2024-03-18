@@ -8,9 +8,9 @@
 #
 # For more information, see https://github.com/andreasabel/haskell-ci
 #
-# version: 0.17.20240127
+# version: 0.18.0.20240225
 #
-# REGENDATA ("0.17.20240127",["github","cabal.project"])
+# REGENDATA ("0.18.0.20240225",["github","cabal.project"])
 #
 name: Haskell-CI
 on:
@@ -37,9 +37,9 @@ jobs:
             compilerVersion: 9.8.1
             setup-method: ghcup
             allow-failure: false
-          - compiler: ghc-9.6.3
+          - compiler: ghc-9.6.4
             compilerKind: ghc
-            compilerVersion: 9.6.3
+            compilerVersion: 9.6.4
             setup-method: ghcup
             allow-failure: false
           - compiler: ghc-9.4.8
@@ -75,16 +75,6 @@ jobs:
           - compiler: ghc-8.4.4
             compilerKind: ghc
             compilerVersion: 8.4.4
-            setup-method: ghcup
-            allow-failure: false
-          - compiler: ghc-8.2.2
-            compilerKind: ghc
-            compilerVersion: 8.2.2
-            setup-method: ghcup
-            allow-failure: false
-          - compiler: ghc-8.0.2
-            compilerKind: ghc
-            compilerVersion: 8.0.2
             setup-method: ghcup
             allow-failure: false
       fail-fast: false
@@ -185,6 +175,7 @@ jobs:
           echo "packages: $GITHUB_WORKSPACE/source/hackage-root-tool" >> cabal.project
           echo "packages: $GITHUB_WORKSPACE/source/hackage-repo-tool" >> cabal.project
           echo "packages: $GITHUB_WORKSPACE/source/hackage-security-HTTP" >> cabal.project
+          echo "packages: $GITHUB_WORKSPACE/source/precompute-fileinfo" >> cabal.project
           cat cabal.project
       - name: sdist
         run: |
@@ -210,6 +201,8 @@ jobs:
           echo "PKGDIR_hackage_repo_tool=${PKGDIR_hackage_repo_tool}" >> "$GITHUB_ENV"
           PKGDIR_hackage_security_HTTP="$(find "$GITHUB_WORKSPACE/unpacked" -maxdepth 1 -type d -regex '.*/hackage-security-HTTP-[0-9.]*')"
           echo "PKGDIR_hackage_security_HTTP=${PKGDIR_hackage_security_HTTP}" >> "$GITHUB_ENV"
+          PKGDIR_precompute_fileinfo="$(find "$GITHUB_WORKSPACE/unpacked" -maxdepth 1 -type d -regex '.*/precompute-fileinfo-[0-9.]*')"
+          echo "PKGDIR_precompute_fileinfo=${PKGDIR_precompute_fileinfo}" >> "$GITHUB_ENV"
           rm -f cabal.project cabal.project.local
           touch cabal.project
           touch cabal.project.local
@@ -220,25 +213,28 @@ jobs:
           echo "packages: ${PKGDIR_hackage_root_tool}" >> cabal.project
           echo "packages: ${PKGDIR_hackage_repo_tool}" >> cabal.project
           echo "packages: ${PKGDIR_hackage_security_HTTP}" >> cabal.project
-          if [ $((HCNUMVER >= 80200)) -ne 0 ] ; then echo "package hackage-security" >> cabal.project ; fi
-          if [ $((HCNUMVER >= 80200)) -ne 0 ] ; then echo "    ghc-options: -Werror=missing-methods" >> cabal.project ; fi
-          if [ $((HCNUMVER >= 80200)) -ne 0 ] ; then echo "package hackage-security-http-client" >> cabal.project ; fi
-          if [ $((HCNUMVER >= 80200)) -ne 0 ] ; then echo "    ghc-options: -Werror=missing-methods" >> cabal.project ; fi
-          if [ $((HCNUMVER >= 80200)) -ne 0 ] ; then echo "package example-client" >> cabal.project ; fi
-          if [ $((HCNUMVER >= 80200)) -ne 0 ] ; then echo "    ghc-options: -Werror=missing-methods" >> cabal.project ; fi
-          if [ $((HCNUMVER >= 80200)) -ne 0 ] ; then echo "package hackage-security-curl" >> cabal.project ; fi
-          if [ $((HCNUMVER >= 80200)) -ne 0 ] ; then echo "    ghc-options: -Werror=missing-methods" >> cabal.project ; fi
-          if [ $((HCNUMVER >= 80200)) -ne 0 ] ; then echo "package hackage-root-tool" >> cabal.project ; fi
-          if [ $((HCNUMVER >= 80200)) -ne 0 ] ; then echo "    ghc-options: -Werror=missing-methods" >> cabal.project ; fi
-          if [ $((HCNUMVER >= 80200)) -ne 0 ] ; then echo "package hackage-repo-tool" >> cabal.project ; fi
-          if [ $((HCNUMVER >= 80200)) -ne 0 ] ; then echo "    ghc-options: -Werror=missing-methods" >> cabal.project ; fi
-          if [ $((HCNUMVER >= 80200)) -ne 0 ] ; then echo "package hackage-security-HTTP" >> cabal.project ; fi
-          if [ $((HCNUMVER >= 80200)) -ne 0 ] ; then echo "    ghc-options: -Werror=missing-methods" >> cabal.project ; fi
+          echo "packages: ${PKGDIR_precompute_fileinfo}" >> cabal.project
+          echo "package hackage-security" >> cabal.project
+          echo "    ghc-options: -Werror=missing-methods" >> cabal.project
+          echo "package hackage-security-http-client" >> cabal.project
+          echo "    ghc-options: -Werror=missing-methods" >> cabal.project
+          echo "package example-client" >> cabal.project
+          echo "    ghc-options: -Werror=missing-methods" >> cabal.project
+          echo "package hackage-security-curl" >> cabal.project
+          echo "    ghc-options: -Werror=missing-methods" >> cabal.project
+          echo "package hackage-root-tool" >> cabal.project
+          echo "    ghc-options: -Werror=missing-methods" >> cabal.project
+          echo "package hackage-repo-tool" >> cabal.project
+          echo "    ghc-options: -Werror=missing-methods" >> cabal.project
+          echo "package hackage-security-HTTP" >> cabal.project
+          echo "    ghc-options: -Werror=missing-methods" >> cabal.project
+          echo "package precompute-fileinfo" >> cabal.project
+          echo "    ghc-options: -Werror=missing-methods" >> cabal.project
           cat >> cabal.project <<EOF
           constraints: base-compat >= 0.12.2
           allow-newer: containers
           EOF
-          $HCPKG list --simple-output --names-only | perl -ne 'for (split /\s+/) { print "constraints: $_ installed\n" unless /^(example-client|hackage-repo-tool|hackage-root-tool|hackage-security|hackage-security-HTTP|hackage-security-curl|hackage-security-http-client)$/; }' >> cabal.project.local
+          $HCPKG list --simple-output --names-only | perl -ne 'for (split /\s+/) { print "constraints: $_ installed\n" unless /^(example-client|hackage-repo-tool|hackage-root-tool|hackage-security|hackage-security-HTTP|hackage-security-curl|hackage-security-http-client|precompute-fileinfo)$/; }' >> cabal.project.local
           cat cabal.project
           cat cabal.project.local
       - name: dump install plan
@@ -280,6 +276,8 @@ jobs:
           ${CABAL} -vnormal check
           cd ${PKGDIR_hackage_security_HTTP} || false
           ${CABAL} -vnormal check
+          cd ${PKGDIR_precompute_fileinfo} || false
+          ${CABAL} -vnormal check
       - name: haddock
         run: |
           if [ $((HCNUMVER >= 80600)) -ne 0 ] ; then $CABAL v2-haddock --disable-documentation --haddock-all $ARG_COMPILER --with-haddock $HADDOCK $ARG_TESTS $ARG_BENCH all ; fi
@@ -292,17 +290,17 @@ jobs:
           rm -f cabal.project.local
       - name: constraint set containers-0.7
         run: |
-          if [ $((HCNUMVER >= 80200 && HCNUMVER < 90800)) -ne 0 ] ; then $CABAL v2-build $ARG_COMPILER --enable-tests --disable-benchmarks --constraint='containers >= 0.7' all --dry-run ; fi
-          if [ $((HCNUMVER >= 80200 && HCNUMVER < 90800)) -ne 0 ] ; then cabal-plan topo | sort ; fi
-          if [ $((HCNUMVER >= 80200 && HCNUMVER < 90800)) -ne 0 ] ; then $CABAL v2-build $ARG_COMPILER --enable-tests --disable-benchmarks --constraint='containers >= 0.7' --dependencies-only -j2 all ; fi
-          if [ $((HCNUMVER >= 80200 && HCNUMVER < 90800)) -ne 0 ] ; then $CABAL v2-build $ARG_COMPILER --enable-tests --disable-benchmarks --constraint='containers >= 0.7' all ; fi
-          if [ $((HCNUMVER >= 80200 && HCNUMVER < 90800)) -ne 0 ] ; then $CABAL v2-test $ARG_COMPILER --enable-tests --disable-benchmarks --constraint='containers >= 0.7' all ; fi
+          if [ $((HCNUMVER < 90800)) -ne 0 ] ; then $CABAL v2-build $ARG_COMPILER --enable-tests --disable-benchmarks --constraint='containers >= 0.7' all --dry-run ; fi
+          if [ $((HCNUMVER < 90800)) -ne 0 ] ; then cabal-plan topo | sort ; fi
+          if [ $((HCNUMVER < 90800)) -ne 0 ] ; then $CABAL v2-build $ARG_COMPILER --enable-tests --disable-benchmarks --constraint='containers >= 0.7' --dependencies-only -j2 all ; fi
+          if [ $((HCNUMVER < 90800)) -ne 0 ] ; then $CABAL v2-build $ARG_COMPILER --enable-tests --disable-benchmarks --constraint='containers >= 0.7' all ; fi
+          if [ $((HCNUMVER < 90800)) -ne 0 ] ; then $CABAL v2-test $ARG_COMPILER --enable-tests --disable-benchmarks --constraint='containers >= 0.7' all ; fi
       - name: constraint set no-lukko
         run: |
-          if [ $((HCNUMVER >= 80200)) -ne 0 ] ; then $CABAL v2-build $ARG_COMPILER --disable-tests --disable-benchmarks --constraint='hackage-security -lukko' all --dry-run ; fi
-          if [ $((HCNUMVER >= 80200)) -ne 0 ] ; then cabal-plan topo | sort ; fi
-          if [ $((HCNUMVER >= 80200)) -ne 0 ] ; then $CABAL v2-build $ARG_COMPILER --disable-tests --disable-benchmarks --constraint='hackage-security -lukko' --dependencies-only -j2 all ; fi
-          if [ $((HCNUMVER >= 80200)) -ne 0 ] ; then $CABAL v2-build $ARG_COMPILER --disable-tests --disable-benchmarks --constraint='hackage-security -lukko' all ; fi
+          $CABAL v2-build $ARG_COMPILER --disable-tests --disable-benchmarks --constraint='hackage-security -lukko' all --dry-run
+          cabal-plan topo | sort
+          $CABAL v2-build $ARG_COMPILER --disable-tests --disable-benchmarks --constraint='hackage-security -lukko' --dependencies-only -j2 all
+          $CABAL v2-build $ARG_COMPILER --disable-tests --disable-benchmarks --constraint='hackage-security -lukko' all
       - name: save cache
         uses: actions/cache/save@v4
         if: always()

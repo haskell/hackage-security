@@ -1,12 +1,10 @@
 module Main where
 
-import Control.Applicative
 import Control.Concurrent
 import Control.DeepSeq
 import Control.Exception
 import Control.Monad
 import Data.Map.Strict (Map)
-import Data.Monoid
 import Options.Applicative
 import System.FilePath
 import System.IO
@@ -174,8 +172,9 @@ readMap fp =
       return hashes
   where
     parseEntry :: String -> (MD5, (SHA256, Length))
-    parseEntry line = let [md5, sha256, len] = words line
-                      in (md5, (sha256, read len))
+    parseEntry line = case words line of
+      [md5, sha256, len] -> (md5, (sha256, read len))
+      _ -> error $ "failed: parseEntry " ++ show line
 
 {-------------------------------------------------------------------------------
   Auxiliary

@@ -7,11 +7,9 @@ packages: hackage-security
           hackage-root-tool
           hackage-repo-tool
           hackage-security-HTTP
+          precompute-fileinfo
 
 package hackage-security
   tests: true
-
--- FIXME/TODO
--- packages: precompute-fileinfo
 
 -- constraints: hackage-security -lukko

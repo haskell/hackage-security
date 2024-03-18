@@ -32,6 +32,7 @@ import Control.Concurrent
 import Control.Exception
 import Control.Monad (when, unless)
 import Control.Monad.IO.Class (MonadIO)
+import Data.Kind (Type)
 import Data.List (nub, intercalate)
 import Data.Typeable
 import Network.URI hiding (uriPath, path)
@@ -238,7 +239,7 @@ getRemote remoteConfig selectedMirror attemptNr remoteFile = do
 -- error we want to make sure caches get files upstream in case the validation
 -- error was because the cache updated files out of order.
 httpRequestHeaders :: RemoteConfig -> AttemptNr -> [HttpRequestHeader]
-httpRequestHeaders RemoteConfig{..} attemptNr =
+httpRequestHeaders RemoteConfig{} attemptNr =
     if attemptNr == 0 then defaultHeaders
                       else HttpRequestMaxAge0 : defaultHeaders
   where
@@ -256,7 +257,7 @@ withMirror :: forall a.
            -> Maybe [Mirror]         -- ^ TUF mirrors
            -> IO a                   -- ^ Callback
            -> IO a
-withMirror HttpLib{..}
+withMirror HttpLib{}
            selectedMirror
            logger
            oobMirrors
@@ -300,7 +301,7 @@ withMirror HttpLib{..}
 -------------------------------------------------------------------------------}
 
 -- | Download method (downloading or updating)
-data DownloadMethod :: * -> * -> * where
+data DownloadMethod :: Type -> Type -> Type where
     -- Download this file (we never attempt to update this type of file)
     NeverUpdated :: {
         neverUpdatedFormat :: HasFormat fs f
@@ -595,7 +596,7 @@ fileLength' = fileLength . fileInfoLength . trusted
   Files downloaded from the remote repository
 -------------------------------------------------------------------------------}
 
-data RemoteTemp :: * -> * where
+data RemoteTemp :: Type -> Type where
     DownloadedWhole :: {
         wholeTemp :: Path Absolute
       } -> RemoteTemp a

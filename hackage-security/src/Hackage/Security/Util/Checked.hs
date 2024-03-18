@@ -1,4 +1,3 @@
-{-# LANGUAGE CPP #-}
 {-# LANGUAGE DeriveDataTypeable  #-}
 {-# LANGUAGE IncoherentInstances #-}
 {-# LANGUAGE RoleAnnotations     #-}

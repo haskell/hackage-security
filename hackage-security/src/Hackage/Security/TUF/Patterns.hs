@@ -2,7 +2,6 @@
 --
 -- NOTE: This module was developed to prepare for proper delegation (#39).
 -- It is currently unused.
-{-# LANGUAGE CPP #-}
 {-# LANGUAGE DeriveLift #-}
 {-# LANGUAGE StandaloneDeriving #-}
 
@@ -127,8 +126,8 @@ matchPattern = go . splitDirectories
     go []    _                    = Nothing
     go [f]   (PatFileConst f')    = do guard (f == f')
                                        return ()
-    go [f]   (PatFileExt   e')    = do let (bn, _:e) = splitExtension f
-                                       guard $ e == e'
+    go [f]   (PatFileExt   e')    = do let (bn, dotExt) = splitExtension f
+                                       guard $ dotExt == '.':e'
                                        return (bn :- ())
     go [_]   _                    = Nothing
     go (d:p) (PatDirConst  d' p') = do guard (d == d')
@@ -324,9 +323,8 @@ _ex1 = matchDelegation del "A/x/y/z.foo"
             )
 
 _ex2 :: Maybe String
-_ex2 = matchDelegation del "A/x/y/z.foo"
-  where
-    Right del = parseDelegation "A/*/*/*.foo" "B/*/C/*/*.bar"
+_ex2 = either undefined (`matchDelegation` "A/x/y/z.foo")
+  (parseDelegation "A/*/*/*.foo" "B/*/C/*/*.bar")
 
 _ex3 :: Either String Delegation
 _ex3 = parseDelegation "foo" "*/bar"

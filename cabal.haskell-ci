@@ -15,11 +15,11 @@ raw-project
     base-compat >= 0.12.2
 
 constraint-set no-lukko
-  ghc: >=8.2
+  ghc: >=8.4
   constraints: hackage-security -lukko
 
 constraint-set containers-0.7
-  ghc: >= 8.2 && < 9.8
+  ghc: >= 8.4 && < 9.8
   constraints: containers >= 0.7
   tests: True
   run-tests: True

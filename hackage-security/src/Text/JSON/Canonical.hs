@@ -1,5 +1,3 @@
-{-# LANGUAGE CPP #-}
---------------------------------------------------------------------
 -- |
 -- Module    : Text.JSON.Parsec
 -- Copyright : (c) Galois, Inc. 2007-2009, Duncan Coutts 2015
@@ -38,8 +36,7 @@ import Text.ParserCombinators.Parsec
 import Text.PrettyPrint hiding (char)
 import qualified Text.PrettyPrint as Doc
 import Control.Arrow (first)
-import Data.Bits (Bits)
-import Data.Bits (FiniteBits)
+import Data.Bits (Bits, FiniteBits)
 import Data.Char (isDigit, digitToInt)
 import Data.Data (Data)
 import Data.Function (on)

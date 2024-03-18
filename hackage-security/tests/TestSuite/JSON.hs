@@ -11,7 +11,6 @@ module TestSuite.JSON (
 import Data.Int
 import Data.List (sortBy, nubBy)
 import Data.Function (on)
-import Control.Applicative
 import qualified Data.ByteString.Lazy.Char8 as BS
 import Test.QuickCheck
 
