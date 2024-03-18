@@ -85,7 +85,7 @@ executable hackage-repo-tool
     build-depends: network     >= 2.5 && < 2.6
 
   if flag(Cabal-syntax)
-    build-depends: Cabal-syntax >= 3.7 && < 3.12
+    build-depends: Cabal-syntax >= 3.7 && < 3.14
   else
     build-depends: Cabal        >= 2.2.0.1 && < 2.6
                              || >= 3.0     && < 3.7,
