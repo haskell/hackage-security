@@ -1,10 +1,17 @@
 See also http://pvp.haskell.org/faq
 
-Unreleased
-----------
+0.6.2.5
+-------
 
-* Drop support for GHC 7.
-* Drop flag `use-old-time` and support for `old-time`, require `time ≥ 1.5`.
+* Allow `Cabal-3.12` and `Cabal-syntax-3.12`.
+* Allow `zlib-0.7`.
+* Drop flag `use-old-time` and support for `old-time`, require `time ≥ 1.5`
+  ([PR #304](https://github.com/haskell/hackage-security/pull/304)).
+* Drop support for GHC < 8.4
+  ([PR #306](https://github.com/haskell/hackage-security/pull/306)).
+* Code maintenance: address warning `star-is-type`, `unused-record-wildcards` etc.
+  ([PR #306](https://github.com/haskell/hackage-security/pull/306)).
+* Tested with GHC 8.4 - 9.8.
 
 0.6.2.4
 -------
