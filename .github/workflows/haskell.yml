@@ -15,7 +15,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        ghc: ['9.8.1', '9.6.4', '9.4.8']
+        ghc: ['9.8', '9.6', '9.4']
         os: [ubuntu-latest, macOS-latest, windows-latest]
     steps:
     - uses: actions/checkout@v4
@@ -24,24 +24,31 @@ jobs:
       id:   setup
       with:
         ghc-version:   ${{ matrix.ghc }}
-        # cabal-version: '3.8.1.0'
+        # cabal-version: latest
         cabal-update:  true
 
-    - name: Cache
-      uses: actions/cache@v4
+    - name: Restore cache
+      uses: actions/cache/restore@v4
+      id: cache
       env:
-        cache-name: haskell.yml
+        key: ${{ runner.os }}-cabal-${{ steps.setup.outputs.cabal-version }}-ghc-${{ steps.setup.outputs.ghc-version }}
       with:
         path: ${{ steps.setup.outputs.cabal-store }}
-        key:          ${{ runner.os }}-${{ env.cache-name }}-ghc-${{ matrix.ghc }}-${{ hashFiles('**/*.cabal', '**/cabal.project') }}
-        restore-keys: ${{ runner.os }}-${{ env.cache-name }}-ghc-${{ matrix.ghc }}-
+        key:          ${{ env.key }}-${{ github.sha }}
+        restore-keys: ${{ env.key }}-
 
     - name: Install dependencies
-      run: |
-        cabal build --only-dependencies --enable-tests --enable-benchmarks -vnormal+nowrap all
+      run: cabal build --only-dependencies --enable-tests --enable-benchmarks -vnormal+nowrap all
 
     - name: Build
       run: cabal build --enable-tests --enable-benchmarks -j1 -vnormal+nowrap all
 
     - name: Run tests
       run: cabal test -j1 -vnormal+nowrap all
+
+    - name: Cache dependencies
+      uses: actions/cache/save@v4
+      if:   always()
+      with:
+        path: ${{ steps.setup.outputs.cabal-store }}
+        key:  ${{ steps.cache.outputs.cache-primary-key }}
