@@ -1,5 +1,11 @@
 See also http://pvp.haskell.org/faq
 
+Unreleased
+----------
+
+* Drop flag `use-network-uri` and support for `network-2.5`.
+
+
 0.6.2.5
 -------
 

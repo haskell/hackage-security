@@ -35,16 +35,14 @@ source-repository head
   type: git
   location: https://github.com/haskell/hackage-security.git
 
-flag use-network-uri
-  description: Are we using network-uri?
-  manual: False
-
 library
   exposed-modules:     Hackage.Security.Client.Repository.HttpLib.HTTP
   build-depends:       base             >= 4.11      && < 4.20,
                        bytestring       >= 0.10.8.2  && < 0.13,
                        HTTP             >= 4000.2.19 && < 4000.5,
                        mtl              >= 2.2.2     && < 2.4,
+                       network-uri      >= 2.6       && < 2.7,
+                       network          >= 2.6       && < 3.2,
                        zlib             >= 0.5       && < 0.8,
                        hackage-security >= 0.5       && < 0.7
   hs-source-dirs:      src
@@ -57,11 +55,3 @@ library
                        StandaloneDeriving
   other-extensions:    CPP
   ghc-options:         -Wall
-
-  -- See comments in hackage-security.cabal
-  if flag(use-network-uri)
-    build-depends: network-uri >= 2.6 && < 2.7,
-                   network     >= 2.6 && < 2.9
-                            || >= 3.0 && < 3.2
-  else
-    build-depends: network     >= 2.5 && < 2.6

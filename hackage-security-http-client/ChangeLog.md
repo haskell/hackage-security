@@ -1,6 +1,9 @@
 Unreleased
 ----------
-* Drop support for GHC 7.
+
+* Drop support for GHC < 8.4.
+* Drop flag `use-network-uri` and support for `network-2.5`.
+
 
 0.1.1
 -----

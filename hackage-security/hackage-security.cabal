@@ -48,10 +48,6 @@ source-repository head
   type: git
   location: https://github.com/haskell/hackage-security.git
 
-flag use-network-uri
-  description: Are we using @network-uri@?
-  manual: False
-
 flag Cabal-syntax
   description: Are we using Cabal-syntax?
   manual: False
@@ -118,6 +114,8 @@ library
                        ed25519           >= 0.0      && < 0.1,
                        filepath          >= 1.4.2    && < 1.5,
                        mtl               >= 2.2.2    && < 2.4,
+                       network-uri       >= 2.6      && < 2.7,
+                       network           >= 2.6      && < 3.2,
                        parsec            >= 3.1.13   && < 3.2,
                        pretty            >= 1.0      && < 1.2,
                        -- 0.4.2 introduces TarIndex, 0.4.4 introduces more
@@ -126,7 +124,7 @@ library
                        template-haskell  >= 2.13     && < 2.22,
                        time              >= 1.8.0.2  && < 1.13,
                        transformers      >= 0.3      && < 0.7,
-                       zlib              >= 0.5     && < 0.8,
+                       zlib              >= 0.5      && < 0.8,
                        -- whatever versions are bundled with ghc:
                        ghc-prim          >= 0.5.2    && < 0.12
 
@@ -177,45 +175,6 @@ library
                        UndecidableInstances
 
   ghc-options:         -Wall
-
-  -- The URI type got split out off the network package after version 2.5, and
-  -- moved to a separate network-uri package. Since we don't need the rest of
-  -- network here, it would suffice to rely only on network-uri:
-  --
-  -- > if flag(use-network-uri)
-  -- >   build-depends: network-uri >= 2.6 && < 2.7
-  -- > else
-  -- >   build-depends: network     >= 2.5 && < 2.6
-  --
-  -- However, if we did the same in hackage-security-HTTP, Cabal would consider
-  -- those two flag choices (hackage-security:use-network-uri and
-  -- hackage-security-HTTP:use-network-uri) to be completely independent; but
-  -- they aren't: if it links hackage-security against network-uri and
-  -- hackage-security-HTTP against network, we will get type errors when
-  -- hackage-security-HTTP tries to pass a URI to hackage-security.
-  --
-  -- It might seem we can solve this problem by re-exporting the URI type in
-  -- hackage-security and avoid the dependency in hackage-security-HTTP
-  -- altogether. However, this merely shifts the problem: hackage-security-HTTP
-  -- relies on the HTTP library which--surprise!--makes the same choice between
-  -- depending on network or network-uri. Cabal will not notice that we cannot
-  -- build hackage-security and hackage-security-HTTP against network-uri but
-  -- HTTP against network.
-  --
-  -- We solve the problem by explicitly relying on network-2.6 when choosing
-  -- network-uri. This dependency is redundant, strictly speaking. However, it
-  -- serves as a proxy for forcing flag choices: since all packages in a
-  -- solution must be linked against the same version of network, having one
-  -- version of network in one branch of the conditional and another version of
-  -- network in the other branch forces the choice to be consistent throughout.
-  -- (Note that the HTTP library does the same thing, though in this case the
-  -- dependency in network is not redundant.)
-  if flag(use-network-uri)
-    build-depends: network-uri >= 2.6 && < 2.7,
-                   network     >= 2.6 && < 2.9
-                            || >= 3.0 && < 3.2
-  else
-    build-depends: network     >= 2.5 && < 2.6
 
 test-suite TestSuite
   type:                exitcode-stdio-1.0
