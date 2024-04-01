@@ -264,7 +264,11 @@ testRepoIndex inMemRepo repo = do
              _        -> fail "unexpected index entry content"
          _ -> fail "unexpected index path"
 
+#if MIN_VERSION_tar(0,6,0)
     testEntries1 :: [Tar.GenEntry Tar.TarPath linkTarget]
+#else
+    testEntries1 :: [Tar.Entry]
+#endif
     testEntries1 = either (const []) (pure . (`Tar.fileEntry` testEntrycontent))
         (Tar.toTarPath False "foo/preferred-versions")
     testEntrycontent   = BS.pack "foo >= 1"
