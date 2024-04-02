@@ -1,0 +1,65 @@
+name: Stack build
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+    branches: [master]
+
+jobs:
+  build:
+    name: Stack ${{ matrix.ghc }} ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os:  [ubuntu-latest]
+        ghc: ['9.8', '9.6', '9.4', '9.2', '9.0', '8.10', '8.8', '8.6', '8.4']
+        include:
+          - os: macos-latest
+            ghc: '9.8'
+          - os: windows-latest
+            ghc: '9.8'
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - uses: haskell-actions/setup@v2
+      id: setup
+      with:
+        ghc-version: ${{ matrix.ghc }}
+        enable-stack: true
+        cabal-update: false
+
+    - name: Restore cache
+      uses: actions/cache/restore@v4
+      id: cache
+      env:
+        key: ${{ runner.os }}-stack-${{ steps.setup.outputs.stack-version }}-ghc-${{ steps.setup.outputs.ghc-version }}
+      with:
+        key: ${{ env.key }}-commit-${{ github.sha }}
+        restore-keys: ${{ env.key }}-
+        path: |
+          ${{ steps.setup.outputs.stack-root }}
+          .stack-work
+
+    - name: Build dependencies
+      run:  stack build --stack-yaml=stack-${{ matrix.ghc }}.yaml --system-ghc --only-dependencies
+
+    - name: Build
+      run:  stack build --stack-yaml=stack-${{ matrix.ghc }}.yaml --system-ghc
+
+    - name: Build tests
+      run:  stack test --stack-yaml=stack-${{ matrix.ghc }}.yaml --system-ghc --no-run-tests
+
+    - name: Run tests
+      run:  stack test --stack-yaml=stack-${{ matrix.ghc }}.yaml --system-ghc
+
+    - name: Save cache
+      uses: actions/cache/save@v4
+      if: always()
+      with:
+        key: ${{ steps.cache.outputs.cache-primary-key }}
+        path: |
+          ${{ steps.setup.outputs.stack-root }}
+          .stack-work

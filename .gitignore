@@ -7,3 +7,4 @@ prototype-state/offline/
 dist-newstyle
 .ghc.environment.*
 cabal.project.local
+stack*.yaml.lock

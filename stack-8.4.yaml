@@ -1,0 +1,27 @@
+resolver: lts-12.26
+packages:
+- example-client
+- hackage-repo-tool
+- hackage-root-tool
+- hackage-security
+- hackage-security-HTTP
+- hackage-security-curl
+- hackage-security-http-client
+- precompute-fileinfo
+
+flags:
+  example-client:
+    cabal-syntax: false
+  hackage-repo-tool:
+    cabal-syntax: false
+  hackage-security:
+    cabal-syntax: false
+    lukko: false
+      # LTS 12 does not have lukko yet
+
+extra-deps:
+- Cabal-syntax-3.6.0.0
+- aeson-1.4.3.0
+  ## aeson-1.4.3.0 is the newest that works with the other deps in LTS 12
+  ## aeson-1.4.4.0 asks for time-compat >= 1.9.2.2
+# - lukko-0.1.1.3
