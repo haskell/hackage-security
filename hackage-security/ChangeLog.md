@@ -4,7 +4,8 @@ Unreleased
 ----------
 
 * Drop flag `use-network-uri` and support for `network-2.5`.
-
+* Fix build failure in testsuite with `tar-0.5`
+  ([PR #312](https://github.com/haskell/hackage-security/pull/312)).
 
 0.6.2.5
 -------
