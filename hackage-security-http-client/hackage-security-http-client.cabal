@@ -31,7 +31,8 @@ library
   build-depends:       base               >= 4.11     && < 4.20,
                        bytestring         >= 0.10.8.2 && < 0.13,
                        http-client        >= 0.4      && < 0.8,
-                       http-types         >= 0.12.4   && < 0.13,
+                       http-types         >= 0.12.2   && < 0.13,
+                         -- http-types-0.12.2 is the version in Stackage LTS-12.26 (GHC 8.4)
                        hackage-security   >= 0.5      && < 0.7,
                        network-uri        >= 2.6      && < 2.7,
                        network            >= 2.6      && < 3.2
