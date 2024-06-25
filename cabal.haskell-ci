@@ -18,12 +18,12 @@ raw-project
 constraint-set no-lukko
   constraints: hackage-security -lukko
 
-constraint-set containers-0.7
-  -- Andreas, 2024-03-19: possibly we will have to turn off the constraint set
-  -- for the head.hackage build with GHC 9.10.0
-  -- ghc: < 9.10
-  constraints: containers >= 0.7
-  tests: True
-  run-tests: True
-raw-project
-  allow-newer: containers
+-- constraint-set containers-0.7
+--   -- Andreas, 2024-03-19: possibly we will have to turn off the constraint set
+--   -- for the head.hackage build with GHC 9.10.0
+--   -- ghc: < 9.10
+--   constraints: containers >= 0.7
+--   tests: True
+--   run-tests: True
+-- raw-project
+--   allow-newer: containers

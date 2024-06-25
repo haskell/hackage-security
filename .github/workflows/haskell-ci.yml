@@ -237,7 +237,6 @@ jobs:
           echo "    ghc-options: -Werror=missing-methods" >> cabal.project
           cat >> cabal.project <<EOF
           constraints: base-compat >= 0.12.2
-          allow-newer: containers
           EOF
           $HCPKG list --simple-output --names-only | perl -ne 'for (split /\s+/) { print "constraints: any.$_ installed\n" unless /^(example-client|hackage-repo-tool|hackage-root-tool|hackage-security|hackage-security-HTTP|hackage-security-curl|hackage-security-http-client|precompute-fileinfo)$/; }' >> cabal.project.local
           cat cabal.project
@@ -293,13 +292,6 @@ jobs:
       - name: prepare for constraint sets
         run: |
           rm -f cabal.project.local
-      - name: constraint set containers-0.7
-        run: |
-          $CABAL v2-build $ARG_COMPILER --enable-tests --disable-benchmarks --constraint='containers >= 0.7' all --dry-run
-          cabal-plan topo | sort
-          $CABAL v2-build $ARG_COMPILER --enable-tests --disable-benchmarks --constraint='containers >= 0.7' --dependencies-only -j2 all
-          $CABAL v2-build $ARG_COMPILER --enable-tests --disable-benchmarks --constraint='containers >= 0.7' all
-          $CABAL v2-test $ARG_COMPILER --enable-tests --disable-benchmarks --constraint='containers >= 0.7' all
       - name: constraint set no-lukko
         run: |
           $CABAL v2-build $ARG_COMPILER --disable-tests --disable-benchmarks --constraint='hackage-security -lukko' all --dry-run
