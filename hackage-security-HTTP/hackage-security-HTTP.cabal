@@ -18,7 +18,7 @@ bug-reports:         https://github.com/haskell/hackage-security/issues
 build-type:          Simple
 
 tested-with:
-  GHC == 9.10.0
+  GHC == 9.10.1
   GHC == 9.8.2
   GHC == 9.6.4
   GHC == 9.4.8

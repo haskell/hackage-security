@@ -31,7 +31,7 @@ bug-reports:         https://github.com/haskell/hackage-security/issues
 build-type:          Simple
 
 tested-with:
-  GHC == 9.10.0
+  GHC == 9.10.1
   GHC == 9.8.2
   GHC == 9.6.4
   GHC == 9.4.8
@@ -122,7 +122,7 @@ library
                        -- 0.4.2 introduces TarIndex, 0.4.4 introduces more
                        -- functionality, 0.5.0 changes type of serialise
                        tar               >= 0.5      && < 0.7,
-                       template-haskell  >= 2.13     && < 2.22,
+                       template-haskell  >= 2.13     && < 2.23,
                        time              >= 1.8.0.2  && < 1.15,
                        transformers      >= 0.3      && < 0.7,
                        zlib              >= 0.5      && < 0.8,
