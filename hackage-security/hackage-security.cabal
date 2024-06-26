@@ -1,6 +1,7 @@
 cabal-version:       1.12
 name:                hackage-security
 version:             0.6.2.6
+x-revision:          3
 
 synopsis:            Hackage security library
 description:         The hackage security library provides both server and
@@ -208,15 +209,15 @@ test-suite TestSuite
                    Cabal-syntax <  3.7
 
   -- dependencies exclusive to test-suite
-  build-depends:       tasty            >= 1.1.0.4 && < 1.6,
+  build-depends:       tasty                 >= 1.1.0.4  && < 1.6,
                          -- tasty-1.1.0.4 is the version in Stackage LTS 12.26 (GHC 8.4)
-                       tasty-hunit      == 0.10.*,
-                       tasty-quickcheck == 0.10.*,
-                       QuickCheck       >= 2.11 && <2.15,
-                       aeson            >= 1.4 && < 1.6 || >= 2.0 && < 2.3,
-                       vector           >= 0.12 && <0.14,
-                       unordered-containers >=0.2.8.0 && <0.3,
-                       temporary        >= 1.2 && < 1.4
+                       tasty-hunit           == 0.10.*,
+                       tasty-quickcheck      >= 0.10     && < 1,
+                       QuickCheck            >= 2.11     && < 2.16,
+                       aeson                 >= 1.4      && < 1.6 || >= 2.0 && < 2.3,
+                       vector                >= 0.12     && < 0.14,
+                       unordered-containers  >= 0.2.8.0  && < 0.3,
+                       temporary             >= 1.2      && < 1.4
 
   hs-source-dirs:      tests
   default-language:    Haskell2010
