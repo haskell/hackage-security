@@ -136,7 +136,7 @@ library
     build-depends:     base       >= 4.11
 
   if flag(Cabal-syntax)
-    build-depends: Cabal-syntax >= 3.7 && < 3.14
+    build-depends: Cabal-syntax >= 3.7 && < 3.16
   else
     build-depends: Cabal        >= 2.2.0.1 && < 2.6
                              || >= 3.0     && < 3.7,
@@ -201,8 +201,8 @@ test-suite TestSuite
                        zlib
 
   if flag(Cabal-syntax)
-    build-depends: Cabal        >= 3.7 && < 3.14,
-                   Cabal-syntax >= 3.7 && < 3.14
+    build-depends: Cabal        >= 3.7 && < 3.16,
+                   Cabal-syntax >= 3.7 && < 3.16
   else
     build-depends: Cabal        >= 2.2.0.1 && < 2.6
                              || >= 3.0     && < 3.7,
