@@ -1,6 +1,7 @@
 cabal-version:       1.12
 name:                hackage-security-HTTP
 version:             0.1.1.2
+x-revision:          1
 
 synopsis:            Hackage security bindings against the HTTP library
 description:         The hackage security library provides a 'HttpLib'
@@ -18,9 +19,10 @@ bug-reports:         https://github.com/haskell/hackage-security/issues
 build-type:          Simple
 
 tested-with:
+  GHC == 9.12.1
   GHC == 9.10.1
   GHC == 9.8.2
-  GHC == 9.6.5
+  GHC == 9.6.6
   GHC == 9.4.8
   GHC == 9.2.8
   GHC == 9.0.2
@@ -38,7 +40,7 @@ source-repository head
 
 library
   exposed-modules:     Hackage.Security.Client.Repository.HttpLib.HTTP
-  build-depends:       base             >= 4.11      && < 4.21,
+  build-depends:       base             >= 4.11      && < 4.22,
                        bytestring       >= 0.10.8.2  && < 0.13,
                        HTTP             >= 4000.2.19 && < 4000.5,
                        mtl              >= 2.2.2     && < 2.4,

@@ -16,9 +16,10 @@ cabal-version:       >=1.10
 extra-source-files:  ChangeLog.md
 
 tested-with:
+  GHC == 9.12.1
   GHC == 9.10.1
   GHC == 9.8.2
-  GHC == 9.6.5
+  GHC == 9.6.6
   GHC == 9.4.8
   GHC == 9.2.8
   GHC == 9.0.2
@@ -29,7 +30,7 @@ tested-with:
 
 library
   exposed-modules:     Hackage.Security.Client.Repository.HttpLib.HttpClient
-  build-depends:       base               >= 4.11     && < 4.21,
+  build-depends:       base               >= 4.11     && < 4.22,
                        bytestring         >= 0.10.8.2 && < 0.13,
                        http-client        >= 0.4      && < 0.8,
                        http-types         >= 0.12.2   && < 0.13,
