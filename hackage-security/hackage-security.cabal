@@ -58,8 +58,8 @@ flag Cabal-syntax
 
 flag lukko
   description: Use @lukko@ for file-locking, otherwise use @GHC.IO.Handle.Lock@
-  manual:      True
-  default:     True
+  manual:      False
+  default:     False
 
 library
   -- Most functionality is exported through the top-level entry points .Client
