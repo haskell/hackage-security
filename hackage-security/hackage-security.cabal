@@ -58,7 +58,7 @@ flag Cabal-syntax
 
 flag lukko
   description: Use @lukko@ for file-locking, otherwise use @GHC.IO.Handle.Lock@
-  manual:      True
+  manual:      False
   default:     False
 
 library
