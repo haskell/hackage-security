@@ -1,5 +1,18 @@
 See also http://pvp.haskell.org/faq
 
+0.6.3.0
+-------
+
+* Make `lukko` flag automatic and off by default, using file locking
+  facilities from `GHC.IO.Handle.Lock` and not from
+  on [`lukko` package](https://hackage.haskell.org/package/lukko).
+  The change is not expected to affect anyone detrimentally,
+  but one can set the flag on in their configuration to restore
+  the previous behaviour.
+* Allow building against newer releases of dependencies.
+* Tested with GHC 8.4 - 9.12.
+
+
 0.6.2.6
 -------
 
