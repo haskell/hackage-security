@@ -1,4 +1,4 @@
-resolver: lts-23.3
+resolver: lts-23.21
 packages:
 - example-client
 - hackage-repo-tool
