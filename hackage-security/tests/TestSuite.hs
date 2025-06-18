@@ -2,14 +2,14 @@
 module Main (main) where
 
 -- stdlib
-import Control.Exception
-import Control.Monad
+import Control.Exception ( handleJust )
+import Control.Monad ( unless )
 import Data.Maybe (fromJust)
-import Data.Time
-import Network.URI (URI, parseURI)
-import Test.Tasty
-import Test.Tasty.HUnit
-import Test.Tasty.QuickCheck hiding (label)
+import Data.Time ( UTCTime, getCurrentTime )
+import Network.URI ( URI, parseURI )
+import Test.Tasty ( defaultMain, testGroup, TestTree )
+import Test.Tasty.HUnit ( testCase, (@?=), assertEqual, assertFailure, Assertion )
+import Test.Tasty.QuickCheck ( testProperty )
 import System.IO.Temp (withSystemTempDirectory)
 import qualified Codec.Archive.Tar.Entry    as Tar
 import qualified Data.ByteString.Lazy.Char8 as BS

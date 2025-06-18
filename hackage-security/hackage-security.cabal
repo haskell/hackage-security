@@ -213,7 +213,7 @@ test-suite TestSuite
                          -- tasty-1.1.0.4 is the version in Stackage LTS 12.26 (GHC 8.4)
                        tasty-hunit           == 0.10.*,
                        tasty-quickcheck      >= 0.10     && < 1,
-                       QuickCheck            >= 2.11     && < 2.16,
+                       QuickCheck            >= 2.11     && < 2.17,
                        aeson                 >= 1.4      && < 1.6 || >= 2.0 && < 2.3,
                        vector                >= 0.12     && < 0.14,
                        unordered-containers  >= 0.2.8.0  && < 0.3,
