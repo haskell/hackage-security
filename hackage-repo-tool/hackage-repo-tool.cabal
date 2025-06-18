@@ -1,7 +1,7 @@
 cabal-version:       1.12
 name:                hackage-repo-tool
 version:             0.1.1.4
-x-revision:          1
+x-revision:          2
 
 build-type:          Simple
 synopsis:            Manage secure file-based package repositories
