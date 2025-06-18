@@ -34,7 +34,7 @@ executable precompute-fileinfo
                        containers           >= 0.5.11   && < 0.8,
                        deepseq              >= 1.4.3    && < 1.6,
                        filepath             >= 1.4.2    && < 1.6,
-                       optparse-applicative >= 0.13     && < 0.19,
+                       optparse-applicative >= 0.13     && < 0.20,
                        SHA                  >= 1.6.4    && < 1.7,
                        tar                  >= 0.5.0.2  && < 0.7,
                          -- tar-0.5.0.2 is the version in Stackage LTS-12.26 (GHC 8.4)
