@@ -1,5 +1,12 @@
 See also http://pvp.haskell.org/faq
 
+0.6.3.1
+-------
+
+* Allow `QuickCheck-2.16`.
+* Tested with GHC 8.4 - 9.12.
+
+
 0.6.3.0
 -------
 
