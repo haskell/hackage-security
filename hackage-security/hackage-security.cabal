@@ -202,7 +202,7 @@ test-suite TestSuite
 
   if flag(Cabal-syntax)
     build-depends: Cabal        >= 3.7 && < 3.18,
-                   Cabal-syntax >= 3.7 && < 3.16
+                   Cabal-syntax >= 3.7 && < 3.18
   else
     build-depends: Cabal        >= 2.2.0.1 && < 2.6
                              || >= 3.0     && < 3.7,
