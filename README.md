@@ -684,7 +684,7 @@ To do this, use the following steps:
  4. Commit the updated file to `https://github.com/haskell-infra/hackage-root-keys` and inform the Hackage admins so they can install it.
  
 
-### Root Data: Every Other Year
+### Root Data: Every Year
 
 The holders of the root keys are, each year, signing the root information file `root.json` that directs clients to the operational and mirror keys.
 The keyholders are attesting that they believe that the root and operational keys are not compromised, that Hackage is still under the control of trusted administrators, and that everything is working about the way it usually does.
