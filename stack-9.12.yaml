@@ -1,4 +1,4 @@
-resolver: lts-23.28
+resolver: nightly-2025-09-06
 packages:
 - example-client
 - hackage-repo-tool
