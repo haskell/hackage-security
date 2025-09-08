@@ -1,6 +1,10 @@
 branches: master
 installed: +all
 
+-- Andreas 2025-09-08: Latest Haskell CI adds -Werror=unused-packages
+-- which is hard to get to work in our setting with many conditionals.
+error-unused-packages: False
+
 -- Andreas, 2023-07-01: We use some haddock features that are new in 8.6.
 haddock: >= 8.6
 

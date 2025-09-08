@@ -15,6 +15,7 @@ build-type:          Simple
 cabal-version:       >=1.10
 
 tested-with:
+  GHC == 9.14.1
   GHC == 9.12.2
   GHC == 9.10.2
   GHC == 9.8.4
@@ -29,9 +30,9 @@ tested-with:
 
 executable precompute-fileinfo
   main-is:             Main.hs
-  build-depends:       base                 >= 4.11     && < 4.22,
+  build-depends:       base                 >= 4.11     && < 4.23,
                        bytestring           >= 0.10.8.2 && < 0.13,
-                       containers           >= 0.5.11   && < 0.8,
+                       containers           >= 0.5.11   && < 0.9,
                        deepseq              >= 1.4.3    && < 1.6,
                        filepath             >= 1.4.2    && < 1.6,
                        optparse-applicative >= 0.13     && < 0.20,

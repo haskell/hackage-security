@@ -31,6 +31,7 @@ bug-reports:         https://github.com/haskell/hackage-security/issues
 build-type:          Simple
 
 tested-with:
+  GHC == 9.14.1
   GHC == 9.12.2
   GHC == 9.10.2
   GHC == 9.8.4
@@ -106,11 +107,11 @@ library
                        Hackage.Security.Util.Stack
                        Hackage.Security.Util.TypedEmbedded
 
-  build-depends:       base              >= 4.11     && < 4.22,
+  build-depends:       base              >= 4.11     && < 4.23,
                        base16-bytestring >= 0.1.1    && < 1.1,
                        base64-bytestring >= 1.0      && < 1.3,
                        bytestring        >= 0.10.8.2 && < 0.13,
-                       containers        >= 0.5.11   && < 0.8,
+                       containers        >= 0.5.11   && < 0.9,
                        cryptohash-sha256 >= 0.11     && < 0.12,
                        directory         >= 1.3.1.5  && < 1.4,
                        ed25519           >= 0.0      && < 0.1,
@@ -123,8 +124,8 @@ library
                        -- 0.4.2 introduces TarIndex, 0.4.4 introduces more
                        -- functionality, 0.5.0 changes type of serialise
                        tar               >= 0.5      && < 0.7,
-                       template-haskell  >= 2.13     && < 2.24,
-                       time              >= 1.8.0.2  && < 1.15,
+                       template-haskell  >= 2.13     && < 2.25,
+                       time              >= 1.8.0.2  && < 1.16,
                        transformers      >= 0.3      && < 0.7,
                        zlib              >= 0.5      && < 0.8,
                        -- whatever versions are bundled with ghc:
