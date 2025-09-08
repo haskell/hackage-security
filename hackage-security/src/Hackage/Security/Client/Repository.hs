@@ -33,7 +33,6 @@ module Hackage.Security.Client.Repository (
 import Prelude
 import Control.Exception
 import Data.Kind (Type)
-import Data.Typeable (Typeable)
 import qualified Codec.Archive.Tar.Index as Tar
 import qualified Data.ByteString.Lazy    as BS.L
 
@@ -384,7 +383,6 @@ class DownloadedFile (down :: Type -> Type) where
 -- for local repositories this might correspond to file-not-found, etc.
 data SomeRemoteError :: Type where
     SomeRemoteError :: Exception e => e -> SomeRemoteError
-  deriving (Typeable)
 
 deriving instance Show SomeRemoteError
 instance Exception SomeRemoteError where displayException = pretty

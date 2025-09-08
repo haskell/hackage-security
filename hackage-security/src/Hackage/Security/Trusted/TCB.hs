@@ -23,7 +23,6 @@ import Prelude
 import Control.Exception
 import Control.Monad (when, unless)
 import Control.Monad.Except (Except, runExcept, throwError)
-import Data.Typeable
 import Data.Time
 import Hackage.Security.TUF
 import Hackage.Security.JSON
@@ -184,11 +183,9 @@ data VerificationError =
      --
      -- We record all verification errors that occurred before we gave up.
    | VerificationErrorLoop VerificationHistory
-   deriving (Typeable)
 
 -- | Root metadata updated (as part of the normal update process)
 data RootUpdated = RootUpdated
-  deriving (Typeable)
 
 type VerificationHistory = [Either RootUpdated VerificationError]
 

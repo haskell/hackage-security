@@ -49,7 +49,6 @@ import Data.Maybe (isNothing)
 import Data.Ord (comparing)
 import Data.Time
 import Data.Traversable (for)
-import Data.Typeable (Typeable)
 import qualified Codec.Archive.Tar          as Tar
 import qualified Codec.Archive.Tar.Entry    as Tar
 import qualified Codec.Archive.Tar.Index    as Tar
@@ -931,17 +930,14 @@ uncheckClientErrors act = handleChecked rethrowVerificationError
      rethrowInvalidPackageException = throwIO
 
 data InvalidPackageException = InvalidPackageException PackageIdentifier
-  deriving (Typeable)
 
 data LocalFileCorrupted = LocalFileCorrupted DeserializationError
-  deriving (Typeable)
 
 data InvalidFileInIndex = forall dec. InvalidFileInIndex {
     invalidFileInIndex      :: IndexFile dec
   , invalidFileInIndexRaw   :: BS.L.ByteString
   , invalidFileInIndexError :: DeserializationError
   }
-  deriving (Typeable)
 
 deriving instance Show InvalidPackageException
 deriving instance Show LocalFileCorrupted

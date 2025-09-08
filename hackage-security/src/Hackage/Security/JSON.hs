@@ -45,7 +45,6 @@ import Control.Monad (unless, liftM)
 import Control.Monad.Except (MonadError, Except, ExceptT, runExcept, runExceptT, throwError)
 import Control.Monad.Reader (MonadReader, Reader, runReader, local, ask)
 import Data.Functor.Identity
-import Data.Typeable (Typeable)
 import qualified Data.ByteString.Lazy as BS.L
 
 import Hackage.Security.Key
@@ -82,7 +81,6 @@ data DeserializationError =
     --
     -- Records actual and expected types.
   | DeserializationErrorFileType String String
-  deriving (Typeable)
 
 deriving instance Show DeserializationError
 instance Exception DeserializationError where displayException = pretty

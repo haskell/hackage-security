@@ -1,4 +1,3 @@
-{-# LANGUAGE DeriveDataTypeable  #-}
 {-# LANGUAGE IncoherentInstances #-}
 {-# LANGUAGE RoleAnnotations     #-}
 
@@ -22,7 +21,6 @@ module Hackage.Security.Util.Checked (
 import Prelude
 import Control.Exception (Exception, IOException)
 import qualified Control.Exception as Base
-import Data.Typeable (Typeable)
 
 import GHC.Prim (coerce)
 
@@ -59,7 +57,7 @@ catchSync act onErr = act `Base.catch` \e ->
 
 -- | Wraps up an async exception as a synchronous exception.
 newtype SyncException = SyncException Base.SomeException
-  deriving (Show, Typeable)
+  deriving (Show)
 instance Exception SyncException
 
 -- | Throw a checked exception

@@ -15,14 +15,11 @@ module Hackage.Security.Util.Some (
   ) where
 
 import Prelude
-import Data.Typeable (Typeable)
 
 import Hackage.Security.Util.TypedEmbedded
 import Hackage.Security.Util.Pretty
 
 data Some f = forall a. Some (f a)
-
-deriving instance Typeable Some
 
 {-------------------------------------------------------------------------------
   Equality on Some types

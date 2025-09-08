@@ -17,7 +17,6 @@ import qualified Codec.Archive.Tar.Entry           as Tar
 import qualified Codec.Compression.GZip            as GZip
 import           Control.Exception
 import qualified Data.ByteString.Lazy              as BS.L
-import           Data.Typeable
 import qualified System.Directory                  as Directory
 import           System.IO.Error
 
@@ -111,7 +110,6 @@ tarExtractFile opts repoLoc pathTarGz pathToExtract =
                 go es
 
 data TarGzError = TarGzError FilePath SomeException
-  deriving (Typeable)
 
 instance Exception TarGzError where
   displayException (TarGzError path e) = path ++ ": " ++ displayException e

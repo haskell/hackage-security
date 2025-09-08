@@ -28,7 +28,6 @@ module Hackage.Security.Key (
 import Prelude
 import Control.Monad
 import Data.Functor.Identity
-import Data.Typeable (Typeable)
 import Text.JSON.Canonical
 import qualified Crypto.Hash.SHA256   as SHA256
 import qualified Crypto.Sign.Ed25519  as Ed25519
@@ -50,15 +49,12 @@ data Ed25519
 
 data Key a where
     KeyEd25519 :: Ed25519.PublicKey -> Ed25519.SecretKey -> Key Ed25519
-  deriving (Typeable)
 
 data PublicKey a where
     PublicKeyEd25519 :: Ed25519.PublicKey -> PublicKey Ed25519
-  deriving (Typeable)
 
 data PrivateKey a where
     PrivateKeyEd25519 :: Ed25519.SecretKey -> PrivateKey Ed25519
-  deriving (Typeable)
 
 deriving instance Show (Key        typ)
 deriving instance Show (PublicKey  typ)

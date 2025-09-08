@@ -43,7 +43,6 @@ import Data.Function (on)
 import Data.Int (Int64)
 import Data.Ix (Ix)
 import Data.List (foldl', sortBy)
-import Data.Typeable (Typeable)
 import Foreign.Storable (Storable)
 import Text.Printf (PrintfArg)
 import qualified Data.ByteString.Lazy.Char8 as BS
@@ -79,7 +78,6 @@ newtype Int54 = Int54 { int54ToInt64 :: Int64 }
            , Bits
            , Storable
            , PrintfArg
-           , Typeable
            )
 
 instance Bounded Int54 where

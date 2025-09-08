@@ -14,7 +14,6 @@ module Hackage.Security.TUF.Header (
 
 import Prelude
 import Data.Time
-import Data.Typeable (Typeable)
 
 import Hackage.Security.JSON
 import Hackage.Security.Util.Lens
@@ -38,7 +37,7 @@ class HasHeader a where
 -- 'Show' and 'Read' instance are defined in terms of the underlying 'Int'
 -- (this is used for example by Hackage during the backup process).
 newtype FileVersion = FileVersion Int54
-  deriving (Eq, Ord, Typeable)
+  deriving (Eq, Ord)
 
 instance Show FileVersion where
   show (FileVersion v) = show v
@@ -53,7 +52,7 @@ instance Read FileVersion where
 -- allows that, because you could set an expiry date 2000 years into the future.
 -- By having the Maybe here we avoid the _need_ for such encoding issues.)
 newtype FileExpires = FileExpires (Maybe UTCTime)
-  deriving (Eq, Ord, Show, Typeable)
+  deriving (Eq, Ord, Show)
 
 -- | Occasionally it is useful to read only a header from a file.
 --

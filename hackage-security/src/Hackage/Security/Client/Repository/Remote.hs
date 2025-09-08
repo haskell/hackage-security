@@ -34,7 +34,6 @@ import Control.Monad (when, unless)
 import Control.Monad.IO.Class (MonadIO)
 import Data.Kind (Type)
 import Data.List (nub, intercalate)
-import Data.Typeable
 import Network.URI hiding (uriPath, path)
 import System.IO ()
 import qualified Data.ByteString      as BS
@@ -486,7 +485,6 @@ data FileTooLarge = FileTooLarge {
     fileTooLargePath     :: TargetPath
   , fileTooLargeExpected :: FileSize
   }
-  deriving (Typeable)
 
 instance Pretty FileTooLarge where
   pretty FileTooLarge{..} = concat [

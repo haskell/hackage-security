@@ -18,7 +18,6 @@ import Control.Concurrent
 import Control.Exception
 import Control.Monad
 import Data.List (intercalate)
-import Data.Typeable (Typeable)
 import Network.URI
 import qualified Data.ByteString.Lazy as BS.L
 import qualified Control.Monad.State  as State
@@ -120,10 +119,8 @@ wrapCustomEx act = handleChecked (\(ex :: UnexpectedResponse) -> go ex)
     go ex = throwChecked (SomeRemoteError ex)
 
 data UnexpectedResponse = UnexpectedResponse URI (Int, Int, Int)
-  deriving (Typeable)
 
 data InvalidProxy = InvalidProxy String
-  deriving (Typeable)
 
 instance Pretty UnexpectedResponse where
   pretty (UnexpectedResponse uri code) = "Unexpected response " ++ show code
