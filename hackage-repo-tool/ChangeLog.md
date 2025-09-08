@@ -1,3 +1,8 @@
+0.1.1.5
+-------
+* Relax dependency bounds for GHC 9.14.
+* Remove obsolete `deriving Typeable`.
+
 0.1.1.4
 -------
 * Drop support for GHC < 8.4.

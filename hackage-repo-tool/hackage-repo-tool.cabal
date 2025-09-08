@@ -1,7 +1,6 @@
-cabal-version:       1.12
+cabal-version:       1.18
 name:                hackage-repo-tool
-version:             0.1.1.4
-x-revision:          2
+version:             0.1.1.5
 
 build-type:          Simple
 synopsis:            Manage secure file-based package repositories
@@ -37,8 +36,9 @@ tested-with:
   GHC == 8.6.5
   GHC == 8.4.4
 
-extra-source-files:
-  ChangeLog.md README.md
+extra-doc-files:
+  ChangeLog.md
+  README.md
 
 source-repository head
   type: git
