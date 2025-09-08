@@ -264,7 +264,10 @@ testRepoIndex inMemRepo repo = do
              _        -> fail "unexpected index entry content"
          _ -> fail "unexpected index path"
 
-#if MIN_VERSION_tar(0,6,0)
+
+#if MIN_VERSION_tar(0,7,0)
+    testEntries1 :: [Tar.GenEntry BS.ByteString Tar.TarPath linkTarget]
+#elif MIN_VERSION_tar(0,6,0)
     testEntries1 :: [Tar.GenEntry Tar.TarPath linkTarget]
 #else
     testEntries1 :: [Tar.Entry]

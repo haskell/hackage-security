@@ -123,7 +123,7 @@ library
                        pretty            >= 1.0      && < 1.2,
                        -- 0.4.2 introduces TarIndex, 0.4.4 introduces more
                        -- functionality, 0.5.0 changes type of serialise
-                       tar               >= 0.5      && < 0.7,
+                       tar               >= 0.5      && < 0.8,
                        template-haskell  >= 2.13     && < 2.25,
                        time              >= 1.8.0.2  && < 1.16,
                        transformers      >= 0.3      && < 0.7,
