@@ -1,5 +1,13 @@
 See also http://pvp.haskell.org/faq
 
+0.6.3.2
+-------
+
+* Allow `tar-0.7`.
+* Relax upper bounds for GHC 9.14 shipped packages.
+* Remove obsolete `deriving Typeable`.
+* Tested with GHC 8.4 - 9.14 alpha1.
+
 0.6.3.1
 -------
 
