@@ -1,6 +1,8 @@
 cabal-version:       1.18
 name:                hackage-repo-tool
 version:             0.1.1.5
+-- remove x-revision when you bump the version
+x-revision:          1
 
 build-type:          Simple
 synopsis:            Manage secure file-based package repositories

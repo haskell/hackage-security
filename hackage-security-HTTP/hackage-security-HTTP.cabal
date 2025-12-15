@@ -1,6 +1,8 @@
 cabal-version:       1.18
 name:                hackage-security-HTTP
 version:             0.1.1.3
+-- remove x-revision when you bump the version
+x-revision:          1
 
 synopsis:            Hackage security bindings against the HTTP library
 description:         The hackage security library provides a 'HttpLib'
