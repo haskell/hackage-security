@@ -71,6 +71,9 @@ module Hackage.Security.Util.Path (
   , fromURIPath
   , uriPath
   , modifyUriPath
+  -- * Internals
+  , mkPathNative
+  , unPathNative
     -- * Re-exports
   , IOMode(..)
   , BufferMode(..)
@@ -118,10 +121,17 @@ newtype Path a = Path FilePath -- always a Posix style path internally
   deriving (Show, Eq, Ord)
 
 mkPathNative :: FilePath -> Path a
-mkPathNative = Path . FP.Posix.joinPath . FP.Native.splitDirectories
+mkPathNative = Path . canonicalizePathSeparator
 
 unPathNative :: Path a -> FilePath
-unPathNative (Path fp) = FP.Native.joinPath . FP.Posix.splitDirectories $ fp
+unPathNative (Path fp) = fp
+
+canonicalizePathSeparator :: FilePath -> FilePath
+canonicalizePathSeparator = map (replaceSeparator)
+ where
+  replaceSeparator c
+    | FP.Native.isPathSeparator c = '/'
+    | otherwise = c
 
 mkPathPosix :: FilePath -> Path a
 mkPathPosix = Path

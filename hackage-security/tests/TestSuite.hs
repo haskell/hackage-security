@@ -9,7 +9,7 @@ import Data.Time ( UTCTime, getCurrentTime )
 import Network.URI ( URI, parseURI )
 import Test.Tasty ( defaultMain, testGroup, TestTree )
 import Test.Tasty.HUnit ( testCase, (@?=), assertEqual, assertFailure, Assertion )
-import Test.Tasty.QuickCheck ( testProperty )
+import Test.Tasty.QuickCheck ( testProperty, Property, (===), property )
 import System.IO.Temp (withSystemTempDirectory)
 import qualified Codec.Archive.Tar.Entry    as Tar
 import qualified Data.ByteString.Lazy.Char8 as BS
@@ -71,6 +71,9 @@ tests = testGroup "hackage-security" [
         , testProperty "prop_roundtrip_pretty"    JSON.prop_roundtrip_pretty
         , testProperty "prop_canonical_pretty"    JSON.prop_canonical_pretty
         , testProperty "prop_aeson_canonical"     JSON.prop_aeson_canonical
+        ]
+    , testGroup "Path" [
+          testProperty "Hackage.Security.Util.Path.mkPathNative" prop_mkPathNative
         ]
   ]
 
@@ -547,3 +550,11 @@ checkExpiry = Just `fmap` getCurrentTime
 mkPackageName :: String -> PackageName
 mkPackageName = PackageName
 #endif
+
+{-------------------------------------------------------------------------------
+  Path tests
+-------------------------------------------------------------------------------}
+
+prop_mkPathNative :: Property
+prop_mkPathNative = property $ \(fp :: FilePath) -> (mkPathNative . unPathNative . mkPathNative) fp === mkPathNative fp
+
