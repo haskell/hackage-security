@@ -555,6 +555,11 @@ mkPackageName = PackageName
   Path tests
 -------------------------------------------------------------------------------}
 
+-- | Disclaimer: This test uses the vanilla generator for @type 'FilePath' = String@
+-- and may thus been ineffective in establishing the desired round-trip property for
+-- 'mkPathNative' and 'unPathNative' with sufficient probability.
+--
+-- Discussion at <https://github.com/haskell/hackage-security/pull/336#discussion_r2750538855>
+
 prop_mkPathNative :: Property
 prop_mkPathNative = property $ \(fp :: FilePath) -> (mkPathNative . unPathNative . mkPathNative) fp === mkPathNative fp
-
