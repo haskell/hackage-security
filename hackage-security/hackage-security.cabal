@@ -58,11 +58,6 @@ flag Cabal-syntax
   manual: False
   default: False
 
-flag lukko
-  description: Use @lukko@ for file-locking, otherwise use @GHC.IO.Handle.Lock@
-  manual:      False
-  default:     False
-
 library
   -- Most functionality is exported through the top-level entry points .Client
   -- and .Server; the other exported modules are intended for qualified imports.
@@ -132,11 +127,6 @@ library
                        zlib              >= 0.5      && < 0.8,
                        -- whatever versions are bundled with ghc:
                        ghc-prim          >= 0.5.2    && < 0.14
-
-  if flag(lukko)
-    build-depends:     lukko      >= 0.1     && < 0.2
-  else
-    build-depends:     base       >= 4.11
 
   if flag(Cabal-syntax)
     build-depends: Cabal-syntax >= 3.7 && < 3.18

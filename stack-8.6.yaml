@@ -16,9 +16,6 @@ flags:
     cabal-syntax: false
   hackage-security:
     cabal-syntax: false
-    lukko: false
-      # LTS 14 does not have lukko yet
 
 extra-deps:
 - Cabal-syntax-3.6.0.0
-# - lukko-0.1.1.3

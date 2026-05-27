@@ -1,5 +1,10 @@
 See also http://pvp.haskell.org/faq
 
+Unreleased
+-------
+* Remove `lukko` package flag. Now we unconditionally use `GHC.IO.Handle.Lock`
+  instead of the [`lukko` package](https://hackage.haskell.org/package/lukko).
+
 0.6.3.2
 -------
 

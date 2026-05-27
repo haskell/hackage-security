@@ -11,5 +11,3 @@ packages: hackage-security
 
 package hackage-security
   tests: true
-
--- constraints: hackage-security -lukko

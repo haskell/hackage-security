@@ -19,9 +19,6 @@ raw-project
   constraints:
     base-compat >= 0.12.2
 
-constraint-set no-lukko
-  constraints: hackage-security -lukko
-
 -- constraint-set containers-0.7
 --   -- Andreas, 2024-03-19: possibly we will have to turn off the constraint set
 --   -- for the head.hackage build with GHC 9.10.0
