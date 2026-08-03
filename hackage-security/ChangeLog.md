@@ -1,5 +1,12 @@
 See also http://pvp.haskell.org/faq
 
+0.6.4.0
+-------
+
+* Make hackageIndexLayout faster
+* Stop using lukko
+* Fix bug in unPathNative
+
 0.6.3.3
 -------
 

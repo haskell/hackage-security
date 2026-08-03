@@ -1,7 +1,6 @@
 cabal-version:       1.18
 name:                hackage-security
-version:             0.6.3.3
-x-revision:          1
+version:             0.6.4.0
 
 synopsis:            Hackage security library
 description:         The hackage security library provides both server and
